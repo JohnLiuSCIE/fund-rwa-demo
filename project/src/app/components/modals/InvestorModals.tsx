@@ -1,0 +1,564 @@
+import { useMemo, useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { Check } from "lucide-react";
+import { toast } from "sonner";
+
+import { FundIssuance } from "../../data/fundDemoData";
+
+interface AcceptAllocationModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  allocation: any;
+  onSuccess?: () => void;
+}
+
+interface SubscribeModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  fundData: FundIssuance;
+  onSuccess?: (payload: {
+    amount: number;
+    estimatedUnits: number;
+  }) => void;
+}
+
+interface RedeemModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  fundData: FundIssuance;
+  onSuccess?: (payload: {
+    quantity: number;
+    estimatedCash: number;
+  }) => void;
+}
+
+function ProgressSteps({
+  currentStep,
+  steps,
+}: {
+  currentStep: number;
+  steps: string[];
+}) {
+  return (
+    <div className="flex items-center justify-between mb-8">
+      {steps.map((step, index) => (
+        <div key={index} className="flex items-center flex-1">
+          <div className="flex flex-col items-center">
+            <div
+              className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
+                index < currentStep
+                  ? "bg-primary border-primary text-primary-foreground"
+                  : index === currentStep
+                    ? "border-primary text-primary"
+                    : "border-gray-300 text-gray-400"
+              }`}
+            >
+              {index < currentStep ? <Check className="w-5 h-5" /> : <span>{index + 1}</span>}
+            </div>
+            <div className="text-xs mt-2 text-center max-w-20">{step}</div>
+          </div>
+          {index < steps.length - 1 && (
+            <div
+              className={`h-0.5 flex-1 mx-2 transition-colors ${
+                index < currentStep ? "bg-primary" : "bg-gray-300"
+              }`}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatNumber(value: number, maximumFractionDigits = 2) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  }).format(value);
+}
+
+export function AcceptAllocationModal({
+  open,
+  onOpenChange,
+  allocation,
+  onSuccess,
+}: AcceptAllocationModalProps) {
+  const [step, setStep] = useState(0);
+  const steps = ["Start", "Personal Sign", "Transaction Sign", "Completed"];
+
+  const handleStart = () => {
+    setStep(1);
+    setTimeout(() => setStep(2), 1200);
+    setTimeout(() => setStep(3), 2400);
+  };
+
+  const handleComplete = () => {
+    toast.success("Accept allocation has been executed");
+    onSuccess?.();
+    onOpenChange(false);
+    setStep(0);
+  };
+
+  if (!allocation) return null;
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen);
+        if (!nextOpen) setStep(0);
+      }}
+    >
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Accept Allocation</DialogTitle>
+        </DialogHeader>
+
+        <ProgressSteps currentStep={step} steps={steps} />
+
+        {step === 0 && (
+          <div className="space-y-4">
+            <div className="bg-secondary p-4 rounded-lg space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Deal ID:</span>
+                <span className="font-medium font-mono">{allocation.dealId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Quantity:</span>
+                <span className="font-medium">{allocation.quantity}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Allocate Time:</span>
+                <span className="font-medium">{allocation.allocateTime}</span>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              You need to sign transactions to accept the allocated fund shares.
+            </p>
+            <div className="flex justify-end">
+              <Button onClick={handleStart}>Start</Button>
+            </div>
+          </div>
+        )}
+
+        {step === 1 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+            <h3>Personal Sign</h3>
+            <p className="text-sm text-muted-foreground">Please personal sign to proceed</p>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+            <h3>Sign Transaction</h3>
+            <p className="text-sm text-muted-foreground">Please verify the smart contract call</p>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-8 h-8 text-green-600" />
+            </div>
+            <h3>Accept allocation has been executed</h3>
+            <p className="text-sm text-muted-foreground">
+              Fund shares have been transferred to your wallet.
+            </p>
+            <div className="flex justify-center">
+              <Button onClick={handleComplete}>Done</Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function SubscribeModal({
+  open,
+  onOpenChange,
+  fundData,
+  onSuccess,
+}: SubscribeModalProps) {
+  const [step, setStep] = useState(0);
+  const [amount, setAmount] = useState("");
+  const steps = ["Order", "Sign", "Broadcast", "Completed"];
+
+  const amountValue = Number(amount) || 0;
+  const estimatedUnits = useMemo(() => {
+    if (!amountValue || !fundData.currentNavValue) return 0;
+    return amountValue / fundData.currentNavValue;
+  }, [amountValue, fundData.currentNavValue]);
+
+  const reset = () => {
+    setStep(0);
+    setAmount("");
+  };
+
+  const handleSubmit = () => {
+    if (amountValue < fundData.minSubscriptionAmountValue) {
+      toast.error(
+        `Minimum subscription amount is ${fundData.minSubscriptionAmount}`,
+      );
+      return;
+    }
+    if (amountValue > fundData.maxSubscriptionAmountValue) {
+      toast.error(
+        `Maximum subscription amount is ${fundData.maxSubscriptionAmount}`,
+      );
+      return;
+    }
+
+    setStep(1);
+    setTimeout(() => setStep(2), 1200);
+    setTimeout(() => setStep(3), 2400);
+  };
+
+  const handleComplete = () => {
+    toast.success("Subscription order submitted");
+    onSuccess?.({ amount: amountValue, estimatedUnits });
+    onOpenChange(false);
+    reset();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen);
+        if (!nextOpen) reset();
+      }}
+    >
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Subscribe to Open-end Fund</DialogTitle>
+        </DialogHeader>
+
+        <ProgressSteps currentStep={step} steps={steps} />
+
+        {step === 0 && (
+          <div className="space-y-6">
+            <div className="bg-secondary p-4 rounded-lg space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Fund Name:</span>
+                <span className="font-medium">{fundData.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Latest NAV:</span>
+                <span className="font-medium">{fundData.currentNav}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Next dealing cut-off:</span>
+                <span className="font-medium">{fundData.nextCutoffTime || "TBD"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Expected confirmation:</span>
+                <span className="font-medium">{fundData.nextConfirmationDate || "T+1"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Settlement cycle:</span>
+                <span className="font-medium">{fundData.settlementCycle || "T+1"}</span>
+              </div>
+            </div>
+
+            <div className="space-y-4 p-4 border rounded-lg">
+              <div className="space-y-2">
+                <Label>
+                  Subscription amount <span className="text-destructive">*</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={fundData.minSubscriptionAmountValue}
+                    max={fundData.maxSubscriptionAmountValue}
+                    value={amount}
+                    onChange={(event) => setAmount(event.target.value)}
+                    placeholder={`Enter amount in ${fundData.navCurrency}`}
+                  />
+                  <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">
+                    {fundData.navCurrency}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Range: {fundData.minSubscriptionAmount} to {fundData.maxSubscriptionAmount}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Estimated shares</Label>
+                <Input
+                  value={`${formatNumber(estimatedUnits, 4)} units`}
+                  disabled
+                />
+                <p className="text-xs text-muted-foreground">
+                  Final shares will be confirmed using the official dealing NAV at cut-off.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+              This order will be queued for the next dealing batch. Confirmation happens after NAV valuation, and settlement follows on {fundData.settlementCycle || "T+1"}.
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSubmit}>Submit Order</Button>
+            </div>
+          </div>
+        )}
+
+        {step === 1 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+            <h3>Sign Subscription Order</h3>
+            <p className="text-sm text-muted-foreground">
+              Please approve the subscription request in your wallet.
+            </p>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+            <h3>Broadcasting Order</h3>
+            <p className="text-sm text-muted-foreground">
+              Your order is being recorded for the next open-end dealing batch.
+            </p>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-8 h-8 text-green-600" />
+            </div>
+            <h3>Order submitted</h3>
+            <p className="text-sm text-muted-foreground">
+              Your subscription request is pending NAV confirmation and will be processed at the next dealing cut-off.
+            </p>
+            <div className="bg-secondary p-3 rounded-lg text-sm">
+              <div className="flex justify-between mb-1">
+                <span className="text-muted-foreground">Requested amount:</span>
+                <span className="font-medium">
+                  {formatNumber(amountValue, 2)} {fundData.navCurrency}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Estimated shares:</span>
+                <span className="font-medium">{formatNumber(estimatedUnits, 4)} units</span>
+              </div>
+            </div>
+            <div className="flex justify-center">
+              <Button onClick={handleComplete}>Done</Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function RedeemModal({
+  open,
+  onOpenChange,
+  fundData,
+  onSuccess,
+}: RedeemModalProps) {
+  const [step, setStep] = useState(0);
+  const [quantity, setQuantity] = useState("");
+  const steps = ["Order", "Sign", "Broadcast", "Completed"];
+
+  const quantityValue = Number(quantity) || 0;
+  const estimatedCash = useMemo(() => {
+    if (!quantityValue || !fundData.currentNavValue) return 0;
+    return quantityValue * fundData.currentNavValue;
+  }, [quantityValue, fundData.currentNavValue]);
+
+  const reset = () => {
+    setStep(0);
+    setQuantity("");
+  };
+
+  const maxRedeemable = fundData.availableHoldingUnits || 0;
+
+  const handleSubmit = () => {
+    if (quantityValue <= 0) {
+      toast.error("Please enter a redemption quantity");
+      return;
+    }
+    if (quantityValue > maxRedeemable) {
+      toast.error(`Available holdings are ${fundData.availableHoldingLabel || "0 units"}`);
+      return;
+    }
+
+    setStep(1);
+    setTimeout(() => setStep(2), 1200);
+    setTimeout(() => setStep(3), 2400);
+  };
+
+  const handleComplete = () => {
+    toast.success("Redemption order submitted");
+    onSuccess?.({ quantity: quantityValue, estimatedCash });
+    onOpenChange(false);
+    reset();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen);
+        if (!nextOpen) reset();
+      }}
+    >
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Redeem Fund Shares</DialogTitle>
+        </DialogHeader>
+
+        <ProgressSteps currentStep={step} steps={steps} />
+
+        {step === 0 && (
+          <div className="space-y-6">
+            <div className="bg-secondary p-4 rounded-lg space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Fund Name:</span>
+                <span className="font-medium">{fundData.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Available holdings:</span>
+                <span className="font-medium">{fundData.availableHoldingLabel || "0 units"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Latest NAV reference:</span>
+                <span className="font-medium">{fundData.currentNav}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Expected payment date:</span>
+                <span className="font-medium">{fundData.nextSettlementTime || "T+1"}</span>
+              </div>
+            </div>
+
+            <div className="space-y-4 p-4 border rounded-lg">
+              <div className="space-y-2">
+                <Label>
+                  Redeem quantity <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={maxRedeemable}
+                  value={quantity}
+                  onChange={(event) => setQuantity(event.target.value)}
+                  placeholder="Enter units to redeem"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Maximum redeemable today: {fundData.maxRedemptionPerInvestor || fundData.availableHoldingLabel || "N/A"}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Estimated cash amount</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={formatNumber(estimatedCash, 2)}
+                    disabled
+                    className="flex-1"
+                  />
+                  <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">
+                    {fundData.navCurrency}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Final cash amount is subject to confirmed NAV at the dealing cut-off.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 text-sm text-amber-900">
+              Redemption orders are reviewed against lock-up and gate rules before they enter cash settlement.
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSubmit}>Submit Redemption</Button>
+            </div>
+          </div>
+        )}
+
+        {step === 1 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+            <h3>Sign Redemption Order</h3>
+            <p className="text-sm text-muted-foreground">
+              Please approve the redemption request in your wallet.
+            </p>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+            <h3>Broadcasting Redemption</h3>
+            <p className="text-sm text-muted-foreground">
+              Your request has entered the next dealing batch and is waiting for review / NAV confirmation.
+            </p>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-4 text-center py-8">
+            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-8 h-8 text-green-600" />
+            </div>
+            <h3>Redemption order submitted</h3>
+            <p className="text-sm text-muted-foreground">
+              Your request is pending confirmation and expected cash settlement on {fundData.nextSettlementTime || "T+1"}.
+            </p>
+            <div className="bg-secondary p-3 rounded-lg text-sm">
+              <div className="flex justify-between mb-1">
+                <span className="text-muted-foreground">Requested quantity:</span>
+                <span className="font-medium">{formatNumber(quantityValue, 2)} units</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Estimated cash:</span>
+                <span className="font-medium">
+                  {formatNumber(estimatedCash, 2)} {fundData.navCurrency}
+                </span>
+              </div>
+            </div>
+            <div className="flex justify-center">
+              <Button onClick={handleComplete}>Done</Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
