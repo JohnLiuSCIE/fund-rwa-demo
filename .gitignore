@@ -1,4 +1,5 @@
 .DS_Store
+~$*.pptx
 project/node_modules/
 project/dist/
 01_Source_Materials/01_PPT_PDF/WeBank Web3_Bond-0319-v2.pptx
