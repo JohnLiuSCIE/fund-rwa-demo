@@ -24,6 +24,8 @@ export function FundDistributionDetail() {
 
   const distribution = fundDistributions.find(d => d.id === id);
   const linkedFund = fundIssuances.find((fund) => fund.id === distribution?.fundId);
+  const payoutMode = distribution?.payoutMode || "Claim";
+  const isClaimMode = payoutMode === "Claim";
 
   if (!distribution) {
     return (
@@ -110,7 +112,7 @@ export function FundDistributionDetail() {
       case "Put On Chain":
         return (
           <Button onClick={() => setShowOpenDistributionModal(true)}>
-            Open For Distribution
+            {isClaimMode ? "Open For Claim" : "Start Direct Transfer"}
           </Button>
         );
       case "Open For Distribution":
@@ -198,6 +200,26 @@ export function FundDistributionDetail() {
                 <div className="font-medium">
                   {distribution.initialNav || linkedFund?.currentNav || linkedFund?.initialNav || "–"}
                 </div>
+              </div>
+
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">Payout Mode</div>
+                <div className="font-medium">{payoutMode}</div>
+                <div className="text-xs text-muted-foreground">
+                  {isClaimMode
+                    ? "Investor claims and pays claim gas."
+                    : "System direct transfer; issuer treasury pays transfer gas."}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">Payout Token</div>
+                <div className="font-medium">{distribution.payoutToken || distribution.distributionUnit || "–"}</div>
+              </div>
+
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">Payout Account</div>
+                <div className="font-medium">{distribution.payoutAccount || "–"}</div>
               </div>
 
               <div>
@@ -295,7 +317,9 @@ export function FundDistributionDetail() {
                     </div>
                     <div className="text-xs text-blue-600">
                       Income distribution to fund holders based on their shareholding
-                      at the record date. Investors must accept the distribution to receive funds.
+                      at the record date. {isClaimMode
+                        ? "Investors can claim distribution once opened."
+                        : "System will transfer distribution automatically from the configured payout account."}
                     </div>
                   </div>
                 </CardContent>
@@ -380,9 +404,15 @@ export function FundDistributionDetail() {
       <OpenForDistributionModal
         open={showOpenDistributionModal}
         onOpenChange={setShowOpenDistributionModal}
+        payoutMode={distribution.payoutMode}
         onSuccess={() => {
           setCurrentStatus("Open For Distribution");
           updateDistributionStatus(id || "", "Open For Distribution");
+          toast.success(
+            isClaimMode
+              ? "Distribution is now claimable by investors"
+              : "Direct transfer has started. System is distributing payouts",
+          );
         }}
       />
     </div>

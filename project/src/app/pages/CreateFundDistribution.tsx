@@ -31,6 +31,9 @@ export function CreateFundDistribution() {
   );
   const [actualDaysInPeriod, setActualDaysInPeriod] = useState("");
   const [actualDaysInYear, setActualDaysInYear] = useState("360");
+  const [payoutMode, setPayoutMode] = useState<"Direct Transfer" | "Claim">("Claim");
+  const [payoutToken, setPayoutToken] = useState(eligibleFunds[0]?.assetCurrency || "HKD");
+  const [payoutAccount, setPayoutAccount] = useState("Issuer Treasury Wallet");
 
   const selectedFund =
     eligibleFunds.find((fund) => fund.id === selectedFundId) || eligibleFunds[0];
@@ -45,6 +48,7 @@ export function CreateFundDistribution() {
     const fund = eligibleFunds.find((item) => item.id === value);
     if (fund) {
       setDistributionUnit(fund.assetCurrency);
+      setPayoutToken(fund.assetCurrency);
     }
   };
 
@@ -78,6 +82,9 @@ export function CreateFundDistribution() {
       actualDaysInYear,
       recordDate,
       paymentDate,
+      payoutMode,
+      payoutToken,
+      payoutAccount,
       createdTime,
     };
 
@@ -259,6 +266,50 @@ export function CreateFundDistribution() {
                   <option>HKD</option>
                   <option>USDC</option>
                 </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium">* Payout mode</label>
+                  <select
+                    className="w-full rounded-md border px-3 py-2"
+                    value={payoutMode}
+                    onChange={(e) =>
+                      setPayoutMode(e.target.value as "Direct Transfer" | "Claim")
+                    }
+                  >
+                    <option value="Claim">Claim</option>
+                    <option value="Direct Transfer">Direct Transfer</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium">* Payout token</label>
+                  <select
+                    className="w-full rounded-md border px-3 py-2"
+                    value={payoutToken}
+                    onChange={(e) => setPayoutToken(e.target.value)}
+                  >
+                    <option>{distributionUnit}</option>
+                    <option>USDC</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">* Payout account</label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border px-3 py-2"
+                  placeholder="Issuer treasury wallet / on-chain source account"
+                  value={payoutAccount}
+                  onChange={(e) => setPayoutAccount(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {payoutMode === "Claim"
+                    ? "Claim mode: investor claims individually and pays claim gas."
+                    : "Direct Transfer mode: system batches payouts; issuer treasury pays transfer gas."}
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

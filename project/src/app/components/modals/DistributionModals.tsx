@@ -6,6 +6,10 @@ interface ModalProps {
   onSuccess?: () => void;
 }
 
+interface OpenForDistributionModalProps extends ModalProps {
+  payoutMode?: "Direct Transfer" | "Claim";
+}
+
 export function SubmitDistributionApprovalModal({
   open,
   onOpenChange,
@@ -202,29 +206,40 @@ export function OpenForDistributionModal({
   open,
   onOpenChange,
   onSuccess,
-}: ModalProps) {
+  payoutMode = "Claim",
+}: OpenForDistributionModalProps) {
+  const isClaimMode = payoutMode === "Claim";
+
   return (
     <OperationActionModal
       open={open}
       onOpenChange={onOpenChange}
       onSuccess={onSuccess}
       title="Open For Distribution"
-      description="Verify issuer identity and complete the wallet actions required to open the distribution window."
+      description={
+        isClaimMode
+          ? "Verify issuer identity and complete the wallet actions required to open the claim window."
+          : "Verify issuer identity and complete the wallet actions required to start system direct transfers."
+      }
       startLabel="Start"
       completionLabel="Close"
       steps={[
         {
           label: "Review",
-          title: "Review Window Opening",
+          title: isClaimMode ? "Review Claim Opening" : "Review Direct Transfer Launch",
           description:
-            "Check the distribution funding and opening conditions before enabling investor claims.",
+            isClaimMode
+              ? "Check the distribution funding and opening conditions before enabling investor claims."
+              : "Check the distribution funding and transfer source account before starting batch payout.",
           state: "review",
         },
         {
           label: "Identity",
           title: "Verify Identity",
           description:
-            "Issuer identity and claim-window authority are being verified.",
+            isClaimMode
+              ? "Issuer identity and claim-window authority are being verified."
+              : "Issuer identity and direct-transfer authority are being verified.",
           state: "loading",
         },
         {
@@ -234,15 +249,19 @@ export function OpenForDistributionModal({
           state: "loading",
         },
         {
-          label: "Open",
-          title: "Sign Open",
-          description: "Open the distribution claim window for investors.",
+          label: isClaimMode ? "Open" : "Dispatch",
+          title: isClaimMode ? "Sign Open" : "Sign Batch Dispatch",
+          description: isClaimMode
+            ? "Open the distribution claim window for investors."
+            : "Sign and trigger batch direct-transfer payouts.",
           state: "loading",
         },
         {
           label: "Completed",
-          title: "Distribution opened",
-          description: "Investors can now accept their distributions.",
+          title: isClaimMode ? "Distribution opened" : "Distribution dispatch started",
+          description: isClaimMode
+            ? "Investors can now claim their distributions."
+            : "System direct transfer is in progress for eligible holders.",
           state: "success",
         },
       ]}

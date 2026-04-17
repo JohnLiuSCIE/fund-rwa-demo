@@ -177,6 +177,9 @@ export interface FundDistribution {
   actualDaysInYear?: string;
   recordDate?: string;
   paymentDate?: string;
+  payoutMode?: "Direct Transfer" | "Claim";
+  payoutToken?: string;
+  payoutAccount?: string;
   createdTime?: string;
 }
 
@@ -652,6 +655,9 @@ export const initialDistributions: FundDistribution[] = [
     actualDaysInYear: "360",
     recordDate: "2026-04-20 18:00:00",
     paymentDate: "2026-04-25 10:00:00",
+    payoutMode: "Claim",
+    payoutToken: "HKD",
+    payoutAccount: "Treasury Wallet 0x8d1F...1c9A",
     createdTime: "2026-04-14 09:30:00",
   },
 ];
