@@ -74,6 +74,19 @@ export function CreateFundRedemption() {
     return Math.ceil(gapInMs / (1000 * 60 * 60 * 24));
   }, [parsedAnnouncementDate, parsedWindowStart]);
 
+  const clearErrorForField = (field: FormFieldKey) => {
+    setFormErrors((prev) => {
+      if (!prev[field]) {
+        return prev;
+      }
+
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+    setErrorSummary([]);
+  };
+
   const ruleChecks = useMemo(() => {
     const windowFieldsReady =
       redemptionMode === "Daily dealing" || (!!windowStart && !!windowEnd);
@@ -169,7 +182,7 @@ export function CreateFundRedemption() {
     }
 
     setFormErrors(errors);
-    setErrorSummary(summaryMessages);
+    setErrorSummary(Array.from(new Set(summaryMessages)));
 
     return { isValid: Object.keys(errors).length === 0, errors };
   };
@@ -263,7 +276,13 @@ export function CreateFundRedemption() {
 
               <div className="space-y-2">
                 <Label>Select Fund</Label>
-                <Select value={selectedFundId} onValueChange={setSelectedFundId}>
+                <Select
+                  value={selectedFundId}
+                  onValueChange={(value) => {
+                    setSelectedFundId(value);
+                    clearErrorForField("selectedFundId");
+                  }}
+                >
                   <SelectTrigger aria-invalid={!!formErrors.selectedFundId}>
                     <SelectValue placeholder="Select an open-end fund" />
                   </SelectTrigger>
@@ -315,7 +334,23 @@ export function CreateFundRedemption() {
 
               <div className="space-y-2">
                 <Label>Redemption mode</Label>
-                <Select value={redemptionMode} onValueChange={(value) => setRedemptionMode(value as "Daily dealing" | "Window-based")}>
+                <Select
+                  value={redemptionMode}
+                  onValueChange={(value) => {
+                    setRedemptionMode(value as "Daily dealing" | "Window-based");
+                    setErrorSummary([]);
+                    if (value === "Daily dealing") {
+                      setFormErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.windowStart;
+                        delete next.windowEnd;
+                        delete next.effectiveDate;
+                        delete next.announcementDate;
+                        return next;
+                      });
+                    }
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -358,7 +393,10 @@ export function CreateFundRedemption() {
                     aria-invalid={!!formErrors.effectiveDate}
                     type="datetime-local"
                     value={effectiveDate}
-                    onChange={(event) => setEffectiveDate(event.target.value)}
+                    onChange={(event) => {
+                      setEffectiveDate(event.target.value);
+                      clearErrorForField("effectiveDate");
+                    }}
                   />
                   {formErrors.effectiveDate && <p className="text-sm text-destructive">{formErrors.effectiveDate}</p>}
                 </div>
@@ -368,7 +406,10 @@ export function CreateFundRedemption() {
                     aria-invalid={!!formErrors.announcementDate}
                     type="datetime-local"
                     value={announcementDate}
-                    onChange={(event) => setAnnouncementDate(event.target.value)}
+                    onChange={(event) => {
+                      setAnnouncementDate(event.target.value);
+                      clearErrorForField("announcementDate");
+                    }}
                   />
                   {formErrors.announcementDate && <p className="text-sm text-destructive">{formErrors.announcementDate}</p>}
                 </div>
@@ -382,7 +423,10 @@ export function CreateFundRedemption() {
                       aria-invalid={!!formErrors.windowStart}
                       type="datetime-local"
                       value={windowStart}
-                      onChange={(event) => setWindowStart(event.target.value)}
+                      onChange={(event) => {
+                        setWindowStart(event.target.value);
+                        clearErrorForField("windowStart");
+                      }}
                     />
                     {formErrors.windowStart && <p className="text-sm text-destructive">{formErrors.windowStart}</p>}
                   </div>
@@ -392,7 +436,10 @@ export function CreateFundRedemption() {
                       aria-invalid={!!formErrors.windowEnd}
                       type="datetime-local"
                       value={windowEnd}
-                      onChange={(event) => setWindowEnd(event.target.value)}
+                      onChange={(event) => {
+                        setWindowEnd(event.target.value);
+                        clearErrorForField("windowEnd");
+                      }}
                     />
                     {formErrors.windowEnd && <p className="text-sm text-destructive">{formErrors.windowEnd}</p>}
                   </div>
@@ -406,7 +453,10 @@ export function CreateFundRedemption() {
                     aria-invalid={!!formErrors.noticePeriodDays}
                     type="number"
                     value={noticePeriodDays}
-                    onChange={(event) => setNoticePeriodDays(event.target.value)}
+                    onChange={(event) => {
+                      setNoticePeriodDays(event.target.value);
+                      clearErrorForField("noticePeriodDays");
+                    }}
                   />
                   {formErrors.noticePeriodDays && <p className="text-sm text-destructive">{formErrors.noticePeriodDays}</p>}
                 </div>
@@ -416,7 +466,10 @@ export function CreateFundRedemption() {
                     aria-invalid={!!formErrors.maxRedemptionQuantityPerInvestor}
                     type="number"
                     value={maxRedemptionQuantityPerInvestor}
-                    onChange={(event) => setMaxRedemptionQuantityPerInvestor(event.target.value)}
+                    onChange={(event) => {
+                      setMaxRedemptionQuantityPerInvestor(event.target.value);
+                      clearErrorForField("maxRedemptionQuantityPerInvestor");
+                    }}
                   />
                   {formErrors.maxRedemptionQuantityPerInvestor && (
                     <p className="text-sm text-destructive">{formErrors.maxRedemptionQuantityPerInvestor}</p>
