@@ -564,6 +564,8 @@ function renderOrderTable(
   orders: FundOrder[],
   isMarketplaceView: boolean,
   onAdvance: (order: FundOrder) => void,
+  canAdvanceOrder: boolean,
+  deniedReason?: string,
 ) {
   return (
     <Table>
@@ -609,6 +611,8 @@ function renderOrderTable(
                     <Button
                       size="sm"
                       variant="outline"
+                      disabled={!canAdvanceOrder}
+                      title={canAdvanceOrder ? undefined : deniedReason}
                       onClick={() => onAdvance(order)}
                     >
                       {nextAction.label}
@@ -654,6 +658,8 @@ export function FundIssuanceDetail() {
     addFundOrder,
     updateFundOrderStatus,
     updateFundStatus,
+    getPermissionResult,
+    userRole,
   } = useApp();
 
   const fundData = fundIssuances.find((fund) => fund.id === id);
@@ -703,14 +709,25 @@ export function FundIssuanceDetail() {
   };
 
   const transitionFundStatus = (nextStatus: string, description: string) => {
-    updateFundStatus(fundData.id, nextStatus);
+    if (!pendingIssuerAction) return;
+    const updated = updateFundStatus(
+      fundData.id,
+      nextStatus,
+      pendingIssuerAction.label.toLowerCase(),
+    );
+    if (!updated) return;
     toast.success(description);
   };
 
   const handleOrderAdvance = (order: FundOrder) => {
     const nextAction = getNextOrderAction(order);
     if (!nextAction) return;
-    updateFundOrderStatus(order.id, nextAction.nextStatus);
+    const updated = updateFundOrderStatus(
+      order.id,
+      nextAction.nextStatus,
+      nextAction.label.toLowerCase(),
+    );
+    if (!updated) return;
     toast.success(`${order.id} moved to ${nextAction.nextStatus}`);
   };
 
@@ -721,7 +738,7 @@ export function FundIssuanceDetail() {
     amount: number;
     estimatedUnits: number;
   }) => {
-    addFundOrder({
+    const added = addFundOrder({
       id: `sub-${Date.now()}`,
       fundId: fundData.id,
       investorId: currentInvestor.id,
@@ -743,6 +760,7 @@ export function FundIssuanceDetail() {
           ? "Created from marketplace subscription modal"
           : "Created from marketplace closed-end subscription modal",
     });
+    if (!added) return;
   };
 
   const handleRedeemSuccess = ({
@@ -752,7 +770,7 @@ export function FundIssuanceDetail() {
     quantity: number;
     estimatedCash: number;
   }) => {
-    addFundOrder({
+    const added = addFundOrder({
       id: `red-${Date.now()}`,
       fundId: fundData.id,
       investorId: currentInvestor.id,
@@ -770,6 +788,7 @@ export function FundIssuanceDetail() {
           : "Pending Cash Settlement",
       note: "Created from marketplace redemption modal",
     });
+    if (!added) return;
   };
 
   const issuerAction = getFundAction(fundData);
@@ -782,6 +801,12 @@ export function FundIssuanceDetail() {
     fundData.status === "Active Dealing" &&
     fundData.redemptionStatus === "Open";
   const canClosedEndSubscribe = !isOpenEnd && fundData.status === "Open For Subscription";
+  const subscribePermission = getPermissionResult("subscribe", "order");
+  const redeemPermission = getPermissionResult("redeem", "order");
+  const issuerActionPermission = issuerAction
+    ? getPermissionResult(issuerAction.label.toLowerCase(), "issuance")
+    : { allowed: true as const };
+  const manageOrderPermission = getPermissionResult("review", "order");
 
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
@@ -832,15 +857,32 @@ export function FundIssuanceDetail() {
             {isMarketplaceView ? (
               <>
                 {canOpenEndSubscribe && (
-                  <Button onClick={() => setShowSubscribeModal(true)}>Subscribe</Button>
+                  <Button
+                    disabled={!subscribePermission.allowed}
+                    title={subscribePermission.reason}
+                    onClick={() => setShowSubscribeModal(true)}
+                  >
+                    Subscribe
+                  </Button>
                 )}
                 {canOpenEndRedeem && (
-                  <Button variant="outline" onClick={() => setShowRedeemModal(true)}>
+                  <Button
+                    variant="outline"
+                    disabled={!redeemPermission.allowed}
+                    title={redeemPermission.reason}
+                    onClick={() => setShowRedeemModal(true)}
+                  >
                     Redeem
                   </Button>
                 )}
                 {canClosedEndSubscribe && (
-                  <Button onClick={() => setShowSubscribeModal(true)}>Subscribe</Button>
+                  <Button
+                    disabled={!subscribePermission.allowed}
+                    title={subscribePermission.reason}
+                    onClick={() => setShowSubscribeModal(true)}
+                  >
+                    Subscribe
+                  </Button>
                 )}
               </>
             ) : (
@@ -854,6 +896,8 @@ export function FundIssuanceDetail() {
                 {issuerAction && (
                   <Button
                     variant={issuerAction.variant}
+                    disabled={!issuerActionPermission.allowed}
+                    title={issuerActionPermission.reason}
                     onClick={() => {
                       setPendingIssuerAction(issuerAction);
                       setIssuerActionModalOpen(true);
@@ -1171,6 +1215,8 @@ export function FundIssuanceDetail() {
                       subscriptionOrders,
                       isMarketplaceView,
                       handleOrderAdvance,
+                      manageOrderPermission.allowed,
+                      manageOrderPermission.reason,
                     )}
                   </TabsContent>
                   <TabsContent value="redemption">
@@ -1178,6 +1224,8 @@ export function FundIssuanceDetail() {
                       redemptionOrders,
                       isMarketplaceView,
                       handleOrderAdvance,
+                      manageOrderPermission.allowed,
+                      manageOrderPermission.reason,
                     )}
                   </TabsContent>
                 </Tabs>
@@ -1346,7 +1394,13 @@ export function FundIssuanceDetail() {
               </TabsContent>
 
               <TabsContent value="orders">
-                {renderOrderTable(subscriptionOrders, isMarketplaceView, handleOrderAdvance)}
+                {renderOrderTable(
+                  subscriptionOrders,
+                  isMarketplaceView,
+                  handleOrderAdvance,
+                  manageOrderPermission.allowed,
+                  manageOrderPermission.reason,
+                )}
               </TabsContent>
             </Tabs>
           )}
@@ -1395,6 +1449,7 @@ export function FundIssuanceDetail() {
             { label: "Fund", value: fundData.name },
             { label: "Fund Type", value: fundData.fundType },
             { label: "Current Status", value: fundData.status },
+            { label: "Actor Role", value: userRole },
             {
               label: isOpenEnd ? "Current NAV" : "Issue Price",
               value: isOpenEnd ? fundData.currentNav : fundData.initialNav,
