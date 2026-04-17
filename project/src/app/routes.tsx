@@ -7,6 +7,8 @@ import { ManageFundRedemption } from "./pages/ManageFundRedemption";
 import { CreateFundRedemption } from "./pages/CreateFundRedemption";
 import { CreateFundDistribution } from "./pages/CreateFundDistribution";
 import { ManageFundDistribution } from "./pages/ManageFundDistribution";
+import { MarketplaceFundRedemption } from "./pages/MarketplaceFundRedemption";
+import { MarketplaceFundDistribution } from "./pages/MarketplaceFundDistribution";
 import { FundIssuanceDetail } from "./pages/FundIssuanceDetail";
 import { FundRedemptionDetail } from "./pages/FundRedemptionDetail";
 import { FundDistributionDetail } from "./pages/FundDistributionDetail";
@@ -42,8 +44,9 @@ export function AppRoutes() {
         <Route element={<ProtectedRoute allow={["investor"]} />}>
           <Route path="marketplace/fund-issuance" element={<MarketplaceFundIssuance />} />
           <Route path="marketplace/fund-issuance/:id" element={<FundIssuanceDetail />} />
-          <Route path="marketplace/fund-redemption" element={<ManageFundRedemption />} />
-          <Route path="marketplace/fund-distribution" element={<ManageFundDistribution />} />
+          <Route path="marketplace/fund-redemption" element={<MarketplaceFundRedemption />} />
+          <Route path="marketplace/fund-distribution" element={<MarketplaceFundDistribution />} />
+          <Route path="marketplace/fund-distribution/:id" element={<FundDistributionDetail />} />
         </Route>
         <Route path="user" element={<UserCenter />} />
         <Route path="*" element={<NotFound />} />

@@ -169,8 +169,11 @@ export function FundDistributionDetail() {
           Home
         </Link>
         <ChevronRight className="w-4 h-4" />
-        <Link to="/manage/fund-distribution" className="hover:text-foreground transition-colors">
-          Manage Fund Distribution
+        <Link
+          to={userRole === "issuer" ? "/manage/fund-distribution" : "/marketplace/fund-distribution"}
+          className="hover:text-foreground transition-colors"
+        >
+          {userRole === "issuer" ? "Manage Fund Distribution" : "Marketplace Fund Distribution"}
         </Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-foreground">{distribution.name}</span>
