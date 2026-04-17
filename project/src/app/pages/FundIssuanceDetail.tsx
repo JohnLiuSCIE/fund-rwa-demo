@@ -875,7 +875,10 @@ export function FundIssuanceDetail() {
       </div>
 
       <div className="mb-8">
-        <FundIssuanceWorkflow currentStatus={fundData.status} />
+        <FundIssuanceWorkflow
+          currentStatus={fundData.status}
+          fundType={fundData.fundType}
+        />
       </div>
 
       <div className="grid gap-8 lg:grid-cols-3">
