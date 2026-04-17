@@ -5,137 +5,194 @@ export interface WorkflowStep {
   id: string;
   label: string;
   description: string;
-  statuses: string[];
 }
 
-export const FUND_ISSUANCE_STEPS: WorkflowStep[] = [
+type IssuanceFundType = "Open-end" | "Closed-end";
+
+const CLOSED_END_ISSUANCE_STEPS: WorkflowStep[] = [
   {
     id: "step-1",
-    label: "Draft",
-    description: "Create draft",
-    statuses: ["Draft"],
+    label: "Listing",
+    description: "Prepare listing",
   },
   {
     id: "step-2",
-    label: "Approval",
-    description: "Submit for approval",
-    statuses: ["Pending Approval", "Pending Listing"],
+    label: "Subscription",
+    description: "Open for subscription",
   },
   {
     id: "step-3",
-    label: "Listing",
-    description: "Prepare listing",
-    statuses: ["Upcoming", "Upcoming Launch"],
+    label: "Allocation",
+    description: "Allocation period",
   },
   {
     id: "step-4",
-    label: "Subscription",
-    description: "Open for subscription",
-    statuses: ["Open For Subscription", "Initial Subscription"],
+    label: "On-chain Issuance",
+    description: "Issue allocations on-chain",
   },
   {
     id: "step-5",
-    label: "Allocation",
-    description: "Allocation period",
-    statuses: ["Allocation Period", "Calculated"],
-  },
-  {
-    id: "step-6",
-    label: "On-chain",
-    description: "On-chain allocation",
-    statuses: ["Allocate On Chain", "Allocation Completed"],
-  },
-  {
-    id: "step-7",
     label: "Completed",
     description: "Issuance complete",
-    statuses: ["Issuance Completed"],
-  },
-  {
-    id: "step-8",
-    label: "Active",
-    description: "Fund active",
-    statuses: ["Issuance Active", "Active Dealing", "Paused"],
   },
 ];
+
+const OPEN_END_ISSUANCE_STEPS: WorkflowStep[] = [
+  {
+    id: "step-1",
+    label: "Launch",
+    description: "Prepare launch",
+  },
+  {
+    id: "step-2",
+    label: "Initial Subscription",
+    description: "Open initial subscription",
+  },
+  {
+    id: "step-3",
+    label: "Active Dealing",
+    description: "Ongoing dealing operations",
+  },
+  {
+    id: "step-4",
+    label: "NAV Confirmation",
+    description: "Confirm dealing NAV",
+  },
+  {
+    id: "step-5",
+    label: "Settlement",
+    description: "Settlement cycle (continuous)",
+  },
+];
+
+const ISSUANCE_STEPS_BY_FUND_TYPE: Record<IssuanceFundType, WorkflowStep[]> = {
+  "Closed-end": CLOSED_END_ISSUANCE_STEPS,
+  "Open-end": OPEN_END_ISSUANCE_STEPS,
+};
+
+const STATUS_TO_ISSUANCE_STEP_BY_FUND_TYPE: Record<
+  IssuanceFundType,
+  Record<string, number>
+> = {
+  "Closed-end": {
+    Draft: 0,
+    "Pending Approval": 0,
+    "Pending Listing": 0,
+    Upcoming: 0,
+    "Open For Subscription": 1,
+    "Allocation Period": 2,
+    Calculated: 2,
+    "Allocate On Chain": 3,
+    "Allocation Completed": 3,
+    "Issuance Completed": 4,
+    "Issuance Active": 4,
+  },
+  "Open-end": {
+    Draft: 0,
+    "Pending Approval": 0,
+    "Pending Listing": 0,
+    "Upcoming Launch": 0,
+    "Initial Subscription": 1,
+    "Active Dealing": 2,
+    Paused: 2,
+    "Pending NAV": 3,
+    "Pending Confirmation": 3,
+    Confirmed: 3,
+    "Pending Cash Settlement": 4,
+    Completed: 4,
+  },
+};
 
 export const FUND_REDEMPTION_STEPS: WorkflowStep[] = [
   {
     id: "step-1",
     label: "Draft",
     description: "Create draft",
-    statuses: ["Draft"],
   },
   {
     id: "step-2",
     label: "Approval",
     description: "Submit for approval",
-    statuses: ["Pending Approval", "Pending Listing"],
   },
   {
     id: "step-3",
     label: "Listing",
     description: "Prepare listing",
-    statuses: ["Upcoming", "Announced"],
   },
   {
     id: "step-4",
     label: "Open",
     description: "Open for redemption",
-    statuses: ["Open For Redemption", "Active", "Window Open", "Paused"],
   },
   {
     id: "step-5",
     label: "Completed",
     description: "Redemption done",
-    statuses: ["Done", "Window Closed"],
   },
 ];
+
+const STATUS_TO_REDEMPTION_STEP: Record<string, number> = {
+  Draft: 0,
+  "Pending Approval": 1,
+  "Pending Listing": 1,
+  Upcoming: 2,
+  Announced: 2,
+  "Open For Redemption": 3,
+  Active: 3,
+  "Window Open": 3,
+  Paused: 3,
+  Done: 4,
+  "Window Closed": 4,
+};
 
 export const FUND_DISTRIBUTION_STEPS: WorkflowStep[] = [
   {
     id: "step-1",
     label: "Draft",
     description: "Create draft",
-    statuses: ["Draft"],
   },
   {
     id: "step-2",
     label: "Approval",
     description: "Submit for approval",
-    statuses: ["Pending Approval", "Pending Listing"],
   },
   {
     id: "step-3",
     label: "Listing",
     description: "Prepare listing",
-    statuses: ["Upcoming"],
   },
   {
     id: "step-4",
     label: "Snapshot",
     description: "Record ownership",
-    statuses: ["Pending Allocation"],
   },
   {
     id: "step-5",
     label: "On-chain",
     description: "Put on chain",
-    statuses: ["Put On Chain"],
   },
   {
     id: "step-6",
     label: "Open",
     description: "Open for distribution",
-    statuses: ["Open For Distribution"],
   },
   {
     id: "step-7",
     label: "Completed",
     description: "Distribution done",
-    statuses: ["Done"],
   },
 ];
+
+const STATUS_TO_DISTRIBUTION_STEP: Record<string, number> = {
+  Draft: 0,
+  "Pending Approval": 1,
+  "Pending Listing": 1,
+  Upcoming: 2,
+  "Pending Allocation": 3,
+  "Put On Chain": 4,
+  "Open For Distribution": 5,
+  Done: 6,
+};
 
 type WorkflowType = "issuance" | "redemption" | "distribution";
 
@@ -143,26 +200,30 @@ interface FundWorkflowProps {
   currentStatus?: string;
   variant?: "full" | "compact";
   type?: WorkflowType;
+  fundType?: IssuanceFundType;
 }
 
-function getWorkflowConfig(type: WorkflowType) {
+function getWorkflowConfig(type: WorkflowType, fundType: IssuanceFundType) {
   switch (type) {
     case "redemption":
       return {
         steps: FUND_REDEMPTION_STEPS,
+        statusToStepMap: STATUS_TO_REDEMPTION_STEP,
         title: "Fund Redemption Workflow",
         description: "Track the redemption process from creation to completion",
       };
     case "distribution":
       return {
         steps: FUND_DISTRIBUTION_STEPS,
+        statusToStepMap: STATUS_TO_DISTRIBUTION_STEP,
         title: "Fund Distribution Workflow",
         description: "Track the distribution process from creation to completion",
       };
     case "issuance":
     default:
       return {
-        steps: FUND_ISSUANCE_STEPS,
+        steps: ISSUANCE_STEPS_BY_FUND_TYPE[fundType],
+        statusToStepMap: STATUS_TO_ISSUANCE_STEP_BY_FUND_TYPE[fundType],
         title: "Fund Issuance Workflow",
         description: "Track your fund from creation to activation through the complete lifecycle",
       };
@@ -172,17 +233,20 @@ function getWorkflowConfig(type: WorkflowType) {
 interface FundIssuanceWorkflowProps {
   currentStatus?: string;
   variant?: "full" | "compact";
+  fundType?: IssuanceFundType;
 }
 
 export function FundIssuanceWorkflow({
   currentStatus,
   variant = "full",
+  fundType = "Closed-end",
 }: FundIssuanceWorkflowProps) {
   return (
     <FundWorkflow
       currentStatus={currentStatus}
       variant={variant}
       type="issuance"
+      fundType={fundType}
     />
   );
 }
@@ -217,13 +281,14 @@ function FundWorkflow({
   currentStatus,
   variant = "full",
   type = "issuance",
+  fundType = "Closed-end",
 }: FundWorkflowProps) {
-  const config = getWorkflowConfig(type);
+  const config = getWorkflowConfig(type, fundType);
   const steps = config.steps;
 
   // Find the current step index based on status
   const currentStepIndex = currentStatus
-    ? steps.findIndex((step) => step.statuses.includes(currentStatus))
+    ? (config.statusToStepMap[currentStatus] ?? -1)
     : -1;
 
   if (variant === "compact") {
