@@ -99,7 +99,6 @@ export function CreateFundIssuance() {
   >([]);
 
   const openEndMode = fundType === "open-end";
-  const dealingTabLabel = openEndMode ? "Dealing & Rules" : "Subscription & Rules";
 
   const addReference = () => {
     setReferences((prev) => [...prev, { type: "file", value: "" }]);
@@ -123,7 +122,13 @@ export function CreateFundIssuance() {
   };
 
   const handleNext = () => {
-    const tabs = ["about-deal", "about-token", "dealing-rules", "fund-documents"];
+    const tabs = [
+      "about-deal",
+      "about-token",
+      "subscription-rules",
+      "fund-documents",
+      "fee-charge",
+    ];
     const currentIndex = tabs.indexOf(currentTab);
     if (currentIndex < tabs.length - 1) {
       setCurrentTab(tabs[currentIndex + 1]);
@@ -283,7 +288,7 @@ export function CreateFundIssuance() {
 
       <div className="mb-8">
         <ProcessFlowCard
-          title={openEndMode ? "Open-end Fund Lifecycle" : "Fund Issuance Lifecycle"}
+          title="发行主流程"
           steps={
             openEndMode
               ? [
@@ -302,21 +307,29 @@ export function CreateFundIssuance() {
                 ]
           }
         />
+        {openEndMode && (
+          <p className="text-sm text-muted-foreground mt-3">
+            Open-end 提示：发行后进入持续申赎与日常估值流程，相关参数请在 “Subscription & Rules” 中配置。
+          </p>
+        )}
       </div>
 
       <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-8">
-        <TabsList className="grid w-full grid-cols-4 h-auto p-1 bg-secondary">
+        <TabsList className="grid w-full grid-cols-5 h-auto p-1 bg-secondary">
           <TabsTrigger value="about-deal" className="text-sm py-3">
             About Deal
           </TabsTrigger>
           <TabsTrigger value="about-token" className="text-sm py-3">
             About Token
           </TabsTrigger>
-          <TabsTrigger value="dealing-rules" className="text-sm py-3">
-            {dealingTabLabel}
+          <TabsTrigger value="subscription-rules" className="text-sm py-3">
+            Subscription & Rules
           </TabsTrigger>
           <TabsTrigger value="fund-documents" className="text-sm py-3">
             Fund Documents
+          </TabsTrigger>
+          <TabsTrigger value="fee-charge" className="text-sm py-3">
+            Fee Charge
           </TabsTrigger>
         </TabsList>
 
@@ -567,7 +580,7 @@ export function CreateFundIssuance() {
           </div>
         </TabsContent>
 
-        <TabsContent value="dealing-rules" className="space-y-6">
+        <TabsContent value="subscription-rules" className="space-y-6">
           <div className="bg-white border rounded-lg p-6 space-y-6">
             <div className="grid md:grid-cols-3 gap-6">
               <div className="space-y-2">
@@ -831,7 +844,33 @@ export function CreateFundIssuance() {
           </div>
 
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setCurrentTab("dealing-rules")}>
+            <Button variant="outline" onClick={() => setCurrentTab("subscription-rules")}>
+              Previous
+            </Button>
+            <Button onClick={handleNext}>Next</Button>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="fee-charge" className="space-y-6">
+          <div className="bg-white border rounded-lg p-6 space-y-4">
+            <div className="rounded-lg border border-[var(--navy-100)] bg-[var(--navy-50)] p-4 space-y-2">
+              <h3 className="font-medium" style={{ fontFamily: "var(--font-heading)" }}>
+                Fee Charge (Read-only)
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Commission and platform charges are configured by the platform operations team for this demo environment and cannot be edited in this page.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Estimated commission: 0.20% of subscribed amount + fixed onboarding service fee (if applicable).
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Contact: ops-fund-platform@webank.example | +852 2888 8899
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={() => setCurrentTab("fund-documents")}>
               Previous
             </Button>
             <Button onClick={handleCreate}>Create</Button>
