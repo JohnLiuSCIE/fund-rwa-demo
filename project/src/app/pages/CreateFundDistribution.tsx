@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -8,43 +8,74 @@ import { useApp } from "../context/AppContext";
 
 export function CreateFundDistribution() {
   const navigate = useNavigate();
-  const { addFundDistribution } = useApp();
+  const { addFundDistribution, fundIssuances } = useApp();
   const [activeTab, setActiveTab] = useState("about-deal");
 
-  // About Deal fields
+  const eligibleFunds = useMemo(
+    () =>
+      fundIssuances.filter(
+        (fund) => !["Draft", "Pending Approval"].includes(fund.status),
+      ),
+    [fundIssuances],
+  );
+
+  const [selectedFundId, setSelectedFundId] = useState(eligibleFunds[0]?.id || "");
   const [dealName, setDealName] = useState("");
   const [dealDescription, setDealDescription] = useState("");
-  const [tokenAddress, setTokenAddress] = useState("");
-  const [tokenSymbol, setTokenSymbol] = useState("");
-  const [initialNav, setInitialNav] = useState("90");
   const [distributionRateType, setDistributionRateType] = useState("Fixed Rate");
   const [distributionRate, setDistributionRate] = useState("");
-
-  // About Distribution fields
   const [recordDate, setRecordDate] = useState("");
   const [paymentDate, setPaymentDate] = useState("");
-  const [distributionUnit, setDistributionUnit] = useState("HKD");
+  const [distributionUnit, setDistributionUnit] = useState(
+    eligibleFunds[0]?.assetCurrency || "HKD",
+  );
   const [actualDaysInPeriod, setActualDaysInPeriod] = useState("");
   const [actualDaysInYear, setActualDaysInYear] = useState("360");
 
+  const selectedFund =
+    eligibleFunds.find((fund) => fund.id === selectedFundId) || eligibleFunds[0];
+  const displayedNav = selectedFund
+    ? selectedFund.fundType === "Open-end"
+      ? selectedFund.currentNav
+      : selectedFund.initialNav
+    : "N/A";
+
+  const handleFundChange = (value: string) => {
+    setSelectedFundId(value);
+    const fund = eligibleFunds.find((item) => item.id === value);
+    if (fund) {
+      setDistributionUnit(fund.assetCurrency);
+    }
+  };
+
   const handleCreate = () => {
-    // Validation disabled for testing
-    // if (!dealName || !dealDescription || !tokenAddress || !distributionRate || !recordDate || !paymentDate) {
-    //   toast.error("Please fill in all required fields");
-    //   return;
-    // }
+    if (!selectedFund) {
+      toast.error("Please select an existing fund");
+      return;
+    }
 
     const newDistributionId = `distribution-${Date.now()}`;
     const now = new Date();
-    const createdTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    const createdTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
 
     const newDistribution = {
       id: newDistributionId,
-      name: dealName || "New Distribution",
-      description: dealDescription || "Distribution description",
+      fundId: selectedFund.id,
+      fundName: selectedFund.name,
+      fundToken: selectedFund.tokenName,
+      name: dealName || `${selectedFund.name} Distribution`,
+      description:
+        dealDescription ||
+        "Distribution request linked to an existing fund in the demo pool.",
       status: "Draft",
       assetType: "Fund",
-      tokenAddress,
+      tokenAddress: selectedFund.tokenAddress,
+      initialNav: displayedNav,
+      distributionRateType,
+      distributionRate,
+      distributionUnit,
+      actualDaysInPeriod,
+      actualDaysInYear,
       recordDate,
       paymentDate,
       createdTime,
@@ -52,37 +83,80 @@ export function CreateFundDistribution() {
 
     addFundDistribution(newDistribution);
     toast.success("Fund distribution created successfully!");
-    navigate("/manage/fund-distribution");
+    navigate(`/fund-distribution/${newDistributionId}`);
   };
 
   return (
-    <div className="container mx-auto px-6 py-8 max-w-5xl">
+    <div className="container mx-auto max-w-5xl px-6 py-8">
       <div className="mb-8">
-        <h1 style={{ fontFamily: 'var(--font-heading)' }}>Create Fund Distribution</h1>
-        <p className="text-muted-foreground mt-2">
-          Set up a new income distribution for fund investors
+        <h1 style={{ fontFamily: "var(--font-heading)" }}>Create Fund Distribution</h1>
+        <p className="mt-2 text-muted-foreground">
+          Select an existing fund from the demo pool, then configure the linked income
+          distribution request.
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="about-deal">About Deal</TabsTrigger>
           <TabsTrigger value="about-distribution">About Distribution</TabsTrigger>
           <TabsTrigger value="rules">Rules</TabsTrigger>
-          <TabsTrigger value="fee-charge">Fee Charge</TabsTrigger>
         </TabsList>
 
-        {/* Tab 1: About Deal */}
         <TabsContent value="about-deal" className="space-y-6">
           <Card>
-            <CardContent className="pt-6 space-y-4">
+            <CardContent className="space-y-4 pt-6">
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  * Deal name
-                </label>
+                <label className="mb-2 block text-sm font-medium">* Select fund</label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={selectedFundId}
+                  onChange={(event) => handleFundChange(event.target.value)}
+                >
+                  {eligibleFunds.length === 0 ? (
+                    <option value="">No eligible funds</option>
+                  ) : (
+                    eligibleFunds.map((fund) => (
+                      <option key={fund.id} value={fund.id}>
+                        {fund.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {selectedFund ? (
+                <div className="space-y-3 rounded-lg border bg-secondary/50 p-4 text-sm">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Fund token</span>
+                      <span className="font-medium">{selectedFund.tokenName}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Fund type</span>
+                      <span className="font-medium">{selectedFund.fundType}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Token address</span>
+                      <span className="font-medium">{selectedFund.tokenAddress}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Reference NAV</span>
+                      <span className="font-medium">{displayedNav}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
+                  No eligible fund is available yet. Create and approve a fund first.
+                </div>
+              )}
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">* Deal name</label>
                 <input
                   type="text"
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full rounded-md border px-3 py-2"
                   placeholder="Q1 2026 Distribution"
                   value={dealName}
                   onChange={(e) => setDealName(e.target.value)}
@@ -90,11 +164,9 @@ export function CreateFundDistribution() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  * Deal description
-                </label>
+                <label className="mb-2 block text-sm font-medium">* Deal description</label>
                 <textarea
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full rounded-md border px-3 py-2"
                   rows={3}
                   placeholder="Describe this distribution"
                   value={dealDescription}
@@ -102,60 +174,13 @@ export function CreateFundDistribution() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  * Fund token contract address
-                </label>
-                <input
-                  type="text"
-                  className="w-full px-3 py-2 border rounded-md"
-                  placeholder="0x..."
-                  value={tokenAddress}
-                  onChange={(e) => {
-                    setTokenAddress(e.target.value);
-                    if (e.target.value) setTokenSymbol("DEMO-FUND-2024");
-                  }}
-                />
-              </div>
-
-              {tokenSymbol && (
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Fund token symbol
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full px-3 py-2 border rounded-md bg-gray-50"
-                    value={tokenSymbol}
-                    readOnly
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Initial NAV / Issue Price
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="number"
-                    className="flex-1 px-3 py-2 border rounded-md bg-gray-50"
-                    value={initialNav}
-                    readOnly
-                  />
-                  <span className="px-3 py-2 border rounded-md bg-gray-50 text-muted-foreground">
-                    HKD
-                  </span>
-                </div>
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="mb-2 block text-sm font-medium">
                     * Distribution rate type
                   </label>
                   <select
-                    className="w-full px-3 py-2 border rounded-md"
+                    className="w-full rounded-md border px-3 py-2"
                     value={distributionRateType}
                     onChange={(e) => setDistributionRateType(e.target.value)}
                   >
@@ -165,58 +190,59 @@ export function CreateFundDistribution() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="mb-2 block text-sm font-medium">
                     * Distribution rate
                   </label>
                   <div className="flex gap-2">
                     <input
                       type="number"
-                      className="flex-1 px-3 py-2 border rounded-md"
+                      className="flex-1 rounded-md border px-3 py-2"
                       placeholder="3.5"
                       value={distributionRate}
                       onChange={(e) => setDistributionRate(e.target.value)}
                     />
-                    <span className="px-3 py-2 border rounded-md bg-gray-50 text-muted-foreground">
-                      {distributionRateType === "Fixed Rate" ? "%" : "HKD"}
+                    <span className="rounded-md border bg-gray-50 px-3 py-2 text-muted-foreground">
+                      {distributionRateType === "Fixed Rate" ? "%" : distributionUnit}
                     </span>
                   </div>
                 </div>
               </div>
 
               <div className="flex justify-end pt-4">
-                <Button onClick={() => setActiveTab("about-distribution")}>Next</Button>
+                <Button disabled={!selectedFund} onClick={() => setActiveTab("about-distribution")}>
+                  Next
+                </Button>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* Tab 2: About Distribution */}
         <TabsContent value="about-distribution" className="space-y-6">
           <Card>
-            <CardContent className="pt-6 space-y-4">
+            <CardContent className="space-y-4 pt-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="mb-2 block text-sm font-medium">
                     * Distribution record date
                   </label>
                   <input
                     type="datetime-local"
-                    className="w-full px-3 py-2 border rounded-md"
+                    className="w-full rounded-md border px-3 py-2"
                     value={recordDate}
                     onChange={(e) => setRecordDate(e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     Snapshot date for determining eligible holders
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="mb-2 block text-sm font-medium">
                     * Distribution payment date
                   </label>
                   <input
                     type="datetime-local"
-                    className="w-full px-3 py-2 border rounded-md"
+                    className="w-full rounded-md border px-3 py-2"
                     value={paymentDate}
                     onChange={(e) => setPaymentDate(e.target.value)}
                   />
@@ -224,11 +250,9 @@ export function CreateFundDistribution() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  * Distribution unit
-                </label>
+                <label className="mb-2 block text-sm font-medium">* Distribution unit</label>
                 <select
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full rounded-md border px-3 py-2"
                   value={distributionUnit}
                   onChange={(e) => setDistributionUnit(e.target.value)}
                 >
@@ -239,35 +263,35 @@ export function CreateFundDistribution() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="mb-2 block text-sm font-medium">
                     * Distribution actual days in period
                   </label>
                   <div className="flex gap-2">
                     <input
                       type="number"
-                      className="flex-1 px-3 py-2 border rounded-md"
+                      className="flex-1 rounded-md border px-3 py-2"
                       placeholder="180"
                       value={actualDaysInPeriod}
                       onChange={(e) => setActualDaysInPeriod(e.target.value)}
                     />
-                    <span className="px-3 py-2 border rounded-md bg-gray-50 text-muted-foreground">
+                    <span className="rounded-md border bg-gray-50 px-3 py-2 text-muted-foreground">
                       Days
                     </span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2">
+                  <label className="mb-2 block text-sm font-medium">
                     * Distribution actual days in year
                   </label>
                   <div className="flex gap-2">
                     <input
                       type="number"
-                      className="flex-1 px-3 py-2 border rounded-md"
+                      className="flex-1 rounded-md border px-3 py-2"
                       value={actualDaysInYear}
                       onChange={(e) => setActualDaysInYear(e.target.value)}
                     />
-                    <span className="px-3 py-2 border rounded-md bg-gray-50 text-muted-foreground">
+                    <span className="rounded-md border bg-gray-50 px-3 py-2 text-muted-foreground">
                       Days
                     </span>
                   </div>
@@ -284,16 +308,15 @@ export function CreateFundDistribution() {
           </Card>
         </TabsContent>
 
-        {/* Tab 3: Rules */}
         <TabsContent value="rules" className="space-y-6">
           <Card>
-            <CardContent className="pt-6 space-y-4">
+            <CardContent className="space-y-4 pt-6">
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="mb-2 block text-sm font-medium">
                   Investor rules (Optional)
                 </label>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Add specific rules for distribution eligibility
+                <p className="mb-4 text-sm text-muted-foreground">
+                  Add specific rules for distribution eligibility.
                 </p>
                 <Button variant="outline" size="sm">
                   + Add Rule
@@ -302,31 +325,6 @@ export function CreateFundDistribution() {
 
               <div className="flex justify-between pt-4">
                 <Button variant="outline" onClick={() => setActiveTab("about-distribution")}>
-                  Back
-                </Button>
-                <Button onClick={() => setActiveTab("fee-charge")}>Next</Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Tab 4: Fee Charge */}
-        <TabsContent value="fee-charge" className="space-y-6">
-          <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="prose prose-sm max-w-none">
-                <p className="text-muted-foreground">
-                  We normally charge issuer the distribution amount(s) subject to listing, in HKD as commission fee.
-                  If issuer terminates this distribution application after listing, the commission fee is not refundable.
-                </p>
-                <p className="text-muted-foreground mt-4">
-                  The commission fee will be charged once upon listing the distribution.
-                  For any query about the commission fee, you can contact us at support@platform.com.
-                </p>
-              </div>
-
-              <div className="flex justify-between pt-4">
-                <Button variant="outline" onClick={() => setActiveTab("rules")}>
                   Back
                 </Button>
                 <Button onClick={handleCreate}>Create</Button>

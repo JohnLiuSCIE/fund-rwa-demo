@@ -162,7 +162,7 @@ export function CreateFundRedemption() {
 
               <div className="space-y-2">
                 <Label>Redemption mode</Label>
-                <Select value={redemptionMode} onValueChange={(value: "Daily dealing" | "Window-based") => setRedemptionMode(value)}>
+                <Select value={redemptionMode} onValueChange={(value) => setRedemptionMode(value as "Daily dealing" | "Window-based")}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

@@ -28,6 +28,10 @@ export function StatusBadge({ status }: StatusBadgeProps) {
         color: "bg-blue-100 text-blue-800 border-blue-200",
         label: "Upcoming",
       },
+      "Upcoming Launch": {
+        color: "bg-sky-100 text-sky-800 border-sky-200",
+        label: "Upcoming Launch",
+      },
       "Open For Subscription": {
         color: "bg-green-100 text-green-800 border-green-200",
         label: "Open For Subscription",
@@ -115,6 +119,34 @@ export function StatusBadge({ status }: StatusBadgeProps) {
       Completed: {
         color: "bg-teal-100 text-teal-800 border-teal-200",
         label: "Completed",
+      },
+      "Pending Allocation": {
+        color: "bg-purple-100 text-purple-800 border-purple-200",
+        label: "Pending Allocation",
+      },
+      "Put On Chain": {
+        color: "bg-indigo-100 text-indigo-800 border-indigo-200",
+        label: "Put On Chain",
+      },
+      "Open For Distribution": {
+        color: "bg-green-100 text-green-800 border-green-200",
+        label: "Open For Distribution",
+      },
+      Done: {
+        color: "bg-teal-100 text-teal-800 border-teal-200",
+        label: "Done",
+      },
+      Scheduled: {
+        color: "bg-slate-100 text-slate-800 border-slate-200",
+        label: "Scheduled",
+      },
+      Processing: {
+        color: "bg-blue-100 text-blue-800 border-blue-200",
+        label: "Processing",
+      },
+      Settled: {
+        color: "bg-emerald-100 text-emerald-800 border-emerald-200",
+        label: "Settled",
       },
       Rejected: {
         color: "bg-red-100 text-red-800 border-red-200",

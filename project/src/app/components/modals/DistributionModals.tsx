@@ -1,13 +1,4 @@
-import { useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "../ui/dialog";
-import { Button } from "../ui/button";
-import { Check, AlertCircle } from "lucide-react";
+import { OperationActionModal } from "./OperationActionModal";
 
 interface ModalProps {
   open: boolean;
@@ -15,378 +6,246 @@ interface ModalProps {
   onSuccess?: () => void;
 }
 
-// Progress indicator component
-function ProgressSteps({ currentStep, steps }: { currentStep: number; steps: string[] }) {
+export function SubmitDistributionApprovalModal({
+  open,
+  onOpenChange,
+  onSuccess,
+}: ModalProps) {
   return (
-    <div className="flex items-center justify-between mb-8">
-      {steps.map((step, index) => (
-        <div key={index} className="flex items-center flex-1">
-          <div className="flex flex-col items-center">
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
-                index < currentStep
-                  ? "bg-primary border-primary text-primary-foreground"
-                  : index === currentStep
-                  ? "border-primary text-primary"
-                  : "border-gray-300 text-gray-400"
-              }`}
-            >
-              {index < currentStep ? (
-                <Check className="w-5 h-5" />
-              ) : (
-                <span>{index + 1}</span>
-              )}
-            </div>
-            <div className="text-xs mt-2 text-center max-w-20">{step}</div>
-          </div>
-          {index < steps.length - 1 && (
-            <div
-              className={`h-0.5 flex-1 mx-2 transition-colors ${
-                index < currentStep ? "bg-primary" : "bg-gray-300"
-              }`}
-            />
-          )}
-        </div>
-      ))}
-    </div>
+    <OperationActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      onSuccess={onSuccess}
+      title="Submit Distribution For Approval"
+      description="Review the linked fund distribution request and complete identity verification before submission."
+      startLabel="Submit"
+      completionLabel="Done"
+      steps={[
+        {
+          label: "Review",
+          title: "Review Submission",
+          description:
+            "Check the distribution settings and confirm the request is ready for approval review.",
+          state: "review",
+        },
+        {
+          label: "Identity",
+          title: "Verify Identity",
+          description:
+            "Issuer identity and wallet authority are being verified before distribution submission.",
+          state: "loading",
+        },
+        {
+          label: "Submit",
+          title: "Submit Request",
+          description:
+            "The approval request is being recorded in the distribution workflow.",
+          state: "loading",
+        },
+        {
+          label: "Completed",
+          title: "Distribution Submitted",
+          description: "The distribution has been submitted for approval.",
+          state: "success",
+        },
+      ]}
+    />
   );
 }
 
-export function SubmitDistributionApprovalModal({ open, onOpenChange, onSuccess }: ModalProps) {
-  const handleConfirm = () => {
-    onSuccess?.();
-    onOpenChange(false);
-  };
-
+export function ListingDistributionModal({
+  open,
+  onOpenChange,
+  onSuccess,
+}: ModalProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Submit For Approval</DialogTitle>
-          <DialogDescription>
-            Confirm your distribution submission
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-6">
-          <p className="text-muted-foreground">
-            Confirmation — Are you sure you want to submit this distribution for approval?
-          </p>
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleConfirm}>Confirm</Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <OperationActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      onSuccess={onSuccess}
+      title="Listing Distribution"
+      description="Verify issuer identity, sign the wallet actions, and list the distribution."
+      startLabel="Start"
+      completionLabel="Goto Inbox"
+      steps={[
+        {
+          label: "Review",
+          title: "Review Listing Request",
+          description:
+            "Confirm the distribution is approved and ready to be listed on the platform.",
+          state: "review",
+        },
+        {
+          label: "Identity",
+          title: "Verify Identity",
+          description:
+            "Issuer identity and permissions are being verified before listing begins.",
+          state: "loading",
+        },
+        {
+          label: "Sign",
+          title: "Personal Sign",
+          description: "Please personal sign to proceed with distribution listing.",
+          state: "loading",
+        },
+        {
+          label: "Transaction",
+          title: "Sign Transaction",
+          description: "Please verify the smart contract call for listing.",
+          state: "loading",
+        },
+        {
+          label: "Completed",
+          title: "Listing distribution has been executed",
+          description: "You can go to Inbox page to view your request.",
+          state: "success",
+        },
+      ]}
+    />
   );
 }
 
-export function ListingDistributionModal({ open, onOpenChange, onSuccess }: ModalProps) {
-  const [step, setStep] = useState(0);
-  const steps = ["Start", "Sign", "Transaction", "Listing"];
-
-  const handleStart = () => {
-    setStep(1);
-    setTimeout(() => setStep(2), 2000);
-  };
-
-  const handleSignComplete = () => {
-    setTimeout(() => setStep(3), 2000);
-  };
-
-  const handleComplete = () => {
-    onSuccess?.();
-    onOpenChange(false);
-    setStep(0);
-  };
-
+export function PendingAllocationDistributionModal({
+  open,
+  onOpenChange,
+  onSuccess,
+}: ModalProps) {
   return (
-    <Dialog open={open} onOpenChange={(open) => { onOpenChange(open); if (!open) setStep(0); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Listing Distribution</DialogTitle>
-          <DialogDescription>
-            Sign the transaction to list this distribution
-          </DialogDescription>
-        </DialogHeader>
-
-        <ProgressSteps currentStep={step} steps={steps} />
-
-        {step === 0 && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              You need to sign transaction for listing distribution via your wallet.
-            </p>
-            <div className="flex justify-end">
-              <Button onClick={handleStart}>Start</Button>
-            </div>
-          </div>
-        )}
-
-        {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Personal Sign</h3>
-            <p className="text-sm text-muted-foreground">
-              Please personal sign to proceed
-            </p>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Sign Transaction</h3>
-            <p className="text-sm text-muted-foreground">
-              Please verify the smart contract call
-            </p>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
-              <AlertCircle className="w-8 h-8 text-green-600" />
-            </div>
-            <h3>Listing distribution has been executed</h3>
-            <p className="text-sm text-muted-foreground">
-              You can go to Inbox page to view your request.
-            </p>
-            <div className="flex justify-center">
-              <Button onClick={handleComplete}>Goto Inbox</Button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+    <OperationActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      onSuccess={onSuccess}
+      title="Record of Ownership"
+      description="Verify identity before confirming the ownership snapshot for distribution."
+      startLabel="Start"
+      completionLabel="Close"
+      steps={[
+        {
+          label: "Review",
+          title: "Review Snapshot",
+          description:
+            "Confirm the ownership record date and holder snapshot before locking the list.",
+          state: "review",
+        },
+        {
+          label: "Identity",
+          title: "Verify Identity",
+          description:
+            "Issuer identity and record date authority are being verified.",
+          state: "loading",
+        },
+        {
+          label: "Sign",
+          title: "Personal Sign",
+          description: "Please personal sign to confirm the ownership snapshot.",
+          state: "loading",
+        },
+        {
+          label: "Completed",
+          title: "Snapshot confirmed",
+          description:
+            "Distribution list will be generated based on the verified ownership snapshot.",
+          state: "success",
+        },
+      ]}
+    />
   );
 }
 
-export function PendingAllocationDistributionModal({ open, onOpenChange, onSuccess }: ModalProps) {
-  const [step, setStep] = useState(0);
-  const steps = ["Start", "Sign", "Completed"];
-
-  const handleStart = () => {
-    setStep(1);
-    setTimeout(() => setStep(2), 2000);
-  };
-
-  const handleComplete = () => {
-    onSuccess?.();
-    onOpenChange(false);
-    setStep(0);
-  };
-
+export function AllocationCompletedDistributionModal({
+  open,
+  onOpenChange,
+  onSuccess,
+}: ModalProps) {
   return (
-    <Dialog open={open} onOpenChange={(open) => { onOpenChange(open); if (!open) setStep(0); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Record of Ownership</DialogTitle>
-          <DialogDescription>
-            Confirm the ownership snapshot for distribution
-          </DialogDescription>
-        </DialogHeader>
-
-        <ProgressSteps currentStep={step} steps={steps} />
-
-        {step === 0 && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              You need to sign to confirm record-of-ownership snapshot via your wallet.
-            </p>
-            <div className="flex justify-end">
-              <Button onClick={handleStart}>Start</Button>
-            </div>
-          </div>
-        )}
-
-        {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Personal Sign</h3>
-            <p className="text-sm text-muted-foreground">
-              Please personal sign to proceed
-            </p>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
-              <AlertCircle className="w-8 h-8 text-green-600" />
-            </div>
-            <h3>Snapshot confirmed</h3>
-            <p className="text-sm text-muted-foreground">
-              Distribution list will be generated based on ownership snapshot.
-            </p>
-            <div className="flex justify-center">
-              <Button onClick={handleComplete}>Close</Button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+    <OperationActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      onSuccess={onSuccess}
+      title="Allocation Completed"
+      description="Verify identity before marking the distribution allocation as complete."
+      startLabel="Start"
+      completionLabel="Close"
+      steps={[
+        {
+          label: "Review",
+          title: "Review Allocation",
+          description:
+            "Confirm the distribution allocation result before moving to on-chain completion.",
+          state: "review",
+        },
+        {
+          label: "Identity",
+          title: "Verify Identity",
+          description:
+            "Issuer identity and distribution authority are being verified.",
+          state: "loading",
+        },
+        {
+          label: "Sign",
+          title: "Personal Sign",
+          description: "Please personal sign to confirm allocation completion.",
+          state: "loading",
+        },
+        {
+          label: "Completed",
+          title: "Allocation completed",
+          description: "The distribution is ready to move to the next step.",
+          state: "success",
+        },
+      ]}
+    />
   );
 }
 
-export function AllocationCompletedDistributionModal({ open, onOpenChange, onSuccess }: ModalProps) {
-  const [step, setStep] = useState(0);
-  const steps = ["Start", "Sign", "Completed"];
-
-  const handleStart = () => {
-    setStep(1);
-    setTimeout(() => setStep(2), 2000);
-  };
-
-  const handleComplete = () => {
-    onSuccess?.();
-    onOpenChange(false);
-    setStep(0);
-  };
-
+export function OpenForDistributionModal({
+  open,
+  onOpenChange,
+  onSuccess,
+}: ModalProps) {
   return (
-    <Dialog open={open} onOpenChange={(open) => { onOpenChange(open); if (!open) setStep(0); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Allocation Completed</DialogTitle>
-          <DialogDescription>
-            Confirm the distribution allocation is complete
-          </DialogDescription>
-        </DialogHeader>
-
-        <ProgressSteps currentStep={step} steps={steps} />
-
-        {step === 0 && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Confirm distribution allocation completion.
-            </p>
-            <div className="flex justify-end">
-              <Button onClick={handleStart}>Start</Button>
-            </div>
-          </div>
-        )}
-
-        {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Personal Sign</h3>
-            <p className="text-sm text-muted-foreground">
-              Please personal sign to proceed
-            </p>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
-              <AlertCircle className="w-8 h-8 text-green-600" />
-            </div>
-            <h3>Allocation completed</h3>
-            <p className="text-sm text-muted-foreground">
-              Ready to open for distribution.
-            </p>
-            <div className="flex justify-center">
-              <Button onClick={handleComplete}>Close</Button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export function OpenForDistributionModal({ open, onOpenChange, onSuccess }: ModalProps) {
-  const [step, setStep] = useState(0);
-  const steps = ["Start", "Sign Approve", "Sign Open", "Completed"];
-
-  const handleStart = () => {
-    setStep(1);
-    setTimeout(() => setStep(2), 2000);
-  };
-
-  const handleApproveComplete = () => {
-    setTimeout(() => setStep(3), 2000);
-  };
-
-  const handleComplete = () => {
-    onSuccess?.();
-    onOpenChange(false);
-    setStep(0);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(open) => { onOpenChange(open); if (!open) setStep(0); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Open For Distribution</DialogTitle>
-          <DialogDescription>
-            Open the distribution window for investors to claim
-          </DialogDescription>
-        </DialogHeader>
-
-        <ProgressSteps currentStep={step} steps={steps} />
-
-        {step === 0 && (
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              You need to sign transactions to open distribution for investors.
-            </p>
-            <div className="flex justify-end">
-              <Button onClick={handleStart}>Start</Button>
-            </div>
-          </div>
-        )}
-
-        {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Sign Approve</h3>
-            <p className="text-sm text-muted-foreground">
-              Approve token transfer for distribution
-            </p>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Sign Open</h3>
-            <p className="text-sm text-muted-foreground">
-              Open distribution claim window
-            </p>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center">
-              <AlertCircle className="w-8 h-8 text-green-600" />
-            </div>
-            <h3>Distribution opened</h3>
-            <p className="text-sm text-muted-foreground">
-              Investors can now accept their distributions.
-            </p>
-            <div className="flex justify-center">
-              <Button onClick={handleComplete}>Close</Button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+    <OperationActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      onSuccess={onSuccess}
+      title="Open For Distribution"
+      description="Verify issuer identity and complete the wallet actions required to open the distribution window."
+      startLabel="Start"
+      completionLabel="Close"
+      steps={[
+        {
+          label: "Review",
+          title: "Review Window Opening",
+          description:
+            "Check the distribution funding and opening conditions before enabling investor claims.",
+          state: "review",
+        },
+        {
+          label: "Identity",
+          title: "Verify Identity",
+          description:
+            "Issuer identity and claim-window authority are being verified.",
+          state: "loading",
+        },
+        {
+          label: "Approve",
+          title: "Sign Approve",
+          description: "Approve token transfer for the distribution.",
+          state: "loading",
+        },
+        {
+          label: "Open",
+          title: "Sign Open",
+          description: "Open the distribution claim window for investors.",
+          state: "loading",
+        },
+        {
+          label: "Completed",
+          title: "Distribution opened",
+          description: "Investors can now accept their distributions.",
+          state: "success",
+        },
+      ]}
+    />
   );
 }

@@ -123,7 +123,7 @@ export function CreateFundIssuance() {
   };
 
   const handleNext = () => {
-    const tabs = ["about-deal", "about-token", "dealing-rules", "fund-documents", "fee-charge"];
+    const tabs = ["about-deal", "about-token", "dealing-rules", "fund-documents"];
     const currentIndex = tabs.indexOf(currentTab);
     if (currentIndex < tabs.length - 1) {
       setCurrentTab(tabs[currentIndex + 1]);
@@ -305,7 +305,7 @@ export function CreateFundIssuance() {
       </div>
 
       <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-8">
-        <TabsList className="grid w-full grid-cols-5 h-auto p-1 bg-secondary">
+        <TabsList className="grid w-full grid-cols-4 h-auto p-1 bg-secondary">
           <TabsTrigger value="about-deal" className="text-sm py-3">
             About Deal
           </TabsTrigger>
@@ -317,9 +317,6 @@ export function CreateFundIssuance() {
           </TabsTrigger>
           <TabsTrigger value="fund-documents" className="text-sm py-3">
             Fund Documents
-          </TabsTrigger>
-          <TabsTrigger value="fee-charge" className="text-sm py-3">
-            Fee Charge
           </TabsTrigger>
         </TabsList>
 
@@ -336,7 +333,7 @@ export function CreateFundIssuance() {
               </div>
               <div className="space-y-2">
                 <Label>Fund type</Label>
-                <Select value={fundType} onValueChange={(value: "open-end" | "closed-end") => setFundType(value)}>
+                <Select value={fundType} onValueChange={(value) => setFundType(value as "open-end" | "closed-end")}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select fund type" />
                   </SelectTrigger>
@@ -835,42 +832,6 @@ export function CreateFundIssuance() {
 
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setCurrentTab("dealing-rules")}>
-              Previous
-            </Button>
-            <Button onClick={handleNext}>Next</Button>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="fee-charge" className="space-y-6">
-          <div className="bg-white border rounded-lg p-8 space-y-4">
-            <h3 style={{ fontFamily: "var(--font-heading)" }}>
-              {openEndMode ? "Open-end Fund Fee & Settlement Notice" : "Fee Charge"}
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              The demo assumes dealing and settlement fees are charged at fund activation. For open-end funds, subsequent subscription and redemption batches are processed according to the configured cut-off and settlement cycle.
-            </p>
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="rounded-lg border p-4">
-                <div className="font-medium">Dealing mode</div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {openEndMode ? `${dealingFrequency} dealing with ${settlementCycle} settlement` : "Closed-end issuance"}
-                </div>
-              </div>
-              <div className="rounded-lg border p-4">
-                <div className="font-medium">Order confirmation</div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {openEndMode
-                    ? orderConfirmationMethod === "auto"
-                      ? "Auto at cut-off"
-                      : "Issuer review then confirm"
-                    : "Allocation based"}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setCurrentTab("fund-documents")}>
               Previous
             </Button>
             <Button onClick={handleCreate}>Create</Button>

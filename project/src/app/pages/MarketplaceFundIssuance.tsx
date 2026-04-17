@@ -28,7 +28,7 @@ export function MarketplaceFundIssuance() {
       <div className="mb-8">
         <h1 style={{ fontFamily: "var(--font-heading)" }}>Fund Marketplace</h1>
         <p className="text-muted-foreground mt-2">
-          Explore tokenized funds with transparent NAV, daily dealing, and self-custody.
+          Explore tokenized open-end and closed-end funds with transparent operating status and self-custody.
         </p>
       </div>
 
@@ -84,9 +84,9 @@ export function MarketplaceFundIssuance() {
             </div>
           </div>
           <div className="flex-1">
-            <h3 style={{ fontFamily: "var(--font-heading)" }}>Why Open-end Demo Matters</h3>
+            <h3 style={{ fontFamily: "var(--font-heading)" }}>Fund Liquidity Models</h3>
             <p className="text-muted-foreground mt-2">
-              This marketplace now highlights the difference between one-off issuance and open-end fund operations. Investors can review current NAV, next dealing cut-off, and ongoing subscription / redemption access before placing orders.
+              This marketplace now keeps both fund models visible. Investors can distinguish ongoing open-end dealing from closed-end issuance and review the correct stage before taking action.
             </p>
             <div className="mt-4 grid md:grid-cols-3 gap-4">
               <div className="bg-white/70 backdrop-blur rounded-md p-3 border border-[var(--navy-100)]">
@@ -96,15 +96,15 @@ export function MarketplaceFundIssuance() {
                 </div>
               </div>
               <div className="bg-white/70 backdrop-blur rounded-md p-3 border border-[var(--navy-100)]">
-                <div className="font-medium text-sm">Transparent NAV</div>
+                <div className="font-medium text-sm">Closed-end Issuance</div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  Latest NAV and update time stay visible in the detail page.
+                  Approval, subscription, allocation, and activation remain visible end to end.
                 </div>
               </div>
               <div className="bg-white/70 backdrop-blur rounded-md p-3 border border-[var(--navy-100)]">
-                <div className="font-medium text-sm">T+1 Settlement</div>
+                <div className="font-medium text-sm">Transparent NAV</div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  Order confirmation and settlement are clearly separated in the demo.
+                  Latest NAV, update time, and dealing windows stay visible for open-end funds.
                 </div>
               </div>
             </div>

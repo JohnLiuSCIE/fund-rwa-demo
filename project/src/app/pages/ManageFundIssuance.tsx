@@ -60,8 +60,8 @@ export function ManageFundIssuance() {
           </h1>
           <p className="text-muted-foreground mt-2">
             {userRole === "issuer"
-              ? "Track open-end fund launch status, daily dealing readiness, and current NAV."
-              : "Review available funds with their current dealing status and liquidity setup."}
+              ? "Track both open-end operating funds and closed-end issuance pipelines from approval through activation."
+              : "Review available open-end and closed-end funds with their current operating or issuance status."}
           </p>
         </div>
 

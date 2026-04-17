@@ -20,9 +20,10 @@ import {
 
 export function FundDistributionDetail() {
   const { id } = useParams();
-  const { fundDistributions, updateDistributionStatus } = useApp();
+  const { fundDistributions, fundIssuances, updateDistributionStatus } = useApp();
 
   const distribution = fundDistributions.find(d => d.id === id);
+  const linkedFund = fundIssuances.find((fund) => fund.id === distribution?.fundId);
 
   if (!distribution) {
     return (
@@ -50,6 +51,7 @@ export function FundDistributionDetail() {
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       "Draft": "bg-gray-100 text-gray-800",
+      "Pending Approval": "bg-amber-100 text-amber-800",
       "Pending Listing": "bg-yellow-100 text-yellow-800",
       "Upcoming": "bg-blue-100 text-blue-800",
       "Pending Allocation": "bg-purple-100 text-purple-800",
@@ -68,6 +70,19 @@ export function FundDistributionDetail() {
             <Button variant="outline">Edit</Button>
             <Button onClick={() => setShowSubmitModal(true)}>
               Submit For Approval
+            </Button>
+          </>
+        );
+      case "Pending Approval":
+        return (
+          <>
+            <Button variant="outline">Cancel Deal</Button>
+            <Button onClick={() => {
+              setCurrentStatus("Pending Listing");
+              updateDistributionStatus(id || "", "Pending Listing");
+              toast.success("Distribution approved and queued for listing");
+            }}>
+              Approve Listing
             </Button>
           </>
         );
@@ -147,7 +162,7 @@ export function FundDistributionDetail() {
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Fund Token</div>
                 <div className="font-medium">
-                  {distribution.tokenAddress ? "DEMO-FUND-2024" : "–"}
+                  {distribution.fundToken || linkedFund?.tokenName || "–"}
                 </div>
               </div>
 
@@ -180,7 +195,9 @@ export function FundDistributionDetail() {
                 <div className="text-sm text-muted-foreground mb-1">
                   Initial NAV / Issue Price
                 </div>
-                <div className="font-medium">90 HKD</div>
+                <div className="font-medium">
+                  {distribution.initialNav || linkedFund?.currentNav || linkedFund?.initialNav || "–"}
+                </div>
               </div>
 
               <div>
@@ -205,24 +222,54 @@ export function FundDistributionDetail() {
                 <div className="text-sm text-muted-foreground mb-1">
                   Distribution Rate
                 </div>
-                <div className="font-medium">3.5%</div>
+                <div className="font-medium">
+                  {distribution.distributionRate
+                    ? `${distribution.distributionRate}${distribution.distributionRateType === "Fixed Rate" ? "%" : ` ${distribution.distributionUnit || ""}`}`
+                    : "–"}
+                </div>
               </div>
 
               <div>
                 <div className="text-sm text-muted-foreground mb-1">
                   Distribution actual days in period
                 </div>
-                <div className="font-medium">180</div>
+                <div className="font-medium">{distribution.actualDaysInPeriod || "–"}</div>
               </div>
 
               <div>
                 <div className="text-sm text-muted-foreground mb-1">
                   Distribution actual days in year
                 </div>
-                <div className="font-medium">360</div>
+                <div className="font-medium">{distribution.actualDaysInYear || "–"}</div>
               </div>
             </CardContent>
           </Card>
+
+          {linkedFund && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle>Linked Fund Snapshot</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Fund</div>
+                  <div className="font-medium">{linkedFund.name}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Fund Status</div>
+                  <div className="font-medium">{linkedFund.status}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Current NAV</div>
+                  <div className="font-medium">{linkedFund.currentNav}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Settlement Cycle</div>
+                  <div className="font-medium">{linkedFund.settlementCycle || "N/A"}</div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Main Content - Tabs */}
@@ -302,8 +349,8 @@ export function FundDistributionDetail() {
         open={showSubmitModal}
         onOpenChange={setShowSubmitModal}
         onSuccess={() => {
-          setCurrentStatus("Pending Listing");
-          updateDistributionStatus(id || "", "Pending Listing");
+          setCurrentStatus("Pending Approval");
+          updateDistributionStatus(id || "", "Pending Approval");
         }}
       />
       <ListingDistributionModal

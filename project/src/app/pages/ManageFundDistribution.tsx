@@ -15,6 +15,7 @@ import { useApp } from "../context/AppContext";
 const getStatusColor = (status: string) => {
   const colors: Record<string, string> = {
     "Draft": "bg-gray-100 text-gray-800",
+    "Pending Approval": "bg-amber-100 text-amber-800",
     "Pending Listing": "bg-yellow-100 text-yellow-800",
     "Upcoming": "bg-blue-100 text-blue-800",
     "Pending Allocation": "bg-purple-100 text-purple-800",

@@ -103,7 +103,7 @@ export const FUND_DISTRIBUTION_STEPS: WorkflowStep[] = [
     id: "step-2",
     label: "Approval",
     description: "Submit for approval",
-    statuses: ["Pending Listing"],
+    statuses: ["Pending Approval", "Pending Listing"],
   },
   {
     id: "step-3",

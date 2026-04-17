@@ -197,6 +197,7 @@ export function SubscribeModal({
   const [step, setStep] = useState(0);
   const [amount, setAmount] = useState("");
   const steps = ["Order", "Sign", "Broadcast", "Completed"];
+  const isOpenEnd = fundData.fundType === "Open-end";
 
   const amountValue = Number(amount) || 0;
   const estimatedUnits = useMemo(() => {
@@ -245,7 +246,9 @@ export function SubscribeModal({
     >
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Subscribe to Open-end Fund</DialogTitle>
+          <DialogTitle>
+            {isOpenEnd ? "Subscribe to Open-end Fund" : "Subscribe to Closed-end Fund"}
+          </DialogTitle>
         </DialogHeader>
 
         <ProgressSteps currentStep={step} steps={steps} />
@@ -262,16 +265,32 @@ export function SubscribeModal({
                 <span className="font-medium">{fundData.currentNav}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Next dealing cut-off:</span>
-                <span className="font-medium">{fundData.nextCutoffTime || "TBD"}</span>
+                <span className="text-muted-foreground">
+                  {isOpenEnd ? "Next dealing cut-off:" : "Subscription window closes:"}
+                </span>
+                <span className="font-medium">
+                  {isOpenEnd
+                    ? fundData.nextCutoffTime || "TBD"
+                    : fundData.subscriptionEndDate || "TBD"}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Expected confirmation:</span>
-                <span className="font-medium">{fundData.nextConfirmationDate || "T+1"}</span>
+                <span className="text-muted-foreground">
+                  {isOpenEnd ? "Expected confirmation:" : "Expected allocation review:"}
+                </span>
+                <span className="font-medium">
+                  {isOpenEnd
+                    ? fundData.nextConfirmationDate || "T+1"
+                    : fundData.issueDate || "Post subscription close"}
+                </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Settlement cycle:</span>
-                <span className="font-medium">{fundData.settlementCycle || "T+1"}</span>
+                <span className="text-muted-foreground">
+                  {isOpenEnd ? "Settlement cycle:" : "Issue date:"}
+                </span>
+                <span className="font-medium">
+                  {isOpenEnd ? fundData.settlementCycle || "T+1" : fundData.issueDate || "TBD"}
+                </span>
               </div>
             </div>
 
@@ -305,13 +324,17 @@ export function SubscribeModal({
                   disabled
                 />
                 <p className="text-xs text-muted-foreground">
-                  Final shares will be confirmed using the official dealing NAV at cut-off.
+                  {isOpenEnd
+                    ? "Final shares will be confirmed using the official dealing NAV at cut-off."
+                    : "Final allocated shares will be confirmed after the issuer completes allocation review."}
                 </p>
               </div>
             </div>
 
             <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-              This order will be queued for the next dealing batch. Confirmation happens after NAV valuation, and settlement follows on {fundData.settlementCycle || "T+1"}.
+              {isOpenEnd
+                ? `This order will be queued for the next dealing batch. Confirmation happens after NAV valuation, and settlement follows on ${fundData.settlementCycle || "T+1"}.`
+                : "This subscription request will enter the closed-end issuance queue. The issuer will review subscriptions, run allocation, and then complete issuance."}
             </div>
 
             <div className="flex justify-end gap-2">
@@ -342,7 +365,9 @@ export function SubscribeModal({
             </div>
             <h3>Broadcasting Order</h3>
             <p className="text-sm text-muted-foreground">
-              Your order is being recorded for the next open-end dealing batch.
+              {isOpenEnd
+                ? "Your order is being recorded for the next open-end dealing batch."
+                : "Your order is being recorded for the current closed-end subscription round."}
             </p>
           </div>
         )}
@@ -354,7 +379,9 @@ export function SubscribeModal({
             </div>
             <h3>Order submitted</h3>
             <p className="text-sm text-muted-foreground">
-              Your subscription request is pending NAV confirmation and will be processed at the next dealing cut-off.
+              {isOpenEnd
+                ? "Your subscription request is pending NAV confirmation and will be processed at the next dealing cut-off."
+                : "Your subscription request has entered the closed-end issuance workflow and is waiting for issuer review and allocation."}
             </p>
             <div className="bg-secondary p-3 rounded-lg text-sm">
               <div className="flex justify-between mb-1">

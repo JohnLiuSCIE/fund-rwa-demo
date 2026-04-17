@@ -161,11 +161,20 @@ export interface FundRedemptionConfig {
 
 export interface FundDistribution {
   id: string;
+  fundId?: string;
+  fundName?: string;
+  fundToken?: string;
   name: string;
   description: string;
   status: string;
   assetType: string;
   tokenAddress?: string;
+  initialNav?: string;
+  distributionRateType?: string;
+  distributionRate?: string;
+  distributionUnit?: string;
+  actualDaysInPeriod?: string;
+  actualDaysInYear?: string;
   recordDate?: string;
   paymentDate?: string;
   createdTime?: string;
@@ -627,10 +636,22 @@ export const initialRedemptions: FundRedemptionConfig[] = [
 export const initialDistributions: FundDistribution[] = [
   {
     id: "distribution-001",
+    fundId: "fund-open-001",
+    fundName: "Daily Liquidity Fund",
+    fundToken: "DLF-2026",
     name: "Q1 2026 Distribution",
     description: "Quarterly income distribution",
     status: "Draft",
     assetType: "Fund",
+    tokenAddress: "0x3E6C8F12a4B7d9e0F3a1C6D5E8b9F2A7c4D8e1B2",
+    initialNav: "1.0246 HKD",
+    distributionRateType: "Fixed Rate",
+    distributionRate: "3.5",
+    distributionUnit: "HKD",
+    actualDaysInPeriod: "180",
+    actualDaysInYear: "360",
+    recordDate: "2026-04-20 18:00:00",
+    paymentDate: "2026-04-25 10:00:00",
     createdTime: "2026-04-14 09:30:00",
   },
 ];
