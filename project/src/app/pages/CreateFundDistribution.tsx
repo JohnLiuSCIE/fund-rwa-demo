@@ -29,6 +29,9 @@ export function CreateFundDistribution() {
   const [distributionUnit, setDistributionUnit] = useState(
     eligibleFunds[0]?.assetCurrency || "HKD",
   );
+  const [payoutMode, setPayoutMode] = useState<"Direct Transfer" | "Claim">("Claim");
+  const [payoutToken, setPayoutToken] = useState(eligibleFunds[0]?.assetCurrency || "HKD");
+  const [payoutAccount, setPayoutAccount] = useState("");
   const [actualDaysInPeriod, setActualDaysInPeriod] = useState("");
   const [actualDaysInYear, setActualDaysInYear] = useState("360");
 
@@ -45,6 +48,7 @@ export function CreateFundDistribution() {
     const fund = eligibleFunds.find((item) => item.id === value);
     if (fund) {
       setDistributionUnit(fund.assetCurrency);
+      setPayoutToken(fund.assetCurrency);
     }
   };
 
@@ -74,6 +78,13 @@ export function CreateFundDistribution() {
       distributionRateType,
       distributionRate,
       distributionUnit,
+      payoutMode,
+      payoutToken,
+      payoutAccount:
+        payoutAccount ||
+        (payoutMode === "Direct Transfer"
+          ? "Fund treasury settlement account"
+          : "Investor self-claim wallet"),
       actualDaysInPeriod,
       actualDaysInYear,
       recordDate,
@@ -259,6 +270,56 @@ export function CreateFundDistribution() {
                   <option>HKD</option>
                   <option>USDC</option>
                 </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium">* Payout mode</label>
+                  <select
+                    className="w-full rounded-md border px-3 py-2"
+                    value={payoutMode}
+                    onChange={(e) =>
+                      setPayoutMode(e.target.value as "Direct Transfer" | "Claim")
+                    }
+                  >
+                    <option value="Direct Transfer">Direct Transfer</option>
+                    <option value="Claim">Claim</option>
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {payoutMode === "Direct Transfer"
+                      ? "System pushes payout to holders automatically."
+                      : "Holders claim payout on-chain after distribution opens."}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium">* Payout token</label>
+                  <input
+                    type="text"
+                    className="w-full rounded-md border px-3 py-2"
+                    placeholder="HKD / USDC"
+                    value={payoutToken}
+                    onChange={(e) => setPayoutToken(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">
+                  * Payout source account / treasury
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border px-3 py-2"
+                  placeholder="Fund treasury settlement account"
+                  value={payoutAccount}
+                  onChange={(e) => setPayoutAccount(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {payoutMode === "Direct Transfer"
+                    ? "Gas is paid by the fund operator during batch transfer."
+                    : "Gas is paid by each investor when claiming distribution."}
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

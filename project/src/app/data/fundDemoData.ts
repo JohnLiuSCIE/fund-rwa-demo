@@ -173,6 +173,9 @@ export interface FundDistribution {
   distributionRateType?: string;
   distributionRate?: string;
   distributionUnit?: string;
+  payoutMode?: "Direct Transfer" | "Claim";
+  payoutToken?: string;
+  payoutAccount?: string;
   actualDaysInPeriod?: string;
   actualDaysInYear?: string;
   recordDate?: string;
@@ -648,6 +651,9 @@ export const initialDistributions: FundDistribution[] = [
     distributionRateType: "Fixed Rate",
     distributionRate: "3.5",
     distributionUnit: "HKD",
+    payoutMode: "Claim",
+    payoutToken: "HKD",
+    payoutAccount: "Investor self-claim wallet",
     actualDaysInPeriod: "180",
     actualDaysInYear: "360",
     recordDate: "2026-04-20 18:00:00",
