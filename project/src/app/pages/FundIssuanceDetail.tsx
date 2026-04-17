@@ -759,6 +759,7 @@ export function FundIssuanceDetail() {
         fundData.fundType === "Open-end"
           ? "Created from marketplace subscription modal"
           : "Created from marketplace closed-end subscription modal",
+      identitySource: "authSession",
     });
     if (!added) return;
   };
@@ -787,6 +788,7 @@ export function FundIssuanceDetail() {
           ? "Pending Review"
           : "Pending Cash Settlement",
       note: "Created from marketplace redemption modal",
+      identitySource: "authSession",
     });
     if (!added) return;
   };

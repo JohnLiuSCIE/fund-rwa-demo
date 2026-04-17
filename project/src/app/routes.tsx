@@ -13,10 +13,22 @@ import { FundDistributionDetail } from "./pages/FundDistributionDetail";
 import { MarketplaceFundIssuance } from "./pages/MarketplaceFundIssuance";
 import { UserCenter } from "./pages/UserCenter";
 import { NotFound } from "./pages/NotFound";
+import { LoginPage } from "./pages/LoginPage";
+import { ConnectWalletPage } from "./pages/ConnectWalletPage";
 import { UserRole, useApp } from "./context/AppContext";
 
 function ProtectedRoute({ allow }: { allow: UserRole[] }) {
-  const { userRole } = useApp();
+  const { authSession, isAuthSessionExpired } = useApp();
+  if (!authSession?.walletAddress) {
+    return <Navigate to="/connect-wallet" replace />;
+  }
+  if (!authSession?.role) {
+    return <Navigate to="/login" replace />;
+  }
+  if (isAuthSessionExpired(authSession)) {
+    return <Navigate to="/login?reason=expired" replace />;
+  }
+  const userRole = authSession.role;
   if (!allow.includes(userRole)) {
     return <Navigate to="/" replace />;
   }
@@ -28,6 +40,8 @@ export function AppRoutes() {
     <Routes>
       <Route path="/" element={<Layout />}>
         <Route index element={<HomePage />} />
+        <Route path="login" element={<LoginPage />} />
+        <Route path="connect-wallet" element={<ConnectWalletPage />} />
         <Route element={<ProtectedRoute allow={["issuer"]} />}>
           <Route path="create/fund-issuance" element={<CreateFundIssuance />} />
           <Route path="create/fund-redemption" element={<CreateFundRedemption />} />
