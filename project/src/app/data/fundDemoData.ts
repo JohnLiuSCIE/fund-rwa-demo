@@ -102,6 +102,7 @@ export interface FundIssuance {
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
+  identitySource?: "authSession";
 }
 
 export interface FundOrder {
@@ -126,6 +127,7 @@ export interface FundOrder {
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
+  identitySource?: "authSession";
 }
 
 export interface FundBatch {
@@ -167,6 +169,7 @@ export interface FundRedemptionConfig {
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
+  identitySource?: "authSession";
 }
 
 export interface FundDistribution {
@@ -194,6 +197,7 @@ export interface FundDistribution {
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
+  identitySource?: "authSession";
 }
 
 export const initialFunds: FundIssuance[] = [

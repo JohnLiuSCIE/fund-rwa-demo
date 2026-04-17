@@ -7,7 +7,6 @@ import {
 } from "./ui/dropdown-menu";
 import { ChevronDown, Coins } from "lucide-react";
 import { RoleSwitcher } from "./RoleSwitcher";
-import { useApp } from "../context/AppContext";
 
 export function Layout() {
   const location = useLocation();
@@ -102,9 +101,12 @@ export function Layout() {
           {/* Role Switcher */}
           <div className="ml-auto flex items-center gap-3">
             <RoleSwitcher />
-            <button className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
+            <Link
+              to="/connect-wallet"
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+            >
               Connect Wallet
-            </button>
+            </Link>
           </div>
         </div>
       </header>
