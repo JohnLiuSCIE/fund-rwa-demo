@@ -79,6 +79,12 @@ export function Layout() {
                 <DropdownMenuItem asChild>
                   <Link to="/marketplace/fund-issuance">Fund Issuance</Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/marketplace/fund-redemption">Fund Redemption</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/marketplace/fund-distribution">Fund Distribution</Link>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
 

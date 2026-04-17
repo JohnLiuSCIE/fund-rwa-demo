@@ -844,18 +844,26 @@ export function FundIssuanceDetail() {
                 )}
               </>
             ) : (
-              issuerAction && (
-                <Button
-                  variant={issuerAction.variant}
-                  onClick={() => {
-                    setPendingIssuerAction(issuerAction);
-                    setIssuerActionModalOpen(true);
-                  }}
-                >
-                  <issuerAction.icon className="mr-2 h-4 w-4" />
-                  {issuerAction.label}
+              <>
+                <Button asChild variant="outline">
+                  <Link to="/manage/fund-redemption">Go to Redemption Setup</Link>
                 </Button>
-              )
+                <Button asChild variant="outline">
+                  <Link to="/manage/fund-distribution">Go to Distribution Setup</Link>
+                </Button>
+                {issuerAction && (
+                  <Button
+                    variant={issuerAction.variant}
+                    onClick={() => {
+                      setPendingIssuerAction(issuerAction);
+                      setIssuerActionModalOpen(true);
+                    }}
+                  >
+                    <issuerAction.icon className="mr-2 h-4 w-4" />
+                    {issuerAction.label}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
