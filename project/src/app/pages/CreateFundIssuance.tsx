@@ -125,7 +125,7 @@ export function CreateFundIssuance() {
     const tabs = [
       "about-deal",
       "about-token",
-      "dealing-rules",
+      "subscription-rules",
       "fund-documents",
       "fee-charge",
     ];
@@ -312,7 +312,7 @@ export function CreateFundIssuance() {
           <TabsTrigger value="about-token" className="text-sm py-3">
             About Token
           </TabsTrigger>
-          <TabsTrigger value="dealing-rules" className="text-sm py-3">
+          <TabsTrigger value="subscription-rules" className="text-sm py-3">
             Subscription &amp; Rules
           </TabsTrigger>
           <TabsTrigger value="fund-documents" className="text-sm py-3">
@@ -570,7 +570,7 @@ export function CreateFundIssuance() {
           </div>
         </TabsContent>
 
-        <TabsContent value="dealing-rules" className="space-y-6">
+        <TabsContent value="subscription-rules" className="space-y-6">
           <div className="bg-white border rounded-lg p-6 space-y-6">
             <div className="grid md:grid-cols-3 gap-6">
               <div className="space-y-2">
@@ -834,7 +834,7 @@ export function CreateFundIssuance() {
           </div>
 
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setCurrentTab("dealing-rules")}>
+            <Button variant="outline" onClick={() => setCurrentTab("subscription-rules")}>
               Previous
             </Button>
             <Button onClick={handleNext}>Next</Button>
