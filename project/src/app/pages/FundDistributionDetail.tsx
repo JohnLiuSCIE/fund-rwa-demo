@@ -20,7 +20,7 @@ import {
 
 export function FundDistributionDetail() {
   const { id } = useParams();
-  const { fundDistributions, fundIssuances, updateDistributionStatus } = useApp();
+  const { fundDistributions, fundIssuances, updateDistributionStatus, getPermissionResult, userRole } = useApp();
 
   const distribution = fundDistributions.find(d => d.id === id);
   const linkedFund = fundIssuances.find((fund) => fund.id === distribution?.fundId);
@@ -63,13 +63,40 @@ export function FundDistributionDetail() {
     return colors[status] || "bg-gray-100 text-gray-800";
   };
 
+  const actionKeyByStatus: Record<string, string> = {
+    Draft: "submit",
+    "Pending Approval": "approve",
+    "Pending Listing": "list",
+    Upcoming: "open",
+    "Pending Allocation": "put_on_chain",
+    "Put On Chain": "open",
+  };
+
+  const getActionPermission = () => {
+    const action = actionKeyByStatus[currentStatus];
+    if (!action) return { allowed: true as const, reason: undefined };
+    return getPermissionResult(action, "distribution");
+  };
+
+  const applyDistributionStatus = (nextStatus: string, action: string) => {
+    const updated = updateDistributionStatus(id || "", nextStatus, action);
+    if (!updated) return false;
+    setCurrentStatus(nextStatus);
+    return true;
+  };
+
   const renderActionButtons = () => {
+    const permission = getActionPermission();
     switch (currentStatus) {
       case "Draft":
         return (
           <>
             <Button variant="outline">Edit</Button>
-            <Button onClick={() => setShowSubmitModal(true)}>
+            <Button
+              disabled={!permission.allowed}
+              title={permission.reason}
+              onClick={() => setShowSubmitModal(true)}
+            >
               Submit For Approval
             </Button>
           </>
@@ -78,11 +105,15 @@ export function FundDistributionDetail() {
         return (
           <>
             <Button variant="outline">Cancel Deal</Button>
-            <Button onClick={() => {
-              setCurrentStatus("Pending Listing");
-              updateDistributionStatus(id || "", "Pending Listing");
-              toast.success("Distribution approved and queued for listing");
-            }}>
+            <Button
+              disabled={!permission.allowed}
+              title={permission.reason}
+              onClick={() => {
+                const updated = applyDistributionStatus("Pending Listing", "approve");
+                if (!updated) return;
+                toast.success("Distribution approved and queued for listing");
+              }}
+            >
               Approve Listing
             </Button>
           </>
@@ -91,26 +122,42 @@ export function FundDistributionDetail() {
         return (
           <>
             <Button variant="outline">Cancel Deal</Button>
-            <Button onClick={() => setShowListingModal(true)}>
+            <Button
+              disabled={!permission.allowed}
+              title={permission.reason}
+              onClick={() => setShowListingModal(true)}
+            >
               Listing
             </Button>
           </>
         );
       case "Upcoming":
         return (
-          <Button onClick={() => setShowPendingAllocationModal(true)}>
+          <Button
+            disabled={!permission.allowed}
+            title={permission.reason}
+            onClick={() => setShowPendingAllocationModal(true)}
+          >
             Record of Ownership
           </Button>
         );
       case "Pending Allocation":
         return (
-          <Button onClick={() => setShowAllocationCompletedModal(true)}>
+          <Button
+            disabled={!permission.allowed}
+            title={permission.reason}
+            onClick={() => setShowAllocationCompletedModal(true)}
+          >
             Put On Chain
           </Button>
         );
       case "Put On Chain":
         return (
-          <Button onClick={() => setShowOpenDistributionModal(true)}>
+          <Button
+            disabled={!permission.allowed}
+            title={permission.reason}
+            onClick={() => setShowOpenDistributionModal(true)}
+          >
             {isClaimMode ? "Open For Claim" : "Start Auto Distribution"}
           </Button>
         );
@@ -145,6 +192,9 @@ export function FundDistributionDetail() {
           </div>
           <div className="flex gap-2">{renderActionButtons()}</div>
         </div>
+        {!getActionPermission().allowed && (
+          <p className="text-sm text-muted-foreground">{getActionPermission().reason}</p>
+        )}
       </div>
 
       {/* Workflow Progress */}
@@ -375,40 +425,40 @@ export function FundDistributionDetail() {
         open={showSubmitModal}
         onOpenChange={setShowSubmitModal}
         onSuccess={() => {
-          setCurrentStatus("Pending Approval");
-          updateDistributionStatus(id || "", "Pending Approval");
+          const updated = applyDistributionStatus("Pending Approval", "submit");
+          if (!updated) return;
+          toast.success(`Action recorded by ${userRole}`);
         }}
       />
       <ListingDistributionModal
         open={showListingModal}
         onOpenChange={setShowListingModal}
         onSuccess={() => {
-          setCurrentStatus("Upcoming");
-          updateDistributionStatus(id || "", "Upcoming");
+          const updated = applyDistributionStatus("Upcoming", "list");
+          if (!updated) return;
+          toast.success(`Listing action recorded by ${userRole}`);
         }}
       />
       <PendingAllocationDistributionModal
         open={showPendingAllocationModal}
         onOpenChange={setShowPendingAllocationModal}
         onSuccess={() => {
-          setCurrentStatus("Pending Allocation");
-          updateDistributionStatus(id || "", "Pending Allocation");
+          applyDistributionStatus("Pending Allocation", "open");
         }}
       />
       <AllocationCompletedDistributionModal
         open={showAllocationCompletedModal}
         onOpenChange={setShowAllocationCompletedModal}
         onSuccess={() => {
-          setCurrentStatus("Put On Chain");
-          updateDistributionStatus(id || "", "Put On Chain");
+          applyDistributionStatus("Put On Chain", "put_on_chain");
         }}
       />
       <OpenForDistributionModal
         open={showOpenDistributionModal}
         onOpenChange={setShowOpenDistributionModal}
         onSuccess={() => {
-          setCurrentStatus("Open For Distribution");
-          updateDistributionStatus(id || "", "Open For Distribution");
+          const updated = applyDistributionStatus("Open For Distribution", "open");
+          if (!updated) return;
           toast.success(
             isClaimMode
               ? "Distribution is open for claim by investors"
