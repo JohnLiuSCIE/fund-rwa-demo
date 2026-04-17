@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -34,6 +34,10 @@ export function CreateFundDistribution() {
   const [payoutMode, setPayoutMode] = useState<"Direct Transfer" | "Claim">("Claim");
   const [payoutToken, setPayoutToken] = useState(eligibleFunds[0]?.assetCurrency || "HKD");
   const [payoutAccount, setPayoutAccount] = useState("Issuer Treasury Wallet");
+
+  useEffect(() => {
+    setPayoutToken(distributionUnit);
+  }, [distributionUnit]);
 
   const selectedFund =
     eligibleFunds.find((fund) => fund.id === selectedFundId) || eligibleFunds[0];

@@ -64,6 +64,13 @@ export function FundDistributionDetail() {
     return colors[status] || "bg-gray-100 text-gray-800";
   };
 
+  const openDistributionHint =
+    currentStatus === "Open For Distribution"
+      ? isClaimMode
+        ? "可领取 / Claimable by investors"
+        : "系统发放中 / System payout in progress"
+      : null;
+
   const renderActionButtons = () => {
     switch (currentStatus) {
       case "Draft":
@@ -146,6 +153,9 @@ export function FundDistributionDetail() {
           </div>
           <div className="flex gap-2">{renderActionButtons()}</div>
         </div>
+        {openDistributionHint && (
+          <p className="text-sm text-muted-foreground">{openDistributionHint}</p>
+        )}
       </div>
 
       {/* Workflow Progress */}
