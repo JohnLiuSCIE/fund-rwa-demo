@@ -30,6 +30,8 @@ export function AppRoutes() {
         <Route path="fund-distribution/:id" element={<FundDistributionDetail />} />
         <Route path="marketplace/fund-issuance" element={<MarketplaceFundIssuance />} />
         <Route path="marketplace/fund-issuance/:id" element={<FundIssuanceDetail />} />
+        <Route path="marketplace/fund-redemption" element={<ManageFundRedemption />} />
+        <Route path="marketplace/fund-distribution" element={<ManageFundDistribution />} />
         <Route path="user" element={<UserCenter />} />
         <Route path="*" element={<NotFound />} />
       </Route>
