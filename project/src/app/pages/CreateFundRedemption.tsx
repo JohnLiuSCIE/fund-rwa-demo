@@ -38,12 +38,134 @@ export function CreateFundRedemption() {
   const [maxRedemptionQuantityPerInvestor, setMaxRedemptionQuantityPerInvestor] = useState("500000");
   const [manualApprovalRequired, setManualApprovalRequired] = useState(false);
   const [pauseAfterListing, setPauseAfterListing] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [validationSummary, setValidationSummary] = useState<string[]>([]);
 
   const selectedFund = openEndFunds.find((fund) => fund.id === selectedFundId) || openEndFunds[0];
+  const minimumNoticePeriodDays = selectedFund?.noticePeriodDays || 0;
+
+  const parseDateTime = (value: string) => {
+    if (!value) return undefined;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  };
+
+  const validationChecks = useMemo(() => {
+    const effectiveDateValue = parseDateTime(effectiveDate);
+    const announcementDateValue = parseDateTime(announcementDate);
+    const windowStartValue = parseDateTime(windowStart);
+    const windowEndValue = parseDateTime(windowEnd);
+    const noticeValue = Number(noticePeriodDays);
+    const limitValue = Number(maxRedemptionQuantityPerInvestor);
+    const referenceStartDate = redemptionMode === "Window-based" ? windowStartValue : effectiveDateValue;
+    const gapDays =
+      announcementDateValue && referenceStartDate
+        ? (referenceStartDate.getTime() - announcementDateValue.getTime()) / (1000 * 60 * 60 * 24)
+        : undefined;
+    const isGapMatch = gapDays !== undefined && Math.abs(gapDays - noticeValue) < 0.000001;
+
+    return {
+      hasWindowFields: redemptionMode !== "Window-based" || (!!windowStartValue && !!windowEndValue),
+      windowOrderOk: !windowStartValue || !windowEndValue || windowStartValue < windowEndValue,
+      announcementBeforeWindowStart: !announcementDateValue || !windowStartValue || announcementDateValue <= windowStartValue,
+      effectiveNotLaterThanWindowStart: !effectiveDateValue || !windowStartValue || effectiveDateValue <= windowStartValue,
+      noticePeriodRuleOk:
+        Number.isFinite(noticeValue) &&
+        noticeValue >= 0 &&
+        (!!isGapMatch || noticeValue >= minimumNoticePeriodDays),
+      maxLimitRuleOk: Number.isFinite(limitValue) && limitValue > 0,
+    };
+  }, [
+    effectiveDate,
+    announcementDate,
+    windowStart,
+    windowEnd,
+    noticePeriodDays,
+    maxRedemptionQuantityPerInvestor,
+    redemptionMode,
+    minimumNoticePeriodDays,
+  ]);
+
+  const validateForm = () => {
+    const nextErrors: Record<string, string> = {};
+    const nextSummary: string[] = [];
+
+    const effectiveDateValue = parseDateTime(effectiveDate);
+    const announcementDateValue = parseDateTime(announcementDate);
+    const windowStartValue = parseDateTime(windowStart);
+    const windowEndValue = parseDateTime(windowEnd);
+    const noticeValue = Number(noticePeriodDays);
+    const referenceStartDate = redemptionMode === "Window-based" ? windowStartValue : effectiveDateValue;
+
+    if (!selectedFund) {
+      nextErrors.selectedFund = "Please select an open-end fund.";
+      nextSummary.push("Please select an open-end fund.");
+    }
+
+    if (!effectiveDateValue) {
+      nextErrors.effectiveDate = "Effective date is required.";
+      nextSummary.push("Effective date is required.");
+    }
+
+    if (!announcementDateValue) {
+      nextErrors.announcementDate = "Announcement date is required.";
+      nextSummary.push("Announcement date is required.");
+    }
+
+    if (redemptionMode === "Window-based") {
+      if (!windowStartValue) {
+        nextErrors.windowStart = "Window start is required in Window-based mode.";
+        nextSummary.push("Window start is required in Window-based mode.");
+      }
+
+      if (!windowEndValue) {
+        nextErrors.windowEnd = "Window end is required in Window-based mode.";
+        nextSummary.push("Window end is required in Window-based mode.");
+      }
+    }
+
+    if (windowStartValue && windowEndValue && windowStartValue >= windowEndValue) {
+      nextErrors.windowEnd = "Window end must be later than window start.";
+      nextSummary.push("Window start must be earlier than window end.");
+    }
+
+    if (announcementDateValue && windowStartValue && announcementDateValue > windowStartValue) {
+      nextErrors.announcementDate = "Announcement date must be on or before window start.";
+      nextSummary.push("Announcement date must be on or before window start.");
+    }
+
+    if (effectiveDateValue && windowStartValue && effectiveDateValue > windowStartValue) {
+      nextErrors.effectiveDate = "Effective date cannot be later than window start.";
+      nextSummary.push("Effective date cannot be later than window start.");
+    }
+
+    if (!Number.isFinite(noticeValue) || noticeValue < 0) {
+      nextErrors.noticePeriodDays = "Notice period days must be 0 or greater.";
+      nextSummary.push("Notice period days must be 0 or greater.");
+    } else if (announcementDateValue && referenceStartDate) {
+      const gapDays = (referenceStartDate.getTime() - announcementDateValue.getTime()) / (1000 * 60 * 60 * 24);
+      const isGapMatch = Math.abs(gapDays - noticeValue) < 0.000001;
+      const meetsMin = noticeValue >= minimumNoticePeriodDays;
+      if (!isGapMatch && !meetsMin) {
+        nextErrors.noticePeriodDays = `Notice period should equal the announcement gap (${gapDays.toFixed(2)} day(s)) or be at least ${minimumNoticePeriodDays} day(s).`;
+        nextSummary.push("Notice period rule is not satisfied.");
+      }
+    }
+
+    const maxLimitValue = Number(maxRedemptionQuantityPerInvestor);
+    if (!Number.isFinite(maxLimitValue) || maxLimitValue <= 0) {
+      nextErrors.maxRedemptionQuantityPerInvestor = "Max redemption quantity per investor must be greater than 0.";
+      nextSummary.push("Max redemption quantity per investor must be greater than 0.");
+    }
+
+    setFieldErrors(nextErrors);
+    setValidationSummary(nextSummary);
+    return Object.keys(nextErrors).length === 0;
+  };
 
   const handleCreate = () => {
-    if (!selectedFund) {
-      toast.error("Please select an open-end fund");
+    if (!validateForm()) {
+      setActiveTab("rules");
       return;
     }
 
@@ -188,11 +310,27 @@ export function CreateFundRedemption() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Effective date</Label>
-                  <Input type="datetime-local" value={effectiveDate} onChange={(event) => setEffectiveDate(event.target.value)} />
+                  <Input
+                    type="datetime-local"
+                    value={effectiveDate}
+                    onChange={(event) => {
+                      setEffectiveDate(event.target.value);
+                      setFieldErrors((prev) => ({ ...prev, effectiveDate: "" }));
+                    }}
+                  />
+                  {fieldErrors.effectiveDate && <p className="text-sm text-destructive">{fieldErrors.effectiveDate}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label>Announcement date</Label>
-                  <Input type="datetime-local" value={announcementDate} onChange={(event) => setAnnouncementDate(event.target.value)} />
+                  <Input
+                    type="datetime-local"
+                    value={announcementDate}
+                    onChange={(event) => {
+                      setAnnouncementDate(event.target.value);
+                      setFieldErrors((prev) => ({ ...prev, announcementDate: "" }));
+                    }}
+                  />
+                  {fieldErrors.announcementDate && <p className="text-sm text-destructive">{fieldErrors.announcementDate}</p>}
                 </div>
               </div>
 
@@ -200,11 +338,27 @@ export function CreateFundRedemption() {
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Window start</Label>
-                    <Input type="datetime-local" value={windowStart} onChange={(event) => setWindowStart(event.target.value)} />
+                    <Input
+                      type="datetime-local"
+                      value={windowStart}
+                      onChange={(event) => {
+                        setWindowStart(event.target.value);
+                        setFieldErrors((prev) => ({ ...prev, windowStart: "" }));
+                      }}
+                    />
+                    {fieldErrors.windowStart && <p className="text-sm text-destructive">{fieldErrors.windowStart}</p>}
                   </div>
                   <div className="space-y-2">
                     <Label>Window end</Label>
-                    <Input type="datetime-local" value={windowEnd} onChange={(event) => setWindowEnd(event.target.value)} />
+                    <Input
+                      type="datetime-local"
+                      value={windowEnd}
+                      onChange={(event) => {
+                        setWindowEnd(event.target.value);
+                        setFieldErrors((prev) => ({ ...prev, windowEnd: "" }));
+                      }}
+                    />
+                    {fieldErrors.windowEnd && <p className="text-sm text-destructive">{fieldErrors.windowEnd}</p>}
                   </div>
                 </div>
               )}
@@ -212,13 +366,42 @@ export function CreateFundRedemption() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Notice period (days)</Label>
-                  <Input type="number" value={noticePeriodDays} onChange={(event) => setNoticePeriodDays(event.target.value)} />
+                  <Input
+                    type="number"
+                    value={noticePeriodDays}
+                    onChange={(event) => {
+                      setNoticePeriodDays(event.target.value);
+                      setFieldErrors((prev) => ({ ...prev, noticePeriodDays: "" }));
+                    }}
+                  />
+                  {fieldErrors.noticePeriodDays && <p className="text-sm text-destructive">{fieldErrors.noticePeriodDays}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label>Max redemption quantity per investor</Label>
-                  <Input type="number" value={maxRedemptionQuantityPerInvestor} onChange={(event) => setMaxRedemptionQuantityPerInvestor(event.target.value)} />
+                  <Input
+                    type="number"
+                    value={maxRedemptionQuantityPerInvestor}
+                    onChange={(event) => {
+                      setMaxRedemptionQuantityPerInvestor(event.target.value);
+                      setFieldErrors((prev) => ({ ...prev, maxRedemptionQuantityPerInvestor: "" }));
+                    }}
+                  />
+                  {fieldErrors.maxRedemptionQuantityPerInvestor && (
+                    <p className="text-sm text-destructive">{fieldErrors.maxRedemptionQuantityPerInvestor}</p>
+                  )}
                 </div>
               </div>
+
+              {validationSummary.length > 0 && (
+                <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 space-y-2">
+                  <div className="font-medium text-destructive">Please fix the following issues before creating:</div>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-destructive">
+                    {validationSummary.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="rounded-lg border p-4 flex items-center justify-between">
@@ -253,6 +436,59 @@ export function CreateFundRedemption() {
         </TabsContent>
 
         <TabsContent value="review" className="space-y-6">
+          {validationSummary.length > 0 && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 space-y-2">
+                  <div className="font-medium text-destructive">Validation summary</div>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-destructive">
+                    {validationSummary.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div className="font-medium">规则检查摘要</div>
+              <div className="rounded-lg border bg-secondary/50 p-5 space-y-3 text-sm">
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">公告规则（announcementDate ≤ windowStart）</span>
+                  <span className={validationChecks.announcementBeforeWindowStart ? "font-medium text-green-600" : "font-medium text-destructive"}>
+                    {validationChecks.announcementBeforeWindowStart ? "通过" : "未通过"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">窗口规则（windowStart &lt; windowEnd）</span>
+                  <span className={validationChecks.hasWindowFields && validationChecks.windowOrderOk ? "font-medium text-green-600" : "font-medium text-destructive"}>
+                    {validationChecks.hasWindowFields && validationChecks.windowOrderOk ? "通过" : "未通过"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">生效规则（effectiveDate ≤ windowStart）</span>
+                  <span className={validationChecks.effectiveNotLaterThanWindowStart ? "font-medium text-green-600" : "font-medium text-destructive"}>
+                    {validationChecks.effectiveNotLaterThanWindowStart ? "通过" : "未通过"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">公告期规则（gap一致或≥最小值）</span>
+                  <span className={validationChecks.noticePeriodRuleOk ? "font-medium text-green-600" : "font-medium text-destructive"}>
+                    {validationChecks.noticePeriodRuleOk ? "通过" : "未通过"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">限额规则（max redemption &gt; 0）</span>
+                  <span className={validationChecks.maxLimitRuleOk ? "font-medium text-green-600" : "font-medium text-destructive"}>
+                    {validationChecks.maxLimitRuleOk ? "通过" : "未通过"}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="pt-6 space-y-4">
               <div className="rounded-lg border bg-secondary/50 p-5 space-y-3 text-sm">
