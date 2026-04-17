@@ -9,6 +9,7 @@ import { Badge } from "./ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { ChevronDown, Coins } from "lucide-react";
 import { RoleSwitcher } from "./RoleSwitcher";
+
 import { UserRole, useApp } from "../context/AppContext";
 
 type NavChild = {
@@ -71,6 +72,7 @@ const navItems: NavItem[] = [
 function getRoleLabel(role: UserRole) {
   return role === "issuer" ? "发行方" : "投资者";
 }
+
 
 export function Layout() {
   const location = useLocation();
@@ -157,9 +159,12 @@ export function Layout() {
               当前身份：{getRoleLabel(userRole)}
             </Badge>
             <RoleSwitcher />
-            <button className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity">
+            <Link
+              to="/connect-wallet"
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+            >
               Connect Wallet
-            </button>
+            </Link>
           </div>
         </div>
       </header>

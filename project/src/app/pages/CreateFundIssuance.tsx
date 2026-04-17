@@ -255,6 +255,7 @@ export function CreateFundIssuance() {
           note: "Draft creation NAV reference",
         },
       ],
+      identitySource: "authSession",
     };
 
     addFundIssuance(newFund);

@@ -199,6 +199,7 @@ export function CreateFundRedemption() {
       pauseRedemptionAfterListing: pauseAfterListing,
       cutOffTime: selectedFund.dealingCutoffTime || "16:00 HKT",
       createdTime,
+      identitySource: "authSession",
     });
 
     toast.success("Redemption dealing setup created", {

@@ -90,6 +90,7 @@ export function CreateFundDistribution() {
       recordDate,
       paymentDate,
       createdTime,
+      identitySource: "authSession",
     };
 
     addFundDistribution(newDistribution);

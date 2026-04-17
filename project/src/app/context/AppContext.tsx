@@ -45,6 +45,13 @@ interface PermissionResult {
   reason?: string;
 }
 
+export interface AuthSession {
+  walletAddress: string;
+  signedAt: string;
+  role: UserRole | null;
+  isSimulated: boolean;
+}
+
 interface AppContextType {
   fundIssuances: FundIssuance[];
   addFundIssuance: (fund: FundIssuance, action?: PermissionAction) => boolean;
@@ -65,7 +72,10 @@ interface AppContextType {
   addFundDistribution: (distribution: FundDistribution, action?: PermissionAction) => boolean;
   updateDistributionStatus: (id: string, status: string, action?: PermissionAction | string) => boolean;
   userRole: UserRole;
-  setUserRole: (role: UserRole) => void;
+  authSession: AuthSession | null;
+  createAuthSession: (role: UserRole, walletAddress: string, isSimulated?: boolean) => void;
+  clearAuthSession: () => void;
+  isAuthSessionExpired: (session?: AuthSession | null) => boolean;
   currentInvestor: InvestorProfile;
   can: (role: UserRole, action: PermissionAction | string, resource: PermissionResource) => boolean;
   getPermissionResult: (
@@ -131,12 +141,40 @@ function normalizeAction(action: string): string {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [userRole, setUserRole] = useState<UserRole>("issuer");
+  const [authSession, setAuthSession] = useState<AuthSession>({
+    walletAddress: defaultInvestor.wallet,
+    signedAt: new Date().toISOString(),
+    role: "issuer",
+    isSimulated: true,
+  });
   const [fundIssuances, setFundIssuances] = useState<FundIssuance[]>(initialFunds);
   const [fundRedemptions, setFundRedemptions] = useState<FundRedemptionConfig[]>(initialRedemptions);
   const [fundOrders, setFundOrders] = useState<FundOrder[]>(initialFundOrders);
   const [fundBatches, setFundBatches] = useState<FundBatch[]>(initialFundBatches);
   const [fundDistributions, setFundDistributions] = useState<FundDistribution[]>(initialDistributions);
+
+  const isAuthSessionExpired = (session: AuthSession | null = authSession) => {
+    if (!session?.signedAt) return true;
+    const signedAtMs = new Date(session.signedAt).getTime();
+    if (Number.isNaN(signedAtMs)) return true;
+    const SESSION_TTL_MS = 30 * 60 * 1000;
+    return Date.now() - signedAtMs > SESSION_TTL_MS;
+  };
+
+  const createAuthSession = (role: UserRole, walletAddress: string, isSimulated = false) => {
+    setAuthSession({
+      walletAddress,
+      signedAt: new Date().toISOString(),
+      role,
+      isSimulated,
+    });
+  };
+
+  const clearAuthSession = () => {
+    setAuthSession(null);
+  };
+
+  const userRole = authSession?.role ?? "investor";
 
   const can = (role: UserRole, action: PermissionAction | string, resource: PermissionResource) => {
     const actionResources = permissionMatrix[role][normalizeAction(action)] || [];
@@ -157,6 +195,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const ensurePermission = (action: PermissionAction | string, resource: PermissionResource) => {
+    if (!authSession?.role || isAuthSessionExpired()) {
+      console.warn("Write denied: missing or expired auth session role.");
+      return false;
+    }
     const result = getPermissionResult(action, resource);
     if (!result.allowed) {
       console.warn(result.reason);
@@ -165,14 +207,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const ensureIdentitySource = (identitySource?: string) => {
+    if (!authSession?.role || isAuthSessionExpired()) {
+      console.warn("Write denied: missing or expired auth session role.");
+      return false;
+    }
+    if (identitySource !== "authSession") {
+      console.warn("Write denied: identity source must be authSession.");
+      return false;
+    }
+    return true;
+  };
+
   const addFundIssuance = (fund: FundIssuance, action: PermissionAction = "create") => {
+    if (!ensureIdentitySource(fund.identitySource)) return false;
     if (!ensurePermission(action, "issuance")) return false;
     setFundIssuances((prev) => [
       {
         ...fund,
         lastAction: action,
-        lastActorRole: userRole,
+        lastActorRole: authSession.role!,
         lastActionAt: new Date().toISOString(),
+        identitySource: "authSession",
       },
       ...prev,
     ]);
@@ -180,6 +236,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateFundStatus = (id: string, status: string, action: PermissionAction | string = "update") => {
+    if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "issuance")) return false;
     setFundIssuances((prev) =>
       prev.map((fund) =>
@@ -188,8 +245,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ...fund,
               status,
               lastAction: action,
-              lastActorRole: userRole,
+              lastActorRole: authSession.role!,
               lastActionAt: new Date().toISOString(),
+              identitySource: "authSession",
             }
           : fund,
       ),
@@ -198,13 +256,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addFundRedemption = (redemption: FundRedemptionConfig, action: PermissionAction = "create") => {
+    if (!ensureIdentitySource(redemption.identitySource)) return false;
     if (!ensurePermission(action, "redemption")) return false;
     setFundRedemptions((prev) => [
       {
         ...redemption,
         lastAction: action,
-        lastActorRole: userRole,
+        lastActorRole: authSession.role!,
         lastActionAt: new Date().toISOString(),
+        identitySource: "authSession",
       },
       ...prev,
     ]);
@@ -216,6 +276,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     status: FundRedemptionConfig["status"],
     action: PermissionAction | string = "update",
   ) => {
+    if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "redemption")) return false;
     setFundRedemptions((prev) =>
       prev.map((redemption) =>
@@ -224,8 +285,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ...redemption,
               status,
               lastAction: action,
-              lastActorRole: userRole,
+              lastActorRole: authSession.role!,
               lastActionAt: new Date().toISOString(),
+              identitySource: "authSession",
             }
           : redemption,
       ),
@@ -234,13 +296,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addFundOrder = (order: FundOrder, action: PermissionAction | string = order.type === "subscription" ? "subscribe" : "redeem") => {
+    if (!ensureIdentitySource(order.identitySource)) return false;
     if (!ensurePermission(action, "order")) return false;
     setFundOrders((prev) => [
       {
         ...order,
         lastAction: action,
-        lastActorRole: userRole,
+        lastActorRole: authSession.role!,
         lastActionAt: new Date().toISOString(),
+        identitySource: "authSession",
       },
       ...prev,
     ]);
@@ -248,6 +312,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateFundOrderStatus = (id: string, status: FundOrder["status"], action: PermissionAction | string = "update") => {
+    if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "order")) return false;
     setFundOrders((prev) =>
       prev.map((order) =>
@@ -256,8 +321,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ...order,
               status,
               lastAction: action,
-              lastActorRole: userRole,
+              lastActorRole: authSession.role!,
               lastActionAt: new Date().toISOString(),
+              identitySource: "authSession",
             }
           : order,
       ),
@@ -266,19 +332,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addFundBatch = (batch: FundBatch) => {
+    if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission("manage", "order")) return false;
     setFundBatches((prev) => [batch, ...prev]);
     return true;
   };
 
   const addFundDistribution = (distribution: FundDistribution, action: PermissionAction = "create") => {
+    if (!ensureIdentitySource(distribution.identitySource)) return false;
     if (!ensurePermission(action, "distribution")) return false;
     setFundDistributions((prev) => [
       {
         ...distribution,
         lastAction: action,
-        lastActorRole: userRole,
+        lastActorRole: authSession.role!,
         lastActionAt: new Date().toISOString(),
+        identitySource: "authSession",
       },
       ...prev,
     ]);
@@ -286,6 +355,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateDistributionStatus = (id: string, status: string, action: PermissionAction | string = "update") => {
+    if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "distribution")) return false;
     setFundDistributions((prev) =>
       prev.map((distribution) =>
@@ -294,8 +364,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ...distribution,
               status,
               lastAction: action,
-              lastActorRole: userRole,
+              lastActorRole: authSession.role!,
               lastActionAt: new Date().toISOString(),
+              identitySource: "authSession",
             }
           : distribution,
       ),
@@ -321,7 +392,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addFundDistribution,
         updateDistributionStatus,
         userRole,
-        setUserRole,
+        authSession,
+        createAuthSession,
+        clearAuthSession,
+        isAuthSessionExpired,
         currentInvestor: defaultInvestor,
         can,
         getPermissionResult,
