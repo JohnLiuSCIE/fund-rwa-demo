@@ -133,25 +133,22 @@ export const FUND_DISTRIBUTION_STEPS: WorkflowStep[] = [
   },
 ];
 
+const CLOSED_END_ISSUANCE_STATUS_STEP_INDEX: WorkflowStatusStepMap = {
+  Draft: 0,
+  "Pending Approval": 0,
+  "Pending Listing": 0,
+  Upcoming: 0,
+  "Open For Subscription": 1,
+  "Allocation Period": 2,
+  Calculated: 2,
+  "Allocate On Chain": 3,
+  "Allocation Completed": 3,
+  "Issuance Completed": 4,
+  "Issuance Active": 4,
+};
+
 const WORKFLOW_STATUS_STEP_INDEX: Record<WorkflowType, WorkflowStatusStepMap> = {
-  issuance: {
-    Draft: 0,
-    "Pending Approval": 0,
-    "Pending Listing": 0,
-    Upcoming: 0,
-    "Open For Subscription": 1,
-    "Allocation Period": 2,
-    Calculated: 2,
-    "Allocate On Chain": 3,
-    "Allocation Completed": 3,
-    "Issuance Completed": 4,
-    "Issuance Active": 4,
-    Announced: 0,
-    Active: 4,
-    "Window Open": 1,
-    "Window Closed": 4,
-    Done: 4,
-  },
+  issuance: CLOSED_END_ISSUANCE_STATUS_STEP_INDEX,
   redemption: {
     Draft: 0,
     "Pending Approval": 1,
@@ -226,7 +223,7 @@ function getWorkflowConfig(type: WorkflowType, fundType: IssuanceFundType = "Clo
         steps: CLOSED_END_ISSUANCE_STEPS,
         title: "Fund Issuance Workflow",
         description: "Track your fund from creation to activation through the complete lifecycle",
-        statusToStepIndex: WORKFLOW_STATUS_STEP_INDEX.issuance,
+        statusToStepIndex: CLOSED_END_ISSUANCE_STATUS_STEP_INDEX,
       };
   }
 }
