@@ -28,6 +28,7 @@ export type OrderStatus =
   | "Rejected";
 
 export type BatchStatus = "Scheduled" | "Processing" | "Confirmed" | "Settled";
+export type ActorRole = "issuer" | "investor";
 
 export interface NavRecord {
   id: string;
@@ -98,6 +99,9 @@ export interface FundIssuance {
   totalSubscribedAmount?: string;
   totalRedeemedAmount?: string;
   navHistory: NavRecord[];
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
 }
 
 export interface FundOrder {
@@ -119,6 +123,9 @@ export interface FundOrder {
   status: OrderStatus;
   batchId?: string;
   note?: string;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
 }
 
 export interface FundBatch {
@@ -157,6 +164,9 @@ export interface FundRedemptionConfig {
   pauseRedemptionAfterListing: boolean;
   cutOffTime: string;
   createdTime: string;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
 }
 
 export interface FundDistribution {
@@ -181,6 +191,9 @@ export interface FundDistribution {
   recordDate?: string;
   paymentDate?: string;
   createdTime?: string;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
 }
 
 export const initialFunds: FundIssuance[] = [

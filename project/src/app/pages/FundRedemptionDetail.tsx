@@ -335,6 +335,8 @@ export function FundRedemptionDetail() {
     fundIssuances,
     updateRedemptionStatus,
     updateFundOrderStatus,
+    getPermissionResult,
+    userRole,
   } = useApp();
 
   const redemption = fundRedemptions.find((item) => item.id === id);
@@ -359,17 +361,26 @@ export function FundRedemptionDetail() {
   );
 
   const handleStatusChange = (nextStatus: typeof redemption.status, message: string) => {
-    updateRedemptionStatus(redemption.id, nextStatus);
+    if (!pendingAction) return;
+    const updated = updateRedemptionStatus(
+      redemption.id,
+      nextStatus,
+      pendingAction.label.toLowerCase(),
+    );
+    if (!updated) return;
     toast.success(message);
   };
 
   const renderActionButtons = () => {
     const action = getRedemptionAction(redemption);
     if (!action) return null;
+    const permission = getPermissionResult(action.label.toLowerCase(), "redemption");
 
     return (
       <Button
         variant={action.variant}
+        disabled={!permission.allowed}
+        title={permission.reason}
         onClick={() => {
           setPendingAction(action);
           setActionModalOpen(true);
@@ -555,6 +566,9 @@ export function FundRedemptionDetail() {
                 <TableBody>
                   {requests.map((request) => {
                     const nextAction = getNextRedemptionOrderAction(request);
+                    const permission = nextAction
+                      ? getPermissionResult(nextAction.label.toLowerCase(), "order")
+                      : { allowed: true };
                     return (
                       <TableRow key={request.id}>
                         <TableCell className="font-mono text-xs">{request.id}</TableCell>
@@ -577,6 +591,8 @@ export function FundRedemptionDetail() {
                             <Button
                               variant="outline"
                               size="sm"
+                              disabled={!permission.allowed}
+                              title={permission.allowed ? undefined : permission.reason}
                               onClick={() => {
                                 const actionConfig = getRedemptionRequestActionConfig(request);
                                 if (!actionConfig) return;
@@ -656,6 +672,7 @@ export function FundRedemptionDetail() {
             { label: "Linked Fund", value: redemption.fundName },
             { label: "Mode", value: redemption.redemptionMode },
             { label: "Current Status", value: redemption.status },
+            { label: "Actor Role", value: userRole },
           ]}
         />
       )}
@@ -670,10 +687,12 @@ export function FundRedemptionDetail() {
             }
           }}
           onSuccess={() => {
-            updateFundOrderStatus(
+            const updated = updateFundOrderStatus(
               pendingRequestAction.orderId,
               pendingRequestAction.nextStatus,
+              pendingRequestAction.label.toLowerCase(),
             );
+            if (!updated) return;
             toast.success(
               `${pendingRequestAction.orderId} moved to ${pendingRequestAction.nextStatus}`,
             );
