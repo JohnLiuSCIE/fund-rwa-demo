@@ -454,36 +454,36 @@ export function CreateFundRedemption() {
 
           <Card>
             <CardContent className="pt-6 space-y-4">
-              <div className="font-medium">规则检查摘要</div>
+              <div className="font-medium">Rule Check Summary</div>
               <div className="rounded-lg border bg-secondary/50 p-5 space-y-3 text-sm">
                 <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">公告规则（announcementDate ≤ windowStart）</span>
+                  <span className="text-muted-foreground">Announcement rule (announcementDate before or on window start)</span>
                   <span className={validationChecks.announcementBeforeWindowStart ? "font-medium text-green-600" : "font-medium text-destructive"}>
-                    {validationChecks.announcementBeforeWindowStart ? "通过" : "未通过"}
+                    {validationChecks.announcementBeforeWindowStart ? "Pass" : "Fail"}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">窗口规则（windowStart &lt; windowEnd）</span>
+                  <span className="text-muted-foreground">Window rule (window start before window end)</span>
                   <span className={validationChecks.hasWindowFields && validationChecks.windowOrderOk ? "font-medium text-green-600" : "font-medium text-destructive"}>
-                    {validationChecks.hasWindowFields && validationChecks.windowOrderOk ? "通过" : "未通过"}
+                    {validationChecks.hasWindowFields && validationChecks.windowOrderOk ? "Pass" : "Fail"}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">生效规则（effectiveDate ≤ windowStart）</span>
+                  <span className="text-muted-foreground">Effective-date rule (effective date before or on window start)</span>
                   <span className={validationChecks.effectiveNotLaterThanWindowStart ? "font-medium text-green-600" : "font-medium text-destructive"}>
-                    {validationChecks.effectiveNotLaterThanWindowStart ? "通过" : "未通过"}
+                    {validationChecks.effectiveNotLaterThanWindowStart ? "Pass" : "Fail"}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">公告期规则（gap一致或≥最小值）</span>
+                  <span className="text-muted-foreground">Notice-period rule (gap matches or exceeds minimum)</span>
                   <span className={validationChecks.noticePeriodRuleOk ? "font-medium text-green-600" : "font-medium text-destructive"}>
-                    {validationChecks.noticePeriodRuleOk ? "通过" : "未通过"}
+                    {validationChecks.noticePeriodRuleOk ? "Pass" : "Fail"}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">限额规则（max redemption &gt; 0）</span>
+                  <span className="text-muted-foreground">Limit rule (maximum redemption above zero)</span>
                   <span className={validationChecks.maxLimitRuleOk ? "font-medium text-green-600" : "font-medium text-destructive"}>
-                    {validationChecks.maxLimitRuleOk ? "通过" : "未通过"}
+                    {validationChecks.maxLimitRuleOk ? "Pass" : "Fail"}
                   </span>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   ArrowRightLeft,
@@ -18,6 +18,16 @@ import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import { Switch } from "../components/ui/switch";
 import {
   Table,
   TableBody,
@@ -26,6 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/table";
+import { Textarea } from "../components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { InfoAlert } from "../components/InfoAlert";
 import { MetricCard } from "../components/MetricCard";
@@ -45,6 +56,666 @@ function formatNumber(value: number, digits = 2) {
 
 function nowString() {
   return new Date().toISOString().slice(0, 19).replace("T", " ");
+}
+
+type EditableSection = "deal" | "token" | "operations";
+
+interface FundEditFormState {
+  name: string;
+  description: string;
+  fundManager: string;
+  issuerEntity: string;
+  fundJurisdiction: string;
+  shareClass: string;
+  assetCurrency: string;
+  targetFundSizeValue: string;
+  minSubscriptionAmountValue: string;
+  maxSubscriptionAmountValue: string;
+  initialNavValue: string;
+  managementFee: string;
+  performanceFee: string;
+  investmentStrategy: string;
+  issueDate: string;
+  maturityDate: string;
+  subscriptionStartDate: string;
+  subscriptionEndDate: string;
+  allocationRule: string;
+  tokenName: string;
+  tokenSymbol: string;
+  tokenStandard: string;
+  tokenDecimals: string;
+  isinCode: string;
+  unitPerToken: string;
+  transferRestricted: boolean;
+  whitelistRequired: boolean;
+  mintingRule: string;
+  tradable: boolean;
+  dealingFrequency: string;
+  dealingCutoffTime: string;
+  navValuationTime: string;
+  settlementCycle: string;
+  subscriptionStatus: "Open" | "Paused";
+  redemptionStatus: "Open" | "Paused";
+  noticePeriodDays: string;
+  maxRedemptionPerInvestor: string;
+  fundLevelRedemptionGate: string;
+  orderConfirmationMethod: string;
+}
+
+function formatAmount(value: number, currency: string) {
+  return `${new Intl.NumberFormat("en-US").format(value)} ${currency}`;
+}
+
+function formatNav(value: number, currency: string) {
+  return `${value.toFixed(4)} ${currency}`;
+}
+
+function parsePercentage(value: string) {
+  return value.replace("% p.a.", "").replace("%", "").replace("N/A", "").trim();
+}
+
+function parseNumericPrefix(value?: string) {
+  const match = value?.match(/[\d.]+/);
+  return match?.[0] ?? "";
+}
+
+function toDateTimeLocal(value?: string | null) {
+  return value ? value.slice(0, 16).replace(" ", "T") : "";
+}
+
+function fromDateTimeLocal(value: string) {
+  return value ? `${value.replace("T", " ")}:00` : "";
+}
+
+function parseBooleanLabel(value?: string) {
+  return value === "Yes";
+}
+
+function extractTimeValue(value?: string) {
+  return value?.slice(0, 5) || "";
+}
+
+function parseMintingRule(value?: string) {
+  return value === "Pre-minted treasury inventory" ? "pre-minted" : "mint-burn";
+}
+
+function parseOrderConfirmationMethod(value?: string) {
+  return value === "Issuer review then confirm" ? "manual" : "auto";
+}
+
+function buildFundEditFormState(fund: FundIssuance): FundEditFormState {
+  return {
+    name: fund.name,
+    description: fund.description,
+    fundManager: fund.fundManager,
+    issuerEntity: fund.issuerEntity || "",
+    fundJurisdiction: fund.fundJurisdiction || "",
+    shareClass: fund.shareClass || "",
+    assetCurrency: fund.assetCurrency,
+    targetFundSizeValue: String(fund.targetFundSizeValue || 0),
+    minSubscriptionAmountValue: String(fund.minSubscriptionAmountValue || 0),
+    maxSubscriptionAmountValue: String(fund.maxSubscriptionAmountValue || 0),
+    initialNavValue: String(fund.initialNavValue || 0),
+    managementFee: parsePercentage(fund.managementFee),
+    performanceFee: parsePercentage(fund.performanceFee),
+    investmentStrategy: fund.investmentStrategy,
+    issueDate: toDateTimeLocal(fund.issueDate),
+    maturityDate: toDateTimeLocal(fund.maturityDate),
+    subscriptionStartDate: toDateTimeLocal(fund.subscriptionStartDate),
+    subscriptionEndDate: toDateTimeLocal(fund.subscriptionEndDate),
+    allocationRule:
+      fund.allocationRule === "First-come-first-served"
+        ? "first-come-first-served"
+        : "pro-rata",
+    tokenName: fund.tokenName,
+    tokenSymbol: fund.tokenSymbol || "",
+    tokenStandard: fund.tokenStandard || "ERC-3643",
+    tokenDecimals: String(fund.tokenDecimals ?? 18),
+    isinCode: fund.isinCode || "",
+    unitPerToken: fund.unitPerToken || "1 fund unit",
+    transferRestricted: parseBooleanLabel(fund.transferRestricted),
+    whitelistRequired: parseBooleanLabel(fund.whitelistRequired),
+    mintingRule: parseMintingRule(fund.mintingRule),
+    tradable: parseBooleanLabel(fund.tradable),
+    dealingFrequency: (fund.dealingFrequency || "Daily").toLowerCase(),
+    dealingCutoffTime: extractTimeValue(fund.dealingCutoffTime),
+    navValuationTime: extractTimeValue(fund.navValuationTime),
+    settlementCycle: fund.settlementCycle || "T+1",
+    subscriptionStatus: fund.subscriptionStatus || "Open",
+    redemptionStatus: fund.redemptionStatus || "Open",
+    noticePeriodDays: String(fund.noticePeriodDays ?? 0),
+    maxRedemptionPerInvestor: parseNumericPrefix(fund.maxRedemptionPerInvestor),
+    fundLevelRedemptionGate: parseNumericPrefix(fund.fundLevelRedemptionGate),
+    orderConfirmationMethod: parseOrderConfirmationMethod(fund.orderConfirmationMethod),
+  };
+}
+
+function getEditableSections(fund: FundIssuance): EditableSection[] {
+  if (fund.fundType === "Open-end") {
+    if (["Draft", "Pending Approval", "Pending Listing", "Upcoming Launch"].includes(fund.status)) {
+      return ["deal", "token", "operations"];
+    }
+    if (["Initial Subscription", "Active Dealing", "Paused"].includes(fund.status)) {
+      return ["operations"];
+    }
+    return [];
+  }
+
+  if (["Draft", "Pending Approval", "Pending Listing", "Upcoming"].includes(fund.status)) {
+    return ["deal", "token", "operations"];
+  }
+  if (fund.status === "Open For Subscription") {
+    return ["operations"];
+  }
+  return [];
+}
+
+function getEditingPolicyMessage(fund: FundIssuance) {
+  const editableSections = getEditableSections(fund);
+  if (editableSections.length === 0) {
+    return fund.fundType === "Open-end"
+      ? "This stage is locked. Once the fund is beyond launch operations, fund setup fields become read-only."
+      : "This stage is locked. Once allocation begins, issuance setup fields become read-only.";
+  }
+
+  if (editableSections.length === 3) {
+    return "Current stage allows full setup edits across deal terms, token setup, and operating rules.";
+  }
+
+  return fund.fundType === "Open-end"
+    ? "Current stage only allows operating-rule updates. Deal terms and token setup are locked."
+    : "Current stage only allows issuance-rule updates. Core deal terms and token setup are locked.";
+}
+
+function getIssuerPermissionAction(label: string) {
+  const normalized = label.trim().toLowerCase();
+  if (normalized.includes("submit")) return "submit";
+  if (normalized.includes("approve")) return "approve";
+  if (normalized.includes("list")) return "list";
+  if (normalized.includes("open")) return "open";
+  if (normalized.includes("resume")) return "open";
+  if (normalized.includes("pause")) return "pause";
+  if (normalized.includes("allocate on chain")) return "put_on_chain";
+  return "manage";
+}
+
+function formatRuleType(ruleType: string) {
+  switch (ruleType) {
+    case "investor-type":
+      return "Investor type";
+    case "investor-jurisdiction":
+      return "Investor jurisdiction";
+    default:
+      return ruleType || "Rule";
+  }
+}
+
+function FundSetupEditor({
+  fundData,
+  onSave,
+  onCancel,
+}: {
+  fundData: FundIssuance;
+  onSave: (updates: Partial<FundIssuance>) => void;
+  onCancel: () => void;
+}) {
+  const editableSections = getEditableSections(fundData);
+  const [form, setForm] = useState<FundEditFormState>(() => buildFundEditFormState(fundData));
+
+  useEffect(() => {
+    setForm(buildFundEditFormState(fundData));
+  }, [fundData]);
+
+  const canEditDeal = editableSections.includes("deal");
+  const canEditToken = editableSections.includes("token");
+  const canEditOperations = editableSections.includes("operations");
+
+  const setField = <K extends keyof FundEditFormState,>(
+    key: K,
+    value: FundEditFormState[K],
+  ) => {
+    setForm((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const handleSave = () => {
+    const targetFundSizeValue = Number(form.targetFundSizeValue) || 0;
+    const minSubscriptionAmountValue = Number(form.minSubscriptionAmountValue) || 0;
+    const maxSubscriptionAmountValue = Number(form.maxSubscriptionAmountValue) || 0;
+    const initialNavValue = Number(form.initialNavValue) || 0;
+    const previousInitialNavValue = fundData.initialNavValue;
+    const nextCurrentNavValue =
+      fundData.currentNavValue === previousInitialNavValue ? initialNavValue : fundData.currentNavValue;
+    const updates: Partial<FundIssuance> = {
+      name: form.name.trim() || fundData.name,
+      description: form.description.trim() || fundData.description,
+      fundManager: form.fundManager.trim() || fundData.fundManager,
+      issuerEntity: form.issuerEntity.trim() || undefined,
+      fundJurisdiction: form.fundJurisdiction.trim() || undefined,
+      shareClass: form.shareClass.trim() || undefined,
+      assetCurrency: form.assetCurrency,
+      targetFundSizeValue,
+      targetFundSize: formatAmount(targetFundSizeValue, form.assetCurrency),
+      minSubscriptionAmountValue,
+      minSubscriptionAmount: formatAmount(minSubscriptionAmountValue, form.assetCurrency),
+      maxSubscriptionAmountValue,
+      maxSubscriptionAmount: formatAmount(maxSubscriptionAmountValue, form.assetCurrency),
+      initialNavValue,
+      initialNav: formatNav(initialNavValue, form.assetCurrency),
+      currentNavValue: nextCurrentNavValue,
+      currentNav: formatNav(nextCurrentNavValue, form.assetCurrency),
+      navCurrency: form.assetCurrency,
+      managementFee: `${form.managementFee || "0"}% p.a.`,
+      performanceFee: form.performanceFee ? `${form.performanceFee}%` : "N/A",
+      investmentStrategy: form.investmentStrategy.trim() || fundData.investmentStrategy,
+      issueDate: fromDateTimeLocal(form.issueDate),
+      maturityDate: fundData.fundType === "Closed-end" ? fromDateTimeLocal(form.maturityDate) || null : null,
+      subscriptionStartDate: fromDateTimeLocal(form.subscriptionStartDate),
+      subscriptionEndDate: fromDateTimeLocal(form.subscriptionEndDate),
+      allocationRule:
+        form.allocationRule === "first-come-first-served"
+          ? "First-come-first-served"
+          : "Pro-rata",
+      tokenName: form.tokenName.trim() || fundData.tokenName,
+      tokenSymbol: form.tokenSymbol.trim().toUpperCase() || undefined,
+      tokenStandard: form.tokenStandard,
+      tokenDecimals: Math.max(Number(form.tokenDecimals) || 0, 0),
+      isinCode: form.isinCode.trim() || undefined,
+      unitPerToken: form.unitPerToken.trim() || undefined,
+      transferRestricted: form.transferRestricted ? "Yes" : "No",
+      whitelistRequired: form.whitelistRequired ? "Yes" : "No",
+      mintingRule:
+        form.mintingRule === "pre-minted"
+          ? "Pre-minted treasury inventory"
+          : "Mint and burn on subscription / redemption",
+      tradable: form.tradable ? "Yes" : "No",
+      dealingFrequency: fundData.fundType === "Open-end"
+        ? form.dealingFrequency.charAt(0).toUpperCase() + form.dealingFrequency.slice(1)
+        : fundData.dealingFrequency,
+      redemptionFrequency: fundData.fundType === "Open-end"
+        ? form.dealingFrequency.charAt(0).toUpperCase() + form.dealingFrequency.slice(1)
+        : fundData.redemptionFrequency,
+      dealingCutoffTime: form.dealingCutoffTime ? `${form.dealingCutoffTime} HKT` : undefined,
+      navValuationTime: form.navValuationTime ? `${form.navValuationTime} HKT` : undefined,
+      settlementCycle: form.settlementCycle,
+      subscriptionStatus: form.subscriptionStatus,
+      redemptionStatus: form.redemptionStatus,
+      noticePeriodDays: Number(form.noticePeriodDays) || 0,
+      maxRedemptionPerInvestor: form.maxRedemptionPerInvestor
+        ? `${form.maxRedemptionPerInvestor} units / dealing cycle`
+        : undefined,
+      fundLevelRedemptionGate: form.fundLevelRedemptionGate
+        ? `${form.fundLevelRedemptionGate}% of fund NAV`
+        : undefined,
+      orderConfirmationMethod:
+        form.orderConfirmationMethod === "manual"
+          ? "Issuer review then confirm"
+          : "Auto at cut-off",
+    };
+
+    onSave(updates);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Edit Mode</CardTitle>
+        <p className="text-sm text-muted-foreground">{getEditingPolicyMessage(fundData)}</p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-6">
+          {canEditDeal && (
+            <div className="space-y-4 rounded-lg border p-4">
+              <div>
+                <h3 className="font-medium">Deal Terms</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Core fund identity, economics, and initial issuance parameters.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Fund name</Label>
+                  <Input value={form.name} onChange={(event) => setField("name", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Asset currency</Label>
+                  <Select value={form.assetCurrency} onValueChange={(value) => setField("assetCurrency", value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="HKD">HKD</SelectItem>
+                      <SelectItem value="USDC">USDC</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Fund description</Label>
+                <Textarea value={form.description} onChange={(event) => setField("description", event.target.value)} rows={3} />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Fund manager</Label>
+                  <Input value={form.fundManager} onChange={(event) => setField("fundManager", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Issuer entity</Label>
+                  <Input value={form.issuerEntity} onChange={(event) => setField("issuerEntity", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Fund jurisdiction</Label>
+                  <Input value={form.fundJurisdiction} onChange={(event) => setField("fundJurisdiction", event.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Share class</Label>
+                  <Input value={form.shareClass} onChange={(event) => setField("shareClass", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Target fund size</Label>
+                  <Input type="number" value={form.targetFundSizeValue} onChange={(event) => setField("targetFundSizeValue", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Initial NAV</Label>
+                  <Input type="number" step="0.0001" value={form.initialNavValue} onChange={(event) => setField("initialNavValue", event.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Minimum subscription amount</Label>
+                  <Input type="number" value={form.minSubscriptionAmountValue} onChange={(event) => setField("minSubscriptionAmountValue", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Maximum subscription amount</Label>
+                  <Input type="number" value={form.maxSubscriptionAmountValue} onChange={(event) => setField("maxSubscriptionAmountValue", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Allocation rule</Label>
+                  <Select value={form.allocationRule} onValueChange={(value) => setField("allocationRule", value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pro-rata">Pro-rata</SelectItem>
+                      <SelectItem value="first-come-first-served">First-come-first-served</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Management fee (%)</Label>
+                  <Input type="number" step="0.01" value={form.managementFee} onChange={(event) => setField("managementFee", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Performance fee (%)</Label>
+                  <Input type="number" step="0.01" value={form.performanceFee} onChange={(event) => setField("performanceFee", event.target.value)} />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Investment strategy</Label>
+                <Textarea value={form.investmentStrategy} onChange={(event) => setField("investmentStrategy", event.target.value)} rows={4} />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Issue date</Label>
+                  <Input type="datetime-local" value={form.issueDate} onChange={(event) => setField("issueDate", event.target.value)} />
+                </div>
+                {fundData.fundType === "Closed-end" && (
+                  <div className="space-y-2">
+                    <Label>Maturity date</Label>
+                    <Input type="datetime-local" value={form.maturityDate} onChange={(event) => setField("maturityDate", event.target.value)} />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {canEditToken && (
+            <div className="space-y-4 rounded-lg border p-4">
+              <div>
+                <h3 className="font-medium">Token Setup</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Token metadata and transfer-control configuration.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Token name</Label>
+                  <Input value={form.tokenName} onChange={(event) => setField("tokenName", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Token symbol</Label>
+                  <Input value={form.tokenSymbol} maxLength={15} onChange={(event) => setField("tokenSymbol", event.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Token standard</Label>
+                  <Select value={form.tokenStandard} onValueChange={(value) => setField("tokenStandard", value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ERC-20">ERC-20</SelectItem>
+                      <SelectItem value="ERC-3643">ERC-3643</SelectItem>
+                      <SelectItem value="ERC-1400">ERC-1400</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Token decimals</Label>
+                  <Input type="number" min="0" max="18" value={form.tokenDecimals} onChange={(event) => setField("tokenDecimals", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>ISIN / security code</Label>
+                  <Input value={form.isinCode} onChange={(event) => setField("isinCode", event.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>1 token represents</Label>
+                  <Input value={form.unitPerToken} onChange={(event) => setField("unitPerToken", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Minting rule</Label>
+                  <Select value={form.mintingRule} onValueChange={(value) => setField("mintingRule", value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mint-burn">Mint / burn on dealing</SelectItem>
+                      <SelectItem value="pre-minted">Pre-minted inventory</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="flex items-center justify-between rounded-lg border p-4">
+                  <div>
+                    <div className="font-medium">Transfer restricted</div>
+                  </div>
+                  <Switch checked={form.transferRestricted} onCheckedChange={(value) => setField("transferRestricted", value)} />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-4">
+                  <div>
+                    <div className="font-medium">Whitelist required</div>
+                  </div>
+                  <Switch checked={form.whitelistRequired} onCheckedChange={(value) => setField("whitelistRequired", value)} />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-4">
+                  <div>
+                    <div className="font-medium">Tradable</div>
+                  </div>
+                  <Switch checked={form.tradable} onCheckedChange={(value) => setField("tradable", value)} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {canEditOperations && (
+            <div className="space-y-4 rounded-lg border p-4">
+              <div>
+                <h3 className="font-medium">
+                  {fundData.fundType === "Open-end" ? "Operating Rules" : "Issuance Rules"}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {fundData.fundType === "Open-end"
+                    ? "These fields remain adjustable during launch and operating stages."
+                    : "These fields remain adjustable until allocation begins."}
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Subscription start</Label>
+                  <Input type="datetime-local" value={form.subscriptionStartDate} onChange={(event) => setField("subscriptionStartDate", event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Subscription end</Label>
+                  <Input type="datetime-local" value={form.subscriptionEndDate} onChange={(event) => setField("subscriptionEndDate", event.target.value)} />
+                </div>
+              </div>
+
+              {fundData.fundType === "Open-end" ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Dealing frequency</Label>
+                      <Select value={form.dealingFrequency} onValueChange={(value) => setField("dealingFrequency", value)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="daily">Daily</SelectItem>
+                          <SelectItem value="weekly">Weekly</SelectItem>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Settlement cycle</Label>
+                      <Select value={form.settlementCycle} onValueChange={(value) => setField("settlementCycle", value)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="T+0">T+0</SelectItem>
+                          <SelectItem value="T+1">T+1</SelectItem>
+                          <SelectItem value="T+2">T+2</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Dealing cut-off time</Label>
+                      <Input type="time" value={form.dealingCutoffTime} onChange={(event) => setField("dealingCutoffTime", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>NAV valuation time</Label>
+                      <Input type="time" value={form.navValuationTime} onChange={(event) => setField("navValuationTime", event.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Notice period (days)</Label>
+                      <Input type="number" value={form.noticePeriodDays} onChange={(event) => setField("noticePeriodDays", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Order confirmation method</Label>
+                      <Select value={form.orderConfirmationMethod} onValueChange={(value) => setField("orderConfirmationMethod", value)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto at cut-off</SelectItem>
+                          <SelectItem value="manual">Issuer review then confirm</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Max redemption per investor</Label>
+                      <Input type="number" value={form.maxRedemptionPerInvestor} onChange={(event) => setField("maxRedemptionPerInvestor", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Fund-level redemption gate (%)</Label>
+                      <Input type="number" value={form.fundLevelRedemptionGate} onChange={(event) => setField("fundLevelRedemptionGate", event.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Subscription status</Label>
+                      <Select value={form.subscriptionStatus} onValueChange={(value) => setField("subscriptionStatus", value as "Open" | "Paused")}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Open">Open</SelectItem>
+                          <SelectItem value="Paused">Paused</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Redemption status</Label>
+                      <Select value={form.redemptionStatus} onValueChange={(value) => setField("redemptionStatus", value as "Open" | "Paused")}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Open">Open</SelectItem>
+                          <SelectItem value="Paused">Paused</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Allocation rule</Label>
+                  <Select value={form.allocationRule} onValueChange={(value) => setField("allocationRule", value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pro-rata">Pro-rata</SelectItem>
+                      <SelectItem value="first-come-first-served">First-come-first-served</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave}>Save Changes</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function getNextOrderAction(order: FundOrder) {
@@ -646,6 +1317,7 @@ export function FundIssuanceDetail() {
   const isMarketplaceView = location.pathname.includes("marketplace");
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [issuerActionModalOpen, setIssuerActionModalOpen] = useState(false);
   const [pendingIssuerAction, setPendingIssuerAction] = useState<
     ReturnType<typeof getFundAction> | null
@@ -657,6 +1329,7 @@ export function FundIssuanceDetail() {
     fundOrders,
     addFundOrder,
     updateFundOrderStatus,
+    updateFundIssuance,
     updateFundStatus,
     getPermissionResult,
     userRole,
@@ -686,6 +1359,8 @@ export function FundIssuanceDetail() {
   }
 
   const isOpenEnd = fundData.fundType === "Open-end";
+  const persistedReferences = fundData.references ?? [];
+  const persistedInvestorRules = fundData.investorRules ?? [];
   const subscriptionOrders = visibleOrders.filter((order) => order.type === "subscription");
   const redemptionOrders = visibleOrders.filter((order) => order.type === "redemption");
   const pendingSubscriptionOrders = allFundOrders.filter(
@@ -713,7 +1388,7 @@ export function FundIssuanceDetail() {
     const updated = updateFundStatus(
       fundData.id,
       nextStatus,
-      pendingIssuerAction.label.toLowerCase(),
+      getIssuerPermissionAction(pendingIssuerAction.label),
     );
     if (!updated) return;
     toast.success(description);
@@ -794,6 +1469,7 @@ export function FundIssuanceDetail() {
   };
 
   const issuerAction = getFundAction(fundData);
+  const editableSections = getEditableSections(fundData);
   const canOpenEndSubscribe =
     isOpenEnd &&
     ["Initial Subscription", "Active Dealing"].includes(fundData.status) &&
@@ -805,10 +1481,16 @@ export function FundIssuanceDetail() {
   const canClosedEndSubscribe = !isOpenEnd && fundData.status === "Open For Subscription";
   const subscribePermission = getPermissionResult("subscribe", "order");
   const redeemPermission = getPermissionResult("redeem", "order");
+  const updateFundPermission = getPermissionResult("update", "issuance");
   const issuerActionPermission = issuerAction
-    ? getPermissionResult(issuerAction.label.toLowerCase(), "issuance")
+    ? getPermissionResult(getIssuerPermissionAction(issuerAction.label), "issuance")
     : { allowed: true as const };
   const manageOrderPermission = getPermissionResult("review", "order");
+  const canEditSetup =
+    !isMarketplaceView &&
+    userRole === "issuer" &&
+    updateFundPermission.allowed &&
+    editableSections.length > 0;
 
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
@@ -855,63 +1537,38 @@ export function FundIssuanceDetail() {
             <p className="mt-2 max-w-3xl text-muted-foreground">{fundData.description}</p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {isMarketplaceView ? (
-              <>
-                {canOpenEndSubscribe && (
-                  <Button
-                    disabled={!subscribePermission.allowed}
-                    title={subscribePermission.reason}
-                    onClick={() => setShowSubscribeModal(true)}
-                  >
-                    Subscribe
-                  </Button>
-                )}
-                {canOpenEndRedeem && (
-                  <Button
-                    variant="outline"
-                    disabled={!redeemPermission.allowed}
-                    title={redeemPermission.reason}
-                    onClick={() => setShowRedeemModal(true)}
-                  >
-                    Redeem
-                  </Button>
-                )}
-                {canClosedEndSubscribe && (
-                  <Button
-                    disabled={!subscribePermission.allowed}
-                    title={subscribePermission.reason}
-                    onClick={() => setShowSubscribeModal(true)}
-                  >
-                    Subscribe
-                  </Button>
-                )}
-              </>
-            ) : (
-              <>
-                <Button asChild variant="outline">
-                  <Link to="/manage/fund-redemption">Go to Redemption Setup</Link>
+          {isMarketplaceView && (
+            <div className="flex flex-wrap gap-2">
+              {canOpenEndSubscribe && (
+                <Button
+                  disabled={!subscribePermission.allowed}
+                  title={subscribePermission.reason}
+                  onClick={() => setShowSubscribeModal(true)}
+                >
+                  Subscribe
                 </Button>
-                <Button asChild variant="outline">
-                  <Link to="/manage/fund-distribution">Go to Distribution Setup</Link>
+              )}
+              {canOpenEndRedeem && (
+                <Button
+                  variant="outline"
+                  disabled={!redeemPermission.allowed}
+                  title={redeemPermission.reason}
+                  onClick={() => setShowRedeemModal(true)}
+                >
+                  Redeem
                 </Button>
-                {issuerAction && (
-                  <Button
-                    variant={issuerAction.variant}
-                    disabled={!issuerActionPermission.allowed}
-                    title={issuerActionPermission.reason}
-                    onClick={() => {
-                      setPendingIssuerAction(issuerAction);
-                      setIssuerActionModalOpen(true);
-                    }}
-                  >
-                    <issuerAction.icon className="mr-2 h-4 w-4" />
-                    {issuerAction.label}
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
+              )}
+              {canClosedEndSubscribe && (
+                <Button
+                  disabled={!subscribePermission.allowed}
+                  title={subscribePermission.reason}
+                  onClick={() => setShowSubscribeModal(true)}
+                >
+                  Subscribe
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         {isOpenEnd ? (
@@ -932,8 +1589,55 @@ export function FundIssuanceDetail() {
         <FundIssuanceWorkflow
           currentStatus={fundData.status}
           fundType={fundData.fundType}
+          actionSlot={
+            !isMarketplaceView && issuerAction ? (
+              <Button
+                variant={issuerAction.variant}
+                disabled={!issuerActionPermission.allowed}
+                title={issuerActionPermission.reason}
+                onClick={() => {
+                  setPendingIssuerAction(issuerAction);
+                  setIssuerActionModalOpen(true);
+                }}
+              >
+                <issuerAction.icon className="mr-2 h-4 w-4" />
+                {issuerAction.label}
+              </Button>
+            ) : undefined
+          }
         />
       </div>
+
+      {!isMarketplaceView && (
+        <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-sm font-medium">Field Editing Policy</div>
+            <div className="mt-1 text-sm text-muted-foreground">
+              {getEditingPolicyMessage(fundData)}
+            </div>
+          </div>
+          {canEditSetup && !isInlineEditing && (
+            <Button variant="outline" onClick={() => setIsInlineEditing(true)}>
+              Enter Edit Mode
+            </Button>
+          )}
+        </div>
+      )}
+
+      {isInlineEditing && (
+        <div className="mb-8">
+          <FundSetupEditor
+            fundData={fundData}
+            onCancel={() => setIsInlineEditing(false)}
+            onSave={(updates) => {
+              const updated = updateFundIssuance(fundData.id, updates, "update");
+              if (!updated) return;
+              setIsInlineEditing(false);
+              toast.success("Allowed fund fields updated");
+            }}
+          />
+        </div>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-1">
@@ -945,6 +1649,14 @@ export function FundIssuanceDetail() {
               <div>
                 <div className="mb-1 text-muted-foreground">Fund Token</div>
                 <div className="font-medium">{fundData.tokenName}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-muted-foreground">Token Symbol</div>
+                <div className="font-medium">{fundData.tokenSymbol || "N/A"}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-muted-foreground">Token Standard</div>
+                <div className="font-medium">{fundData.tokenStandard || "N/A"}</div>
               </div>
               <div>
                 <div className="mb-1 text-muted-foreground">Token Contract Address</div>
@@ -972,6 +1684,14 @@ export function FundIssuanceDetail() {
               <div>
                 <div className="mb-1 text-muted-foreground">Fund Manager</div>
                 <div className="font-medium">{fundData.fundManager}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-muted-foreground">Issuer Entity</div>
+                <div className="font-medium">{fundData.issuerEntity || "N/A"}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-muted-foreground">Share Class</div>
+                <div className="font-medium">{fundData.shareClass || "N/A"}</div>
               </div>
               <div>
                 <div className="mb-1 text-muted-foreground">Target Fund Size</div>
@@ -1033,6 +1753,25 @@ export function FundIssuanceDetail() {
               )}
             </CardContent>
           </Card>
+
+          {!isMarketplaceView && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Related Setup</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <p className="text-muted-foreground">
+                  Redemption and distribution are follow-on operating tasks, so they live here instead of competing with the main next-step action.
+                </p>
+                <Button asChild className="w-full justify-start" variant="outline">
+                  <Link to="/manage/fund-redemption">Redemption Setup</Link>
+                </Button>
+                <Button asChild className="w-full justify-start" variant="outline">
+                  <Link to="/manage/fund-distribution">Distribution Setup</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="lg:col-span-2">
@@ -1126,6 +1865,12 @@ export function FundIssuanceDetail() {
                         <div className="mt-1 font-medium">{fundData.targetFundSize}</div>
                       </div>
                       <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Fund jurisdiction</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.fundJurisdiction || "N/A"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-4">
                         <div className="text-muted-foreground">Lock-up period</div>
                         <div className="mt-1 font-medium">{fundData.lockupPeriod}</div>
                       </div>
@@ -1141,7 +1886,113 @@ export function FundIssuanceDetail() {
                           {fundData.maxRedemptionPerInvestor || "N/A"}
                         </div>
                       </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Share class</div>
+                        <div className="mt-1 font-medium">{fundData.shareClass || "N/A"}</div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Initial allocation rule</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.allocationRule || "N/A"}
+                        </div>
+                      </div>
                     </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Token Configuration</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 text-sm">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Token name</div>
+                        <div className="mt-1 font-medium">{fundData.tokenName}</div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Token symbol</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.tokenSymbol || "N/A"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Token standard</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.tokenStandard || "N/A"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Token decimals</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.tokenDecimals ?? "N/A"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">ISIN / security code</div>
+                        <div className="mt-1 font-medium">{fundData.isinCode || "N/A"}</div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">1 token represents</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.unitPerToken || "N/A"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Transfer restricted</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.transferRestricted || "N/A"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Whitelist required</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.whitelistRequired || "N/A"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border p-4 md:col-span-2">
+                        <div className="text-muted-foreground">Minting rule</div>
+                        <div className="mt-1 font-medium">
+                          {fundData.mintingRule || "N/A"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {persistedInvestorRules.length > 0 && (
+                      <div>
+                        <div className="mb-2 text-sm text-muted-foreground">
+                          Investor rules
+                        </div>
+                        <div className="space-y-2">
+                          {persistedInvestorRules.map((rule, index) => (
+                            <div key={`${rule.ruleType}-${index}`} className="rounded-lg border p-3">
+                              <div className="font-medium">{formatRuleType(rule.ruleType)}</div>
+                              <div className="mt-1 text-muted-foreground">
+                                {rule.condition} {rule.value}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {persistedReferences.length > 0 && (
+                      <div>
+                        <div className="mb-2 text-sm text-muted-foreground">References</div>
+                        <div className="space-y-2">
+                          {persistedReferences.map((reference, index) => (
+                            <div key={`${reference.type}-${index}`} className="rounded-lg border p-3">
+                              <div className="font-medium">
+                                {reference.type === "link" ? "Link" : "File"}
+                              </div>
+                              <div className="mt-1 break-all text-muted-foreground">
+                                {reference.value}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1331,37 +2182,117 @@ export function FundIssuanceDetail() {
               </TabsContent>
 
               <TabsContent value="information">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Fund Information</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4 text-sm">
-                    <div>
-                      <div className="mb-1 text-muted-foreground">Investment Strategy</div>
-                      <p className="leading-6">{fundData.investmentStrategy}</p>
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-lg border p-4">
-                        <div className="text-muted-foreground">Fund manager</div>
-                        <div className="mt-1 font-medium">{fundData.fundManager}</div>
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Fund Information</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4 text-sm">
+                      <div>
+                        <div className="mb-1 text-muted-foreground">Investment Strategy</div>
+                        <p className="leading-6">{fundData.investmentStrategy}</p>
                       </div>
-                      <div className="rounded-lg border p-4">
-                        <div className="text-muted-foreground">Redemption frequency</div>
-                        <div className="mt-1 font-medium">
-                          {fundData.redemptionFrequency}
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Fund manager</div>
+                          <div className="mt-1 font-medium">{fundData.fundManager}</div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Issuer entity</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.issuerEntity || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Fund jurisdiction</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.fundJurisdiction || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Share class</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.shareClass || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Redemption frequency</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.redemptionFrequency}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Allocation rule</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.allocationRule || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Management fee</div>
+                          <div className="mt-1 font-medium">{fundData.managementFee}</div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Performance fee</div>
+                          <div className="mt-1 font-medium">{fundData.performanceFee}</div>
                         </div>
                       </div>
-                      <div className="rounded-lg border p-4">
-                        <div className="text-muted-foreground">Management fee</div>
-                        <div className="mt-1 font-medium">{fundData.managementFee}</div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Token Configuration</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4 text-sm">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Token name</div>
+                          <div className="mt-1 font-medium">{fundData.tokenName}</div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Token symbol</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.tokenSymbol || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Token standard</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.tokenStandard || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Token decimals</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.tokenDecimals ?? "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">ISIN / security code</div>
+                          <div className="mt-1 font-medium">{fundData.isinCode || "N/A"}</div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">1 token represents</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.unitPerToken || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Transfer restricted</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.transferRestricted || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Whitelist required</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.whitelistRequired || "N/A"}
+                          </div>
+                        </div>
                       </div>
-                      <div className="rounded-lg border p-4">
-                        <div className="text-muted-foreground">Performance fee</div>
-                        <div className="mt-1 font-medium">{fundData.performanceFee}</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+                </div>
               </TabsContent>
 
               <TabsContent value="timeline">

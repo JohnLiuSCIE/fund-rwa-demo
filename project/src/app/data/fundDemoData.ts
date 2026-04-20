@@ -39,6 +39,17 @@ export interface NavRecord {
   note?: string;
 }
 
+export interface FundReference {
+  type: "file" | "link";
+  value: string;
+}
+
+export interface InvestorRule {
+  ruleType: string;
+  condition: string;
+  value: string;
+}
+
 export interface FundIssuance {
   id: string;
   name: string;
@@ -47,8 +58,19 @@ export interface FundIssuance {
   assetType: string;
   allocationStatus?: string;
   createdTime?: string;
+  issuerEntity?: string;
+  fundJurisdiction?: string;
+  shareClass?: string;
   tokenName: string;
+  tokenSymbol?: string;
   tokenAddress: string;
+  tokenStandard?: string;
+  tokenDecimals?: number;
+  isinCode?: string;
+  unitPerToken?: string;
+  transferRestricted?: string;
+  whitelistRequired?: string;
+  mintingRule?: string;
   assetCurrency: string;
   minSubscriptionAmount: string;
   maxSubscriptionAmount: string;
@@ -98,6 +120,9 @@ export interface FundIssuance {
   pendingRedemptionOrders?: number;
   totalSubscribedAmount?: string;
   totalRedeemedAmount?: string;
+  allocationRule?: string;
+  references?: FundReference[];
+  investorRules?: InvestorRule[];
   navHistory: NavRecord[];
   lastAction?: string;
   lastActorRole?: ActorRole;

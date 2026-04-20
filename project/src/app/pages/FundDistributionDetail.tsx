@@ -1,8 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import { Textarea } from "../components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { ChevronRight, Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -17,10 +27,247 @@ import {
   AllocationCompletedDistributionModal,
   OpenForDistributionModal,
 } from "../components/modals/DistributionModals";
+import { FundDistribution } from "../data/fundDemoData";
+
+type DistributionEditableSection = "details" | "payout";
+
+interface DistributionEditState {
+  name: string;
+  description: string;
+  distributionRateType: string;
+  distributionRate: string;
+  distributionUnit: string;
+  payoutMode: "Direct Transfer" | "Claim";
+  payoutToken: string;
+  payoutAccount: string;
+  recordDate: string;
+  paymentDate: string;
+  actualDaysInPeriod: string;
+  actualDaysInYear: string;
+}
+
+function toDateTimeLocal(value?: string) {
+  return value ? value.slice(0, 16).replace(" ", "T") : "";
+}
+
+function fromDateTimeLocal(value: string) {
+  return value ? `${value.replace("T", " ")}:00` : undefined;
+}
+
+function getEditableDistributionSections(status: string): DistributionEditableSection[] {
+  if (["Draft", "Pending Approval", "Pending Listing", "Upcoming"].includes(status)) {
+    return ["details", "payout"];
+  }
+  if (["Pending Allocation", "Put On Chain", "Open For Distribution"].includes(status)) {
+    return ["payout"];
+  }
+  return [];
+}
+
+function getDistributionEditingPolicyMessage(status: string) {
+  const editableSections = getEditableDistributionSections(status);
+  if (editableSections.length === 0) {
+    return "This stage is locked. After distribution is completed, fields become read-only.";
+  }
+  if (editableSections.length === 2) {
+    return "Current stage allows full editing of distribution details and payout rules.";
+  }
+  return "Current stage only allows payout-rule updates. Core setup details are locked.";
+}
+
+function buildDistributionEditState(distribution: FundDistribution): DistributionEditState {
+  return {
+    name: distribution.name,
+    description: distribution.description,
+    distributionRateType: distribution.distributionRateType || "Fixed Rate",
+    distributionRate: distribution.distributionRate || "",
+    distributionUnit: distribution.distributionUnit || "",
+    payoutMode: distribution.payoutMode || "Claim",
+    payoutToken: distribution.payoutToken || "",
+    payoutAccount: distribution.payoutAccount || "",
+    recordDate: toDateTimeLocal(distribution.recordDate),
+    paymentDate: toDateTimeLocal(distribution.paymentDate),
+    actualDaysInPeriod: distribution.actualDaysInPeriod || "",
+    actualDaysInYear: distribution.actualDaysInYear || "",
+  };
+}
+
+function DistributionSetupEditor({
+  distribution,
+  onSave,
+  onCancel,
+}: {
+  distribution: FundDistribution;
+  onSave: (updates: Partial<FundDistribution>) => void;
+  onCancel: () => void;
+}) {
+  const editableSections = getEditableDistributionSections(distribution.status);
+  const [form, setForm] = useState<DistributionEditState>(() => buildDistributionEditState(distribution));
+
+  useEffect(() => {
+    setForm(buildDistributionEditState(distribution));
+  }, [distribution]);
+
+  const canEditDetails = editableSections.includes("details");
+  const canEditPayout = editableSections.includes("payout");
+
+  const setField = <K extends keyof DistributionEditState,>(
+    key: K,
+    value: DistributionEditState[K],
+  ) => {
+    setForm((previous) => ({ ...previous, [key]: value }));
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Edit Mode</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {getDistributionEditingPolicyMessage(distribution.status)}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {canEditDetails && (
+          <div className="space-y-4 rounded-lg border p-4">
+            <div>
+              <h3 className="font-medium">Distribution Details</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Core identity, description, and record-date configuration for the distribution setup.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Distribution name</Label>
+              <Input value={form.name} onChange={(event) => setField("name", event.target.value)} />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea value={form.description} onChange={(event) => setField("description", event.target.value)} rows={3} />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Record date</Label>
+                <Input type="datetime-local" value={form.recordDate} onChange={(event) => setField("recordDate", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Payment date</Label>
+                <Input type="datetime-local" value={form.paymentDate} onChange={(event) => setField("paymentDate", event.target.value)} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {canEditPayout && (
+          <div className="space-y-4 rounded-lg border p-4">
+            <div>
+              <h3 className="font-medium">Payout Rules</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Configure the payout token, destination, and rate mechanics.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Payout mode</Label>
+                <Select value={form.payoutMode} onValueChange={(value) => setField("payoutMode", value as "Direct Transfer" | "Claim")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Direct Transfer">Direct Transfer</SelectItem>
+                    <SelectItem value="Claim">Claim</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Payout token</Label>
+                <Input value={form.payoutToken} onChange={(event) => setField("payoutToken", event.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Payout source account</Label>
+              <Input value={form.payoutAccount} onChange={(event) => setField("payoutAccount", event.target.value)} />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Distribution rate type</Label>
+                <Select value={form.distributionRateType} onValueChange={(value) => setField("distributionRateType", value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Fixed Rate">Fixed Rate</SelectItem>
+                    <SelectItem value="Per Unit">Per Unit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Distribution rate</Label>
+                <Input value={form.distributionRate} onChange={(event) => setField("distributionRate", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Distribution unit</Label>
+                <Input value={form.distributionUnit} onChange={(event) => setField("distributionUnit", event.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Actual days in period</Label>
+                <Input value={form.actualDaysInPeriod} onChange={(event) => setField("actualDaysInPeriod", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Actual days in year</Label>
+                <Input value={form.actualDaysInYear} onChange={(event) => setField("actualDaysInYear", event.target.value)} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() =>
+              onSave({
+                name: form.name.trim() || distribution.name,
+                description: form.description.trim() || distribution.description,
+                distributionRateType: form.distributionRateType,
+                distributionRate: form.distributionRate.trim() || undefined,
+                distributionUnit: form.distributionUnit.trim() || undefined,
+                payoutMode: form.payoutMode,
+                payoutToken: form.payoutToken.trim() || undefined,
+                payoutAccount: form.payoutAccount.trim() || undefined,
+                recordDate: fromDateTimeLocal(form.recordDate),
+                paymentDate: fromDateTimeLocal(form.paymentDate),
+                actualDaysInPeriod: form.actualDaysInPeriod.trim() || undefined,
+                actualDaysInYear: form.actualDaysInYear.trim() || undefined,
+              })
+            }
+          >
+            Save Changes
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function FundDistributionDetail() {
   const { id } = useParams();
-  const { fundDistributions, fundIssuances, updateDistributionStatus, getPermissionResult, userRole } = useApp();
+  const {
+    fundDistributions,
+    fundIssuances,
+    updateDistributionStatus,
+    updateFundDistribution,
+    getPermissionResult,
+    userRole,
+  } = useApp();
 
   const distribution = fundDistributions.find(d => d.id === id);
   const linkedFund = fundIssuances.find((fund) => fund.id === distribution?.fundId);
@@ -37,12 +284,17 @@ export function FundDistributionDetail() {
   }
 
   const [currentStatus, setCurrentStatus] = useState(distribution.status);
+  const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showListingModal, setShowListingModal] = useState(false);
   const [showPendingAllocationModal, setShowPendingAllocationModal] = useState(false);
   const [showAllocationCompletedModal, setShowAllocationCompletedModal] = useState(false);
   const [showOpenDistributionModal, setShowOpenDistributionModal] = useState(false);
   const isClaimMode = distribution.payoutMode !== "Direct Transfer";
+
+  useEffect(() => {
+    setCurrentStatus(distribution.status);
+  }, [distribution.status]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -70,6 +322,7 @@ export function FundDistributionDetail() {
     Upcoming: "open",
     "Pending Allocation": "put_on_chain",
     "Put On Chain": "open",
+    "Open For Distribution": "update",
   };
 
   const getActionPermission = () => {
@@ -78,51 +331,48 @@ export function FundDistributionDetail() {
     return getPermissionResult(action, "distribution");
   };
 
-  const renderActionButtons = () => {
+  const updatePermission = getPermissionResult("update", "distribution");
+  const canEditSetup =
+    userRole === "issuer" &&
+    updatePermission.allowed &&
+    getEditableDistributionSections(currentStatus).length > 0;
+
+  const renderActionButton = () => {
     const permission = getActionPermission();
     switch (currentStatus) {
       case "Draft":
         return (
-          <>
-            <Button variant="outline">Edit</Button>
-            <Button
-              disabled={!permission.allowed}
-              title={permission.reason}
-              onClick={() => setShowSubmitModal(true)}
-            >
-              Submit For Approval
-            </Button>
-          </>
+          <Button
+            disabled={!permission.allowed}
+            title={permission.reason}
+            onClick={() => setShowSubmitModal(true)}
+          >
+            Submit For Approval
+          </Button>
         );
       case "Pending Approval":
         return (
-          <>
-            <Button variant="outline">Cancel Deal</Button>
-            <Button
-              disabled={!permission.allowed}
-              title={permission.reason}
-              onClick={() => {
+          <Button
+            disabled={!permission.allowed}
+            title={permission.reason}
+            onClick={() => {
               setCurrentStatus("Pending Listing");
               updateDistributionStatus(id || "", "Pending Listing", "approve");
               toast.success("Distribution approved and queued for listing");
             }}
-            >
-              Approve Listing
-            </Button>
-          </>
+          >
+            Approve Listing
+          </Button>
         );
       case "Pending Listing":
         return (
-          <>
-            <Button variant="outline">Cancel Deal</Button>
-            <Button
-              disabled={!permission.allowed}
-              title={permission.reason}
-              onClick={() => setShowListingModal(true)}
-            >
-              Listing
-            </Button>
-          </>
+          <Button
+            disabled={!permission.allowed}
+            title={permission.reason}
+            onClick={() => setShowListingModal(true)}
+          >
+            Listing
+          </Button>
         );
       case "Upcoming":
         return (
@@ -155,7 +405,19 @@ export function FundDistributionDetail() {
           </Button>
         );
       case "Open For Distribution":
-        return null;
+        return (
+          <Button
+            disabled={!permission.allowed}
+            title={permission.reason}
+            onClick={() => {
+              setCurrentStatus("Done");
+              updateDistributionStatus(id || "", "Done", "update");
+              toast.success("Distribution marked complete");
+            }}
+          >
+            Mark Complete
+          </Button>
+        );
       default:
         return null;
     }
@@ -186,7 +448,6 @@ export function FundDistributionDetail() {
             <h1 style={{ fontFamily: 'var(--font-heading)' }}>{distribution.name}</h1>
             <Badge className={getStatusColor(currentStatus)}>{currentStatus}</Badge>
           </div>
-          <div className="flex gap-2">{renderActionButtons()}</div>
         </div>
         {!getActionPermission().allowed && (
           <p className="text-sm text-muted-foreground">{getActionPermission().reason}</p>
@@ -195,8 +456,37 @@ export function FundDistributionDetail() {
 
       {/* Workflow Progress */}
       <div className="mb-8">
-        <FundDistributionWorkflow currentStatus={currentStatus} />
+        <FundDistributionWorkflow currentStatus={currentStatus} actionSlot={renderActionButton()} />
       </div>
+
+      <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="text-sm font-medium">Field Editing Policy</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {getDistributionEditingPolicyMessage(currentStatus)}
+          </div>
+        </div>
+        {canEditSetup && !isInlineEditing && (
+          <Button variant="outline" onClick={() => setIsInlineEditing(true)}>
+            Enter Edit Mode
+          </Button>
+        )}
+      </div>
+
+      {isInlineEditing && (
+        <div className="mb-8">
+          <DistributionSetupEditor
+            distribution={{ ...distribution, status: currentStatus }}
+            onCancel={() => setIsInlineEditing(false)}
+            onSave={(updates) => {
+              const updated = updateFundDistribution(distribution.id, updates, "update");
+              if (!updated) return;
+              setIsInlineEditing(false);
+              toast.success("Allowed distribution fields updated");
+            }}
+          />
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-8">
         {/* Left Sidebar - Information Panel */}

@@ -56,8 +56,18 @@ interface AppContextType {
   fundIssuances: FundIssuance[];
   addFundIssuance: (fund: FundIssuance, action?: PermissionAction) => boolean;
   updateFundStatus: (id: string, status: string, action?: PermissionAction | string) => boolean;
+  updateFundIssuance: (
+    id: string,
+    updates: Partial<FundIssuance>,
+    action?: PermissionAction | string,
+  ) => boolean;
   fundRedemptions: FundRedemptionConfig[];
   addFundRedemption: (redemption: FundRedemptionConfig, action?: PermissionAction) => boolean;
+  updateFundRedemption: (
+    id: string,
+    updates: Partial<FundRedemptionConfig>,
+    action?: PermissionAction | string,
+  ) => boolean;
   updateRedemptionStatus: (
     id: string,
     status: FundRedemptionConfig["status"],
@@ -70,6 +80,11 @@ interface AppContextType {
   addFundBatch: (batch: FundBatch) => boolean;
   fundDistributions: FundDistribution[];
   addFundDistribution: (distribution: FundDistribution, action?: PermissionAction) => boolean;
+  updateFundDistribution: (
+    id: string,
+    updates: Partial<FundDistribution>,
+    action?: PermissionAction | string,
+  ) => boolean;
   updateDistributionStatus: (id: string, status: string, action?: PermissionAction | string) => boolean;
   userRole: UserRole;
   authSession: AuthSession | null;
@@ -255,6 +270,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const updateFundIssuance = (
+    id: string,
+    updates: Partial<FundIssuance>,
+    action: PermissionAction | string = "update",
+  ) => {
+    if (!ensureIdentitySource("authSession")) return false;
+    if (!ensurePermission(action, "issuance")) return false;
+    setFundIssuances((prev) =>
+      prev.map((fund) =>
+        fund.id === id
+          ? {
+              ...fund,
+              ...updates,
+              lastAction: action,
+              lastActorRole: authSession.role!,
+              lastActionAt: new Date().toISOString(),
+              identitySource: "authSession",
+            }
+          : fund,
+      ),
+    );
+    return true;
+  };
+
   const addFundRedemption = (redemption: FundRedemptionConfig, action: PermissionAction = "create") => {
     if (!ensureIdentitySource(redemption.identitySource)) return false;
     if (!ensurePermission(action, "redemption")) return false;
@@ -268,6 +307,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       ...prev,
     ]);
+    return true;
+  };
+
+  const updateFundRedemption = (
+    id: string,
+    updates: Partial<FundRedemptionConfig>,
+    action: PermissionAction | string = "update",
+  ) => {
+    if (!ensureIdentitySource("authSession")) return false;
+    if (!ensurePermission(action, "redemption")) return false;
+    setFundRedemptions((prev) =>
+      prev.map((redemption) =>
+        redemption.id === id
+          ? {
+              ...redemption,
+              ...updates,
+              lastAction: action,
+              lastActorRole: authSession.role!,
+              lastActionAt: new Date().toISOString(),
+              identitySource: "authSession",
+            }
+          : redemption,
+      ),
+    );
     return true;
   };
 
@@ -354,6 +417,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const updateFundDistribution = (
+    id: string,
+    updates: Partial<FundDistribution>,
+    action: PermissionAction | string = "update",
+  ) => {
+    if (!ensureIdentitySource("authSession")) return false;
+    if (!ensurePermission(action, "distribution")) return false;
+    setFundDistributions((prev) =>
+      prev.map((distribution) =>
+        distribution.id === id
+          ? {
+              ...distribution,
+              ...updates,
+              lastAction: action,
+              lastActorRole: authSession.role!,
+              lastActionAt: new Date().toISOString(),
+              identitySource: "authSession",
+            }
+          : distribution,
+      ),
+    );
+    return true;
+  };
+
   const updateDistributionStatus = (id: string, status: string, action: PermissionAction | string = "update") => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "distribution")) return false;
@@ -380,8 +467,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fundIssuances,
         addFundIssuance,
         updateFundStatus,
+        updateFundIssuance,
         fundRedemptions,
         addFundRedemption,
+        updateFundRedemption,
         updateRedemptionStatus,
         fundOrders,
         addFundOrder,
@@ -390,6 +479,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addFundBatch,
         fundDistributions,
         addFundDistribution,
+        updateFundDistribution,
         updateDistributionStatus,
         userRole,
         authSession,

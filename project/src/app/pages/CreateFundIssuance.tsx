@@ -46,6 +46,11 @@ function formatNav(value: number, currency: string) {
   return `${value.toFixed(4)} ${currency}`;
 }
 
+function deriveTokenSymbol(value: string) {
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return normalized.slice(0, 15) || "NEWTOKEN";
+}
+
 export function CreateFundIssuance() {
   const navigate = useNavigate();
   const { addFundIssuance } = useApp();
@@ -64,11 +69,21 @@ export function CreateFundIssuance() {
   const [performanceFee, setPerformanceFee] = useState("");
   const [investmentStrategy, setInvestmentStrategy] = useState("");
   const [fundManager, setFundManager] = useState("");
+  const [issuerEntity, setIssuerEntity] = useState("");
+  const [fundJurisdiction, setFundJurisdiction] = useState("Hong Kong SAR");
+  const [shareClass, setShareClass] = useState("Class A");
   const [issueDate, setIssueDate] = useState<Date>();
   const [maturityDate, setMaturityDate] = useState<Date>();
 
   const [tokenName, setTokenName] = useState("");
   const [tokenSymbol, setTokenSymbol] = useState("");
+  const [tokenStandard, setTokenStandard] = useState("ERC-3643");
+  const [tokenDecimals, setTokenDecimals] = useState("18");
+  const [isinCode, setIsinCode] = useState("");
+  const [unitPerToken, setUnitPerToken] = useState("1 fund unit");
+  const [transferRestricted, setTransferRestricted] = useState(true);
+  const [whitelistRequired, setWhitelistRequired] = useState(true);
+  const [mintingRule, setMintingRule] = useState("mint-burn");
   const [isTokenTradable, setIsTokenTradable] = useState(false);
 
   const [subscriptionLotSize, setSubscriptionLotSize] = useState("1");
@@ -127,7 +142,6 @@ export function CreateFundIssuance() {
       "about-token",
       "subscription-rules",
       "fund-documents",
-      "fee-charge",
     ];
     const currentIndex = tabs.indexOf(currentTab);
     if (currentIndex < tabs.length - 1) {
@@ -144,6 +158,23 @@ export function CreateFundIssuance() {
     const minSubValue = Number(minSubscriptionAmount) || 0;
     const maxSubValue = Number(maxSubscriptionAmount) || 0;
     const navValue = Number(initialNav) || 1;
+    const tokenSymbolValue = tokenSymbol.trim()
+      ? tokenSymbol.trim().toUpperCase()
+      : deriveTokenSymbol(tokenName || fundName || "NEWFUND");
+    const tokenDecimalsValue = Math.max(Number(tokenDecimals) || 0, 0);
+    const normalizedReferences = references
+      .filter((reference) => reference.value.trim())
+      .map((reference) => ({
+        type: reference.type as "file" | "link",
+        value: reference.value.trim(),
+      }));
+    const normalizedInvestorRules = investorRules
+      .filter((rule) => rule.ruleType && rule.value.trim())
+      .map((rule) => ({
+        ruleType: rule.ruleType,
+        condition: rule.condition,
+        value: rule.value.trim(),
+      }));
     const lockupDays =
       lockupUnit === "years"
         ? (Number(lockupValue) || 0) * 365
@@ -168,8 +199,22 @@ export function CreateFundIssuance() {
       assetType: "Fund",
       allocationStatus: openEndMode ? "N/A" : "Upcoming",
       createdTime,
+      issuerEntity: issuerEntity || fundManager || "To be assigned",
+      fundJurisdiction: fundJurisdiction || "Hong Kong SAR",
+      shareClass: shareClass || "Class A",
       tokenName: tokenName || `${fundName || "NEW-FUND"} TOKEN`,
+      tokenSymbol: tokenSymbolValue,
       tokenAddress: "–",
+      tokenStandard,
+      tokenDecimals: tokenDecimalsValue,
+      isinCode: isinCode || undefined,
+      unitPerToken: unitPerToken || "1 fund unit",
+      transferRestricted: transferRestricted ? "Yes" : "No",
+      whitelistRequired: whitelistRequired ? "Yes" : "No",
+      mintingRule:
+        mintingRule === "mint-burn"
+          ? "Mint and burn on subscription / redemption"
+          : "Pre-minted treasury inventory",
       assetCurrency: dealSizeUnit,
       minSubscriptionAmount: formatAmount(minSubValue, dealSizeUnit),
       maxSubscriptionAmount: formatAmount(maxSubValue, dealSizeUnit),
@@ -245,6 +290,13 @@ export function CreateFundIssuance() {
       pendingRedemptionOrders: 0,
       totalSubscribedAmount: `0 ${dealSizeUnit}`,
       totalRedeemedAmount: `0 ${dealSizeUnit}`,
+      allocationRule: openEndMode
+        ? "Not applicable for ongoing dealing"
+        : allocationRule === "first-come-first-served"
+          ? "First-come-first-served"
+          : "Pro-rata",
+      references: normalizedReferences,
+      investorRules: normalizedInvestorRules,
       navHistory: [
         {
           id: `nav-${newFundId}-1`,
@@ -289,7 +341,7 @@ export function CreateFundIssuance() {
 
       <div className="mb-8">
         <ProcessFlowCard
-          title="发行主流程"
+          title="Primary Issuance Flow"
           steps={
             openEndMode
               ? [
@@ -310,13 +362,13 @@ export function CreateFundIssuance() {
         />
         {openEndMode && (
           <p className="text-sm text-muted-foreground mt-3">
-            Open-end 提示：发行后进入持续申赎与日常估值流程，相关参数请在 “Subscription & Rules” 中配置。
+            Open-end note: after launch the fund moves into ongoing subscription, redemption, and daily valuation operations. Configure the key parameters in "Subscription & Rules".
           </p>
         )}
       </div>
 
       <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-8">
-        <TabsList className="grid w-full grid-cols-5 h-auto p-1 bg-secondary">
+        <TabsList className="grid w-full grid-cols-4 h-auto p-1 bg-secondary">
           <TabsTrigger value="about-deal" className="text-sm py-3">
             About Deal
           </TabsTrigger>
@@ -328,9 +380,6 @@ export function CreateFundIssuance() {
           </TabsTrigger>
           <TabsTrigger value="fund-documents" className="text-sm py-3">
             Fund Documents
-          </TabsTrigger>
-          <TabsTrigger value="fee-charge" className="text-sm py-3">
-            Fee Charge
           </TabsTrigger>
         </TabsList>
 
@@ -447,6 +496,33 @@ export function CreateFundIssuance() {
               </div>
             </div>
 
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <Label>Issuer entity</Label>
+                <Input
+                  value={issuerEntity}
+                  onChange={(event) => setIssuerEntity(event.target.value)}
+                  placeholder="WeBank Asset Management Limited"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Fund jurisdiction</Label>
+                <Input
+                  value={fundJurisdiction}
+                  onChange={(event) => setFundJurisdiction(event.target.value)}
+                  placeholder="Hong Kong SAR"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Share class</Label>
+                <Input
+                  value={shareClass}
+                  onChange={(event) => setShareClass(event.target.value)}
+                  placeholder="Class A"
+                />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label>Investment strategy</Label>
               <Textarea
@@ -555,6 +631,93 @@ export function CreateFundIssuance() {
               <div className="space-y-2">
                 <Label>Token symbol</Label>
                 <Input value={tokenSymbol} onChange={(event) => setTokenSymbol(event.target.value)} placeholder="DLF-2026" maxLength={15} />
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <Label>Token standard</Label>
+                <Select value={tokenStandard} onValueChange={setTokenStandard}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ERC-20">ERC-20</SelectItem>
+                    <SelectItem value="ERC-3643">ERC-3643</SelectItem>
+                    <SelectItem value="ERC-1400">ERC-1400</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Token decimals</Label>
+                <Input
+                  value={tokenDecimals}
+                  onChange={(event) => setTokenDecimals(event.target.value)}
+                  type="number"
+                  min="0"
+                  max="18"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>ISIN / security code</Label>
+                <Input
+                  value={isinCode}
+                  onChange={(event) => setIsinCode(event.target.value)}
+                  placeholder="HK0000DLF2026"
+                />
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label>1 token represents</Label>
+                <Input
+                  value={unitPerToken}
+                  onChange={(event) => setUnitPerToken(event.target.value)}
+                  placeholder="1 fund unit"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Minting rule</Label>
+                <Select value={mintingRule} onValueChange={setMintingRule}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mint-burn">Mint / burn on dealing</SelectItem>
+                    <SelectItem value="pre-minted">Pre-minted inventory</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <div className="font-medium">Transfer restricted</div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    Control whether peer-to-peer token transfer requires issuer policy checks.
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">No</span>
+                  <Switch checked={transferRestricted} onCheckedChange={setTransferRestricted} />
+                  <span className="text-sm text-muted-foreground">Yes</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <div className="font-medium">Whitelist required</div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    Investor wallets must pass eligibility checks before holding or receiving tokens.
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">No</span>
+                  <Switch checked={whitelistRequired} onCheckedChange={setWhitelistRequired} />
+                  <span className="text-sm text-muted-foreground">Yes</span>
+                </div>
               </div>
             </div>
 
@@ -846,32 +1009,6 @@ export function CreateFundIssuance() {
 
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setCurrentTab("subscription-rules")}>
-              Previous
-            </Button>
-            <Button onClick={handleNext}>Next</Button>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="fee-charge" className="space-y-6">
-          <div className="bg-white border rounded-lg p-6 space-y-4">
-            <div className="rounded-lg border border-[var(--navy-100)] bg-[var(--navy-50)] p-4 space-y-2">
-              <h3 className="font-medium" style={{ fontFamily: "var(--font-heading)" }}>
-                Fee Charge (Read-only)
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Commission and platform charges are configured by the platform operations team for this demo environment and cannot be edited in this page.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Estimated commission: 0.20% of subscribed amount + fixed onboarding service fee (if applicable).
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Contact: ops-fund-platform@webank.example | +852 2888 8899
-              </p>
-            </div>
-          </div>
-
-          <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setCurrentTab("fund-documents")}>
               Previous
             </Button>
             <Button onClick={handleCreate}>Create</Button>

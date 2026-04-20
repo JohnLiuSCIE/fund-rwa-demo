@@ -1,10 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ChevronRight, PauseCircle, PlayCircle, Send, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import { Switch } from "../components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
   Table,
@@ -14,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/table";
+import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
 import { InfoAlert } from "../components/InfoAlert";
 import { StatusBadge } from "../components/StatusBadge";
@@ -318,8 +329,263 @@ function getRedemptionRequestActionConfig(order: FundOrder) {
   };
 }
 
+type RedemptionEditableSection = "details" | "operations";
+
+interface RedemptionEditState {
+  name: string;
+  description: string;
+  effectiveDate: string;
+  announcementDate: string;
+  windowStart: string;
+  windowEnd: string;
+  latestNav: string;
+  settlementCycle: string;
+  noticePeriodDays: string;
+  maxRedemptionQuantityPerInvestor: string;
+  cutOffTime: string;
+  manualApprovalRequired: boolean;
+  pauseRedemptionAfterListing: boolean;
+}
+
+function toDateTimeLocal(value?: string) {
+  return value ? value.slice(0, 16).replace(" ", "T") : "";
+}
+
+function fromDateTimeLocal(value: string) {
+  return value ? `${value.replace("T", " ")}:00` : undefined;
+}
+
+function getRedemptionPermissionAction(label: string) {
+  const normalized = label.trim().toLowerCase();
+  if (normalized.includes("submit")) return "submit";
+  if (normalized.includes("activate")) return "approve";
+  if (normalized.includes("open")) return "open";
+  if (normalized.includes("resume")) return "open";
+  if (normalized.includes("pause")) return "pause";
+  return "manage";
+}
+
+function getRedemptionOrderPermissionAction(label: string) {
+  const normalized = label.trim().toLowerCase();
+  if (normalized.includes("review")) return "review";
+  if (normalized.includes("approve")) return "approve";
+  return "manage";
+}
+
+function getEditableRedemptionSections(config: FundRedemptionConfig): RedemptionEditableSection[] {
+  if (["Draft", "Pending Approval"].includes(config.status)) {
+    return ["details", "operations"];
+  }
+  if (["Announced", "Active", "Paused", "Window Open"].includes(config.status)) {
+    return ["operations"];
+  }
+  return [];
+}
+
+function getRedemptionEditingPolicyMessage(config: FundRedemptionConfig) {
+  const editableSections = getEditableRedemptionSections(config);
+  if (editableSections.length === 0) {
+    return "This stage is locked. Once the redemption cycle is closed, setup fields become read-only.";
+  }
+  if (editableSections.length === 2) {
+    return "Current stage allows full editing of setup details and operating rules.";
+  }
+  return "Current stage only allows operating-rule updates. Setup details are locked.";
+}
+
+function buildRedemptionEditState(config: FundRedemptionConfig): RedemptionEditState {
+  return {
+    name: config.name,
+    description: config.description,
+    effectiveDate: toDateTimeLocal(config.effectiveDate),
+    announcementDate: toDateTimeLocal(config.announcementDate),
+    windowStart: toDateTimeLocal(config.windowStart),
+    windowEnd: toDateTimeLocal(config.windowEnd),
+    latestNav: config.latestNav,
+    settlementCycle: config.settlementCycle,
+    noticePeriodDays: String(config.noticePeriodDays),
+    maxRedemptionQuantityPerInvestor: config.maxRedemptionQuantityPerInvestor,
+    cutOffTime: config.cutOffTime,
+    manualApprovalRequired: config.manualApprovalRequired,
+    pauseRedemptionAfterListing: config.pauseRedemptionAfterListing,
+  };
+}
+
+function RedemptionSetupEditor({
+  redemption,
+  onSave,
+  onCancel,
+}: {
+  redemption: FundRedemptionConfig;
+  onSave: (updates: Partial<FundRedemptionConfig>) => void;
+  onCancel: () => void;
+}) {
+  const editableSections = getEditableRedemptionSections(redemption);
+  const [form, setForm] = useState<RedemptionEditState>(() => buildRedemptionEditState(redemption));
+
+  useEffect(() => {
+    setForm(buildRedemptionEditState(redemption));
+  }, [redemption]);
+
+  const canEditDetails = editableSections.includes("details");
+  const canEditOperations = editableSections.includes("operations");
+
+  const setField = <K extends keyof RedemptionEditState,>(
+    key: K,
+    value: RedemptionEditState[K],
+  ) => {
+    setForm((previous) => ({ ...previous, [key]: value }));
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Edit Mode</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {getRedemptionEditingPolicyMessage(redemption)}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {canEditDetails && (
+          <div className="space-y-4 rounded-lg border p-4">
+            <div>
+              <h3 className="font-medium">Setup Details</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Core setup identity and the dates that define this redemption configuration.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Setup name</Label>
+                <Input value={form.name} onChange={(event) => setField("name", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Latest NAV</Label>
+                <Input value={form.latestNav} onChange={(event) => setField("latestNav", event.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea value={form.description} onChange={(event) => setField("description", event.target.value)} rows={3} />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Effective date</Label>
+                <Input type="datetime-local" value={form.effectiveDate} onChange={(event) => setField("effectiveDate", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Announcement date</Label>
+                <Input type="datetime-local" value={form.announcementDate} onChange={(event) => setField("announcementDate", event.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Window start</Label>
+                <Input type="datetime-local" value={form.windowStart} onChange={(event) => setField("windowStart", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Window end</Label>
+                <Input type="datetime-local" value={form.windowEnd} onChange={(event) => setField("windowEnd", event.target.value)} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {canEditOperations && (
+          <div className="space-y-4 rounded-lg border p-4">
+            <div>
+              <h3 className="font-medium">Operating Rules</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Rules that control how redemption stays active after setup approval.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Settlement cycle</Label>
+                <Select value={form.settlementCycle} onValueChange={(value) => setField("settlementCycle", value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="T+0">T+0</SelectItem>
+                    <SelectItem value="T+1">T+1</SelectItem>
+                    <SelectItem value="T+2">T+2</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Notice period (days)</Label>
+                <Input type="number" value={form.noticePeriodDays} onChange={(event) => setField("noticePeriodDays", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Cut-off time</Label>
+                <Input type="time" value={form.cutOffTime} onChange={(event) => setField("cutOffTime", event.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Max redemption per investor</Label>
+              <Input value={form.maxRedemptionQuantityPerInvestor} onChange={(event) => setField("maxRedemptionQuantityPerInvestor", event.target.value)} />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <div className="font-medium">Manual approval required</div>
+                </div>
+                <Switch checked={form.manualApprovalRequired} onCheckedChange={(checked) => setField("manualApprovalRequired", checked)} />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <div className="font-medium">Pause after listing</div>
+                </div>
+                <Switch checked={form.pauseRedemptionAfterListing} onCheckedChange={(checked) => setField("pauseRedemptionAfterListing", checked)} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() =>
+              onSave({
+                name: form.name.trim() || redemption.name,
+                description: form.description.trim() || redemption.description,
+                effectiveDate: fromDateTimeLocal(form.effectiveDate) || redemption.effectiveDate,
+                announcementDate: fromDateTimeLocal(form.announcementDate),
+                windowStart: fromDateTimeLocal(form.windowStart),
+                windowEnd: fromDateTimeLocal(form.windowEnd),
+                latestNav: form.latestNav.trim() || redemption.latestNav,
+                settlementCycle: form.settlementCycle,
+                noticePeriodDays: Number(form.noticePeriodDays) || 0,
+                maxRedemptionQuantityPerInvestor:
+                  form.maxRedemptionQuantityPerInvestor.trim() ||
+                  redemption.maxRedemptionQuantityPerInvestor,
+                cutOffTime: form.cutOffTime,
+                manualApprovalRequired: form.manualApprovalRequired,
+                pauseRedemptionAfterListing: form.pauseRedemptionAfterListing,
+              })
+            }
+          >
+            Save Changes
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function FundRedemptionDetail() {
   const { id } = useParams();
+  const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [actionModalOpen, setActionModalOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<
     ReturnType<typeof getRedemptionAction> | null
@@ -333,6 +599,7 @@ export function FundRedemptionDetail() {
     fundOrders,
     fundBatches,
     fundIssuances,
+    updateFundRedemption,
     updateRedemptionStatus,
     updateFundOrderStatus,
     getPermissionResult,
@@ -359,37 +626,23 @@ export function FundRedemptionDetail() {
   const batches = fundBatches.filter(
     (batch) => batch.fundId === redemption.fundId && batch.type === "redemption",
   );
+  const setupAction = getRedemptionAction(redemption);
+  const setupActionPermission = setupAction
+    ? getPermissionResult(getRedemptionPermissionAction(setupAction.label), "redemption")
+    : { allowed: true as const };
+  const updatePermission = getPermissionResult("update", "redemption");
+  const editableSections = getEditableRedemptionSections(redemption);
+  const canEditSetup = userRole === "issuer" && updatePermission.allowed && editableSections.length > 0;
 
   const handleStatusChange = (nextStatus: typeof redemption.status, message: string) => {
     if (!pendingAction) return;
     const updated = updateRedemptionStatus(
       redemption.id,
       nextStatus,
-      pendingAction.label.toLowerCase(),
+      getRedemptionPermissionAction(pendingAction.label),
     );
     if (!updated) return;
     toast.success(message);
-  };
-
-  const renderActionButtons = () => {
-    const action = getRedemptionAction(redemption);
-    if (!action) return null;
-    const permission = getPermissionResult(action.label.toLowerCase(), "redemption");
-
-    return (
-      <Button
-        variant={action.variant}
-        disabled={!permission.allowed}
-        title={permission.reason}
-        onClick={() => {
-          setPendingAction(action);
-          setActionModalOpen(true);
-        }}
-      >
-        <action.icon className="w-4 h-4 mr-2" />
-        {action.label}
-      </Button>
-    );
   };
 
   return (
@@ -416,7 +669,6 @@ export function FundRedemptionDetail() {
             </div>
             <p className="text-muted-foreground mt-2 max-w-3xl">{redemption.description}</p>
           </div>
-          <div>{renderActionButtons()}</div>
         </div>
 
         <InfoAlert variant="info" title="Redemption Operations">
@@ -425,8 +677,55 @@ export function FundRedemptionDetail() {
       </div>
 
       <div className="mb-8">
-        <FundRedemptionWorkflow currentStatus={redemption.status} />
+        <FundRedemptionWorkflow
+          currentStatus={redemption.status}
+          actionSlot={
+            setupAction ? (
+              <Button
+                variant={setupAction.variant}
+                disabled={!setupActionPermission.allowed}
+                title={setupActionPermission.reason}
+                onClick={() => {
+                  setPendingAction(setupAction);
+                  setActionModalOpen(true);
+                }}
+              >
+                <setupAction.icon className="mr-2 h-4 w-4" />
+                {setupAction.label}
+              </Button>
+            ) : undefined
+          }
+        />
       </div>
+
+      <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="text-sm font-medium">Field Editing Policy</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {getRedemptionEditingPolicyMessage(redemption)}
+          </div>
+        </div>
+        {canEditSetup && !isInlineEditing && (
+          <Button variant="outline" onClick={() => setIsInlineEditing(true)}>
+            Enter Edit Mode
+          </Button>
+        )}
+      </div>
+
+      {isInlineEditing && (
+        <div className="mb-8">
+          <RedemptionSetupEditor
+            redemption={redemption}
+            onCancel={() => setIsInlineEditing(false)}
+            onSave={(updates) => {
+              const updated = updateFundRedemption(redemption.id, updates, "update");
+              if (!updated) return;
+              setIsInlineEditing(false);
+              toast.success("Allowed redemption fields updated");
+            }}
+          />
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1 space-y-6">
@@ -567,7 +866,10 @@ export function FundRedemptionDetail() {
                   {requests.map((request) => {
                     const nextAction = getNextRedemptionOrderAction(request);
                     const permission = nextAction
-                      ? getPermissionResult(nextAction.label.toLowerCase(), "order")
+                      ? getPermissionResult(
+                          getRedemptionOrderPermissionAction(nextAction.label),
+                          "order",
+                        )
                       : { allowed: true };
                     return (
                       <TableRow key={request.id}>
@@ -690,7 +992,7 @@ export function FundRedemptionDetail() {
             const updated = updateFundOrderStatus(
               pendingRequestAction.orderId,
               pendingRequestAction.nextStatus,
-              pendingRequestAction.label.toLowerCase(),
+              getRedemptionOrderPermissionAction(pendingRequestAction.label),
             );
             if (!updated) return;
             toast.success(
