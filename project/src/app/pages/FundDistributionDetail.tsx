@@ -92,6 +92,42 @@ function buildDistributionEditState(distribution: FundDistribution): Distributio
   };
 }
 
+function OpenEndDistributionContextCard({
+  distribution,
+}: {
+  distribution: FundDistribution;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Distribution Event Context</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          For open-end funds, distribution is a point-in-time payout event under an already active
+          fund. It should be read as an event lifecycle, not as another fund issuance pipeline.
+        </p>
+      </CardHeader>
+      <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border p-4">
+          <div className="text-sm text-muted-foreground">Record Date</div>
+          <div className="mt-1 font-medium">{distribution.recordDate || "N/A"}</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-sm text-muted-foreground">Payment Date</div>
+          <div className="mt-1 font-medium">{distribution.paymentDate || "N/A"}</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-sm text-muted-foreground">Payout Mode</div>
+          <div className="mt-1 font-medium">{distribution.payoutMode || "Claim"}</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-sm text-muted-foreground">Current Event State</div>
+          <div className="mt-1 font-medium">{distribution.status}</div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function DistributionSetupEditor({
   distribution,
   onSave,
@@ -296,6 +332,8 @@ export function FundDistributionDetail() {
     setCurrentStatus(distribution.status);
   }, [distribution.status]);
 
+  const isOpenEndDistribution = linkedFund?.fundType === "Open-end";
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("Copied to clipboard");
@@ -456,8 +494,20 @@ export function FundDistributionDetail() {
 
       {/* Workflow Progress */}
       <div className="mb-8">
-        <FundDistributionWorkflow currentStatus={currentStatus} actionSlot={renderActionButton()} />
+        <FundDistributionWorkflow
+          currentStatus={currentStatus}
+          actionSlot={renderActionButton()}
+          workflowModel={isOpenEndDistribution ? "open-end" : "default"}
+        />
       </div>
+
+      {isOpenEndDistribution && (
+        <div className="mb-8">
+          <OpenEndDistributionContextCard
+            distribution={{ ...distribution, status: currentStatus }}
+          />
+        </div>
+      )}
 
       <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
         <div>

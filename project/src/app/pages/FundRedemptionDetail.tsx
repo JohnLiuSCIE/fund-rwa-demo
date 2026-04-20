@@ -32,6 +32,7 @@ import { FundRedemptionWorkflow } from "../components/FundIssuanceWorkflow";
 import { OperationActionModal } from "../components/modals/OperationActionModal";
 import { useApp } from "../context/AppContext";
 import { FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
+import { cn } from "../components/ui/utils";
 
 function getNextRedemptionOrderAction(order: FundOrder) {
   switch (order.status) {
@@ -411,6 +412,119 @@ function buildRedemptionEditState(config: FundRedemptionConfig): RedemptionEditS
   };
 }
 
+function OpenEndRedemptionOperatingCard({
+  redemption,
+}: {
+  redemption: FundRedemptionConfig;
+}) {
+  if (redemption.redemptionMode === "Daily dealing") {
+    const operatingState = redemption.status === "Paused" ? "Paused" : "Live";
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Current Redemption Operating State</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Daily-dealing redemption does not run as a separate one-off window. It plugs into the
+            fund's recurring cut-off, NAV, and settlement cycle once the module is active.
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Module State</div>
+            <div className="mt-1 font-medium">{operatingState}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Cut-off Time</div>
+            <div className="mt-1 font-medium">{redemption.cutOffTime}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Settlement Cycle</div>
+            <div className="mt-1 font-medium">{redemption.settlementCycle}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Liquidity Gate</div>
+            <div className="mt-1 font-medium">
+              {redemption.maxRedemptionQuantityPerInvestor}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const windowSteps = [
+    { label: "Announced", description: "Notice period running" },
+    { label: "Window Open", description: "Accept requests" },
+    { label: "Paused", description: "Temporarily halted" },
+    { label: "Window Closed", description: "Stop new requests" },
+  ];
+
+  const currentStepIndex =
+    redemption.status === "Announced"
+      ? 0
+      : redemption.status === "Window Open" || redemption.status === "Active"
+        ? 1
+        : redemption.status === "Paused"
+          ? 2
+          : redemption.status === "Window Closed"
+            ? 3
+            : -1;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Current Redemption Window</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          This window state sits inside the active redemption module. It is an operating view, not
+          a second fund lifecycle.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {windowSteps.map((step, index) => {
+            const isCompleted = currentStepIndex > index;
+            const isCurrent = currentStepIndex === index;
+            return (
+              <div key={step.label} className="flex items-center gap-2">
+                <div
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-xs font-medium",
+                    isCompleted && "border-green-200 bg-green-50 text-green-700",
+                    isCurrent && "border-blue-200 bg-blue-50 text-blue-700",
+                    !isCompleted && !isCurrent && "border-slate-200 bg-white text-slate-500",
+                  )}
+                >
+                  {step.label}
+                </div>
+                {index < windowSteps.length - 1 && <div className="h-px w-4 bg-slate-200" />}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Announcement Date</div>
+            <div className="mt-1 font-medium">{redemption.announcementDate || "N/A"}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Window Start</div>
+            <div className="mt-1 font-medium">{redemption.windowStart || "N/A"}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Window End</div>
+            <div className="mt-1 font-medium">{redemption.windowEnd || "N/A"}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Current Module State</div>
+            <div className="mt-1 font-medium">{redemption.status}</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function RedemptionSetupEditor({
   redemption,
   onSave,
@@ -620,6 +734,7 @@ export function FundRedemptionDetail() {
   }
 
   const fund = fundIssuances.find((item) => item.id === redemption.fundId);
+  const isOpenEndFund = fund?.fundType === "Open-end";
   const requests = fundOrders.filter(
     (order) => order.fundId === redemption.fundId && order.type === "redemption",
   );
@@ -671,14 +786,20 @@ export function FundRedemptionDetail() {
           </div>
         </div>
 
-        <InfoAlert variant="info" title="Redemption Operations">
-          This page is the operating cockpit for open-end redemption, including request review, batch history, and liquidity window control.
+        <InfoAlert
+          variant="info"
+          title={isOpenEndFund ? "Open-end Redemption Module" : "Redemption Operations"}
+        >
+          {isOpenEndFund
+            ? "For open-end funds, redemption is a module under the active fund. The top progress bar tracks setup activation, while the operating state below shows the live window or daily-dealing mode."
+            : "This page tracks the redemption workflow from setup through operation, including request review, batch history, and liquidity window control."}
         </InfoAlert>
       </div>
 
       <div className="mb-8">
         <FundRedemptionWorkflow
           currentStatus={redemption.status}
+          workflowModel={isOpenEndFund ? "open-end" : "default"}
           actionSlot={
             setupAction ? (
               <Button
@@ -697,6 +818,12 @@ export function FundRedemptionDetail() {
           }
         />
       </div>
+
+      {isOpenEndFund && (
+        <div className="mb-8">
+          <OpenEndRedemptionOperatingCard redemption={redemption} />
+        </div>
+      )}
 
       <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
         <div>

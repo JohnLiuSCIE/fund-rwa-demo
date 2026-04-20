@@ -250,6 +250,85 @@ function formatRuleType(ruleType: string) {
   }
 }
 
+function OpenEndDealingCycleCard({ fundData }: { fundData: FundIssuance }) {
+  const operatingState =
+    fundData.status === "Paused"
+      ? "Paused"
+      : fundData.status === "Active Dealing"
+        ? "Live"
+        : fundData.status === "Initial Subscription"
+          ? "Pending activation"
+          : "Pre-live";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Recurring Dealing Cycle</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Once the fund enters active dealing, subscriptions and redemptions repeat through this
+          operating cycle. These checkpoints are recurring operations, not extra fund lifecycle
+          steps.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Operating State</div>
+            <div className="mt-1 font-medium">{operatingState}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Fund lifecycle stays at Active Dealing while cycles repeat.
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Cut-off</div>
+            <div className="mt-1 font-medium">
+              {fundData.nextCutoffTime || fundData.dealingCutoffTime || "Configured in dealing rules"}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Orders received before cut-off join the current batch.
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">NAV Confirmation</div>
+            <div className="mt-1 font-medium">
+              {fundData.nextConfirmationDate || fundData.navValuationTime || "At valuation time"}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Official pricing finalizes subscription and redemption quantities.
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Settlement</div>
+            <div className="mt-1 font-medium">
+              {fundData.nextSettlementTime || fundData.settlementCycle || "Per settlement cycle"}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Cash and units are booked after confirmation.
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Subscription Module</div>
+            <div className="mt-1 font-medium">{fundData.subscriptionStatus || "N/A"}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Redemption Module</div>
+            <div className="mt-1 font-medium">{fundData.redemptionStatus || "N/A"}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Order Confirmation</div>
+            <div className="mt-1 font-medium">
+              {fundData.orderConfirmationMethod || "Configured in operations"}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function FundSetupEditor({
   fundData,
   onSave,
@@ -1573,9 +1652,10 @@ export function FundIssuanceDetail() {
 
         {isOpenEnd ? (
           <InfoAlert variant="info" title="Open-end Operating Flow">
-            This demo keeps approval, launch, initial subscription, daily dealing, NAV
-            confirmation, and settlement as separate stages so the operating flow stays
-            visible.
+            For open-end funds, the main progress bar tracks only the fund lifecycle:
+            launch, initial subscription, and entry into active dealing. NAV and settlement
+            stay visible below as recurring operating checkpoints rather than extra fund
+            lifecycle steps.
           </InfoAlert>
         ) : (
           <InfoAlert variant="info" title="Closed-end Issuance Flow">
@@ -1607,6 +1687,12 @@ export function FundIssuanceDetail() {
           }
         />
       </div>
+
+      {isOpenEnd && (
+        <div className="mb-8">
+          <OpenEndDealingCycleCard fundData={fundData} />
+        </div>
+      )}
 
       {!isMarketplaceView && (
         <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">

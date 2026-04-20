@@ -54,22 +54,7 @@ const OPEN_END_ISSUANCE_STEPS: WorkflowStep[] = [
     label: "Active Dealing",
     description: "Ongoing dealing operations",
   },
-  {
-    id: "step-4",
-    label: "NAV Confirmation",
-    description: "Confirm dealing NAV",
-  },
-  {
-    id: "step-5",
-    label: "Settlement",
-    description: "Settlement cycle (continuous)",
-  },
 ];
-
-const ISSUANCE_STEPS_BY_FUND_TYPE: Record<IssuanceFundType, WorkflowStep[]> = {
-  "Closed-end": CLOSED_END_ISSUANCE_STEPS,
-  "Open-end": OPEN_END_ISSUANCE_STEPS,
-};
 
 const STATUS_TO_ISSUANCE_STEP_BY_FUND_TYPE: Record<
   IssuanceFundType,
@@ -96,12 +81,17 @@ const STATUS_TO_ISSUANCE_STEP_BY_FUND_TYPE: Record<
     "Initial Subscription": 1,
     "Active Dealing": 2,
     Paused: 2,
-    "Pending NAV": 3,
-    "Pending Confirmation": 3,
-    Confirmed: 3,
-    "Pending Cash Settlement": 4,
-    Completed: 4,
+    "Pending NAV": 2,
+    "Pending Confirmation": 2,
+    Confirmed: 2,
+    "Pending Cash Settlement": 2,
+    Completed: 2,
   },
+};
+
+const ISSUANCE_STEPS_BY_FUND_TYPE: Record<IssuanceFundType, WorkflowStep[]> = {
+  "Closed-end": CLOSED_END_ISSUANCE_STEPS,
+  "Open-end": OPEN_END_ISSUANCE_STEPS,
 };
 
 export const FUND_REDEMPTION_STEPS: WorkflowStep[] = [
@@ -140,6 +130,34 @@ const STATUS_TO_REDEMPTION_STEP: Record<string, number> = {
   "Window Open": 3,
   Paused: 3,
   "Window Closed": 4,
+};
+
+const OPEN_END_REDEMPTION_STEPS: WorkflowStep[] = [
+  {
+    id: "step-1",
+    label: "Draft",
+    description: "Create setup",
+  },
+  {
+    id: "step-2",
+    label: "Approval",
+    description: "Authorize module",
+  },
+  {
+    id: "step-3",
+    label: "Active Module",
+    description: "Operate redemption",
+  },
+];
+
+const STATUS_TO_OPEN_END_REDEMPTION_STEP: Record<string, number> = {
+  Draft: 0,
+  "Pending Approval": 1,
+  Active: 2,
+  Announced: 2,
+  "Window Open": 2,
+  Paused: 2,
+  "Window Closed": 2,
 };
 
 export const FUND_DISTRIBUTION_STEPS: WorkflowStep[] = [
@@ -191,7 +209,47 @@ const STATUS_TO_DISTRIBUTION_STEP: Record<string, number> = {
   Done: 6,
 };
 
+const OPEN_END_DISTRIBUTION_STEPS: WorkflowStep[] = [
+  {
+    id: "step-1",
+    label: "Draft",
+    description: "Create event draft",
+  },
+  {
+    id: "step-2",
+    label: "Approval",
+    description: "Approve event",
+  },
+  {
+    id: "step-3",
+    label: "Record Date",
+    description: "Lock holder snapshot",
+  },
+  {
+    id: "step-4",
+    label: "Payout Processing",
+    description: "Prepare and open payout",
+  },
+  {
+    id: "step-5",
+    label: "Completed",
+    description: "Close event",
+  },
+];
+
+const STATUS_TO_OPEN_END_DISTRIBUTION_STEP: Record<string, number> = {
+  Draft: 0,
+  "Pending Approval": 1,
+  "Pending Listing": 2,
+  Upcoming: 2,
+  "Pending Allocation": 2,
+  "Put On Chain": 3,
+  "Open For Distribution": 3,
+  Done: 4,
+};
+
 type WorkflowType = "issuance" | "redemption" | "distribution";
+type WorkflowModel = "default" | "open-end";
 
 interface FundWorkflowProps {
   currentStatus?: string;
@@ -199,11 +257,24 @@ interface FundWorkflowProps {
   type?: WorkflowType;
   fundType?: IssuanceFundType;
   actionSlot?: ReactNode;
+  workflowModel?: WorkflowModel;
 }
 
-function getWorkflowConfig(type: WorkflowType, fundType: IssuanceFundType) {
+function getWorkflowConfig(
+  type: WorkflowType,
+  fundType: IssuanceFundType,
+  workflowModel: WorkflowModel,
+) {
   switch (type) {
     case "redemption":
+      if (workflowModel === "open-end") {
+        return {
+          steps: OPEN_END_REDEMPTION_STEPS,
+          statusToStepMap: STATUS_TO_OPEN_END_REDEMPTION_STEP,
+          title: "Open-end Redemption Module",
+          description: "Track redemption setup approval and module activation under the active fund.",
+        };
+      }
       return {
         steps: FUND_REDEMPTION_STEPS,
         statusToStepMap: STATUS_TO_REDEMPTION_STEP,
@@ -211,6 +282,14 @@ function getWorkflowConfig(type: WorkflowType, fundType: IssuanceFundType) {
         description: "Track the redemption process from creation to completion",
       };
     case "distribution":
+      if (workflowModel === "open-end") {
+        return {
+          steps: OPEN_END_DISTRIBUTION_STEPS,
+          statusToStepMap: STATUS_TO_OPEN_END_DISTRIBUTION_STEP,
+          title: "Open-end Distribution Event",
+          description: "Track a point-in-time distribution event without mixing it into the fund's main lifecycle.",
+        };
+      }
       return {
         steps: FUND_DISTRIBUTION_STEPS,
         statusToStepMap: STATUS_TO_DISTRIBUTION_STEP,
@@ -233,10 +312,11 @@ interface FundIssuanceWorkflowProps {
   variant?: "full" | "compact";
   fundType?: IssuanceFundType;
   actionSlot?: ReactNode;
+  workflowModel?: WorkflowModel;
 }
 
 function getIssuanceStepStageCounts(fundType: IssuanceFundType) {
-  return fundType === "Open-end" ? [3, 2, 2, 3, 2] : [3, 2, 3, 2, 2];
+  return fundType === "Open-end" ? [3, 2, 2] : [3, 2, 3, 2, 2];
 }
 
 function getOpenEndSubsteps(currentStatus?: string) {
@@ -280,35 +360,6 @@ function getOpenEndSubsteps(currentStatus?: string) {
           { label: "3.2 Pause Control", description: "Pause or resume operations" },
         ],
         currentIndex: currentStatus === "Paused" ? 1 : 0,
-      };
-    case "Pending NAV":
-    case "Pending Confirmation":
-    case "Confirmed":
-      return {
-        title: "Step 4 Breakdown",
-        description: "NAV confirmation batches orders through valuation, review, and final confirmation.",
-        steps: [
-          { label: "4.1 Queue NAV", description: "Move orders into NAV processing" },
-          { label: "4.2 Review", description: "Check valuation output" },
-          { label: "4.3 Confirmed", description: "Finalize order confirmation" },
-        ],
-        currentIndex:
-          currentStatus === "Pending NAV"
-            ? 0
-            : currentStatus === "Pending Confirmation"
-              ? 1
-              : 2,
-      };
-    case "Pending Cash Settlement":
-    case "Completed":
-      return {
-        title: "Step 5 Breakdown",
-        description: "Settlement closes the dealing cycle by moving cash or shares and reconciling completion.",
-        steps: [
-          { label: "5.1 Settle", description: "Process cash and share settlement" },
-          { label: "5.2 Completed", description: "Close the dealing cycle" },
-        ],
-        currentIndex: currentStatus === "Pending Cash Settlement" ? 0 : 1,
       };
     default:
       return null;
@@ -444,6 +495,47 @@ function getRedemptionSubsteps(currentStatus?: string) {
   }
 }
 
+function getOpenEndRedemptionSubsteps(currentStatus?: string) {
+  switch (currentStatus) {
+    case "Draft":
+      return {
+        title: "Step 1 Breakdown",
+        description: "Draft the redemption module and align it with the fund's dealing policy.",
+        steps: [
+          { label: "1.1 Draft", description: "Create redemption setup" },
+          { label: "1.2 Policy Check", description: "Validate gates and cut-off rules" },
+        ],
+        currentIndex: 0,
+      };
+    case "Pending Approval":
+      return {
+        title: "Step 2 Breakdown",
+        description: "Approval authorizes the redemption module before investors can use it.",
+        steps: [
+          { label: "2.1 Submit", description: "Send setup for approval" },
+          { label: "2.2 Approve", description: "Authorize module launch" },
+        ],
+        currentIndex: 1,
+      };
+    case "Active":
+    case "Announced":
+    case "Window Open":
+    case "Paused":
+    case "Window Closed":
+      return {
+        title: "Step 3 Breakdown",
+        description: "Once active, the module runs daily-dealing or window-based redemption operations.",
+        steps: [
+          { label: "3.1 Activate", description: "Enable redemption module" },
+          { label: "3.2 Operate", description: "Run windows or daily dealing controls" },
+        ],
+        currentIndex: 1,
+      };
+    default:
+      return null;
+  }
+}
+
 function getDistributionSubsteps(currentStatus?: string) {
   switch (currentStatus) {
     case "Draft":
@@ -513,9 +605,76 @@ function getDistributionSubsteps(currentStatus?: string) {
   }
 }
 
+function getOpenEndDistributionSubsteps(currentStatus?: string) {
+  switch (currentStatus) {
+    case "Draft":
+      return {
+        title: "Step 1 Breakdown",
+        description: "Prepare the distribution event definition and payout assumptions.",
+        steps: [
+          { label: "1.1 Draft", description: "Create event draft" },
+          { label: "1.2 Validate", description: "Review payout assumptions" },
+        ],
+        currentIndex: 0,
+      };
+    case "Pending Approval":
+      return {
+        title: "Step 2 Breakdown",
+        description: "Approval is a dedicated gate before record-date preparation starts.",
+        steps: [
+          { label: "2.1 Submit", description: "Send event for approval" },
+          { label: "2.2 Approve", description: "Authorize distribution event" },
+        ],
+        currentIndex: 1,
+      };
+    case "Pending Listing":
+    case "Upcoming":
+    case "Pending Allocation":
+      return {
+        title: "Step 3 Breakdown",
+        description: "Prepare listing, reach the record date, and lock the holder snapshot.",
+        steps: [
+          { label: "3.1 Listing Prep", description: "Prepare event listing" },
+          { label: "3.2 Record Date", description: "Reach holder snapshot date" },
+          { label: "3.3 Snapshot Locked", description: "Freeze payout base" },
+        ],
+        currentIndex:
+          currentStatus === "Pending Listing"
+            ? 0
+            : currentStatus === "Upcoming"
+              ? 1
+              : 2,
+      };
+    case "Put On Chain":
+    case "Open For Distribution":
+      return {
+        title: "Step 4 Breakdown",
+        description: "Move payout on chain and open the event for claim or transfer execution.",
+        steps: [
+          { label: "4.1 On-chain Prep", description: "Prepare payout data" },
+          { label: "4.2 Open Payout", description: "Open claim or auto-transfer" },
+        ],
+        currentIndex: currentStatus === "Put On Chain" ? 0 : 1,
+      };
+    case "Done":
+      return {
+        title: "Step 5 Breakdown",
+        description: "Reconcile the payout event and close the distribution cycle.",
+        steps: [
+          { label: "5.1 Reconcile", description: "Confirm payout completion" },
+          { label: "5.2 Closed", description: "Close event record" },
+        ],
+        currentIndex: 1,
+      };
+    default:
+      return null;
+  }
+}
+
 function getWorkflowSubsteps(
   type: WorkflowType,
   fundType: IssuanceFundType,
+  workflowModel: WorkflowModel,
   currentStatus?: string,
 ) {
   if (type === "issuance") {
@@ -524,9 +683,15 @@ function getWorkflowSubsteps(
       : getClosedEndSubsteps(currentStatus);
   }
   if (type === "redemption") {
+    if (workflowModel === "open-end") {
+      return getOpenEndRedemptionSubsteps(currentStatus);
+    }
     return getRedemptionSubsteps(currentStatus);
   }
   if (type === "distribution") {
+    if (workflowModel === "open-end") {
+      return getOpenEndDistributionSubsteps(currentStatus);
+    }
     return getDistributionSubsteps(currentStatus);
   }
   return null;
@@ -537,6 +702,7 @@ export function FundIssuanceWorkflow({
   variant = "full",
   fundType = "Closed-end",
   actionSlot,
+  workflowModel = "default",
 }: FundIssuanceWorkflowProps) {
   return (
     <FundWorkflow
@@ -545,6 +711,7 @@ export function FundIssuanceWorkflow({
       type="issuance"
       fundType={fundType}
       actionSlot={actionSlot}
+      workflowModel={workflowModel}
     />
   );
 }
@@ -553,6 +720,7 @@ export function FundRedemptionWorkflow({
   currentStatus,
   variant = "full",
   actionSlot,
+  workflowModel = "default",
 }: FundIssuanceWorkflowProps) {
   return (
     <FundWorkflow
@@ -560,6 +728,7 @@ export function FundRedemptionWorkflow({
       variant={variant}
       type="redemption"
       actionSlot={actionSlot}
+      workflowModel={workflowModel}
     />
   );
 }
@@ -568,6 +737,7 @@ export function FundDistributionWorkflow({
   currentStatus,
   variant = "full",
   actionSlot,
+  workflowModel = "default",
 }: FundIssuanceWorkflowProps) {
   return (
     <FundWorkflow
@@ -575,6 +745,7 @@ export function FundDistributionWorkflow({
       variant={variant}
       type="distribution"
       actionSlot={actionSlot}
+      workflowModel={workflowModel}
     />
   );
 }
@@ -585,10 +756,11 @@ function FundWorkflow({
   type = "issuance",
   fundType = "Closed-end",
   actionSlot,
+  workflowModel = "default",
 }: FundWorkflowProps) {
-  const config = getWorkflowConfig(type, fundType);
+  const config = getWorkflowConfig(type, fundType, workflowModel);
   const steps = config.steps;
-  const substepConfig = getWorkflowSubsteps(type, fundType, currentStatus);
+  const substepConfig = getWorkflowSubsteps(type, fundType, workflowModel, currentStatus);
   const issuanceStepStageCounts =
     type === "issuance" ? getIssuanceStepStageCounts(fundType) : null;
 
@@ -641,6 +813,8 @@ function FundWorkflow({
   }
 
   const gridColsClass =
+    steps.length === 3 ? "grid-cols-3" :
+    steps.length === 4 ? "grid-cols-4" :
     steps.length === 5 ? "grid-cols-5" :
     steps.length === 6 ? "grid-cols-6" :
     steps.length === 7 ? "grid-cols-7" :
