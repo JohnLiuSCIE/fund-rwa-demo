@@ -1,8 +1,11 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, TrendingUp, Shield, Zap } from "lucide-react";
 import { motion } from "motion/react";
+import { useApp } from "../context/AppContext";
 
 export function HomePage() {
+  const { userRole } = useApp();
+
   return (
     <div className="container mx-auto px-6 py-20">
       <div className="max-w-4xl mx-auto text-center space-y-8">
@@ -27,17 +30,17 @@ export function HomePage() {
           className="flex gap-4 justify-center"
         >
           <Link
-            to="/create/fund-issuance"
+            to="/funds"
             className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity"
           >
-            Create Fund Issuance
+            Open Funds Workspace
             <ArrowRight className="w-4 h-4" />
           </Link>
           <Link
-            to="/marketplace/fund-issuance"
+            to={userRole === "issuer" ? "/create/fund-issuance" : "/marketplace/fund-issuance"}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-border bg-white font-medium hover:bg-secondary transition-colors"
           >
-            Explore Marketplace
+            {userRole === "issuer" ? "Create New Fund" : "Explore Marketplace"}
           </Link>
         </motion.div>
 

@@ -7,13 +7,42 @@ import {
 } from "./ui/dropdown-menu";
 import { ChevronDown, Coins } from "lucide-react";
 import { RoleSwitcher } from "./RoleSwitcher";
+import { useApp } from "../context/AppContext";
 
 export function Layout() {
   const location = useLocation();
+  const { userRole } = useApp();
 
   const isActive = (path: string) => {
     return location.pathname.startsWith(path);
   };
+
+  const isFundsActive = [
+    "/funds",
+    "/create/fund-issuance",
+    "/fund-issuance",
+    "/marketplace/fund-issuance",
+  ].some((path) => isActive(path));
+
+  const isOperationsActive = [
+    "/manage/fund-issuance",
+    "/manage/fund-redemption",
+    "/manage/fund-distribution",
+    "/create/fund-redemption",
+    "/create/fund-distribution",
+    "/fund-redemption",
+    "/fund-distribution",
+  ].some((path) => isActive(path));
+
+  const isActivitiesActive = [
+    "/marketplace/fund-redemption",
+    "/marketplace/fund-distribution",
+  ].some((path) => isActive(path));
+
+  const navTriggerClass = (active: boolean) =>
+    `flex items-center gap-1 px-4 py-2 rounded-md hover:bg-secondary transition-colors text-sm font-medium ${
+      active ? "bg-secondary" : ""
+    }`;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -30,64 +59,60 @@ export function Layout() {
           </Link>
 
           <nav className="flex gap-1 flex-1">
-            {/* Create Dropdown */}
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-1 px-4 py-2 rounded-md hover:bg-secondary transition-colors text-sm font-medium">
-                Create
+              <DropdownMenuTrigger className={navTriggerClass(isFundsActive)}>
+                Funds
                 <ChevronDown className="w-4 h-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 <DropdownMenuItem asChild>
-                  <Link to="/create/fund-issuance">Create Fund Issuance</Link>
+                  <Link to="/funds">Funds Workspace</Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/create/fund-redemption">Create Fund Redemption</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/create/fund-distribution">Create Fund Distribution</Link>
-                </DropdownMenuItem>
+                {userRole === "issuer" ? (
+                  <DropdownMenuItem asChild>
+                    <Link to="/create/fund-issuance">Create New Fund</Link>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem asChild>
+                    <Link to="/marketplace/fund-issuance">Explore Fund Opportunities</Link>
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Manage Dropdown */}
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-1 px-4 py-2 rounded-md hover:bg-secondary transition-colors text-sm font-medium">
-                Manage
+              <DropdownMenuTrigger
+                className={navTriggerClass(userRole === "issuer" ? isOperationsActive : isActivitiesActive)}
+              >
+                {userRole === "issuer" ? "Operations" : "Activities"}
                 <ChevronDown className="w-4 h-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
-                <DropdownMenuItem asChild>
-                  <Link to="/manage/fund-issuance">Manage Fund Issuance</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/manage/fund-redemption">Manage Fund Redemption</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/manage/fund-distribution">Manage Fund Distribution</Link>
-                </DropdownMenuItem>
+                {userRole === "issuer" ? (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link to="/manage/fund-issuance">Launch Queue</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/manage/fund-redemption">Redemption Queue</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/manage/fund-distribution">Distribution Queue</Link>
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link to="/marketplace/fund-redemption">Redemption Opportunities</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/marketplace/fund-distribution">Distribution Events</Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Marketplace Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-1 px-4 py-2 rounded-md hover:bg-secondary transition-colors text-sm font-medium">
-                Marketplace
-                <ChevronDown className="w-4 h-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem asChild>
-                  <Link to="/marketplace/fund-issuance">Fund Issuance</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/marketplace/fund-redemption">Fund Redemption</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/marketplace/fund-distribution">Fund Distribution</Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* User Link */}
             <Link
               to="/user"
               className={`flex items-center gap-1 px-4 py-2 rounded-md hover:bg-secondary transition-colors text-sm font-medium ${

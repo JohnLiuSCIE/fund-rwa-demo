@@ -18,6 +18,7 @@ import { NotFound } from "./pages/NotFound";
 import { LoginPage } from "./pages/LoginPage";
 import { ConnectWalletPage } from "./pages/ConnectWalletPage";
 import { UserRole, useApp } from "./context/AppContext";
+import { FundsWorkspace } from "./pages/FundsWorkspace";
 
 function ProtectedRoute({ allow }: { allow: UserRole[] }) {
   const { authSession, isAuthSessionExpired } = useApp();
@@ -44,6 +45,9 @@ export function AppRoutes() {
         <Route index element={<HomePage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="connect-wallet" element={<ConnectWalletPage />} />
+        <Route element={<ProtectedRoute allow={["issuer", "investor"]} />}>
+          <Route path="funds" element={<FundsWorkspace />} />
+        </Route>
         <Route element={<ProtectedRoute allow={["issuer"]} />}>
           <Route path="create/fund-issuance" element={<CreateFundIssuance />} />
           <Route path="create/fund-redemption" element={<CreateFundRedemption />} />
