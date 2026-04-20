@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ChevronRight, PauseCircle, PlayCircle, Send, ShieldCheck } from "lucide-react";
+import { Link, useLocation, useParams } from "react-router-dom";
+import {
+  CheckCircle2,
+  ChevronRight,
+  CircleDashed,
+  PauseCircle,
+  PlayCircle,
+  Send,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -31,7 +40,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { FundRedemptionWorkflow } from "../components/FundIssuanceWorkflow";
 import { OperationActionModal } from "../components/modals/OperationActionModal";
 import { useApp } from "../context/AppContext";
-import { FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
+import { FundIssuance, FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
 import { cn } from "../components/ui/utils";
 
 function getNextRedemptionOrderAction(order: FundOrder) {
@@ -394,6 +403,78 @@ function getRedemptionEditingPolicyMessage(config: FundRedemptionConfig) {
   return "Current stage only allows operating-rule updates. Setup details are locked.";
 }
 
+function getEditableRedemptionFieldLabels(config: FundRedemptionConfig) {
+  const editableSections = getEditableRedemptionSections(config);
+  const labels: string[] = [];
+
+  if (editableSections.includes("details")) {
+    labels.push("setup identity", "description", "effective dates", "window schedule", "reference NAV");
+  }
+
+  if (editableSections.includes("operations")) {
+    labels.push(
+      "settlement cycle",
+      "cut-off time",
+      "notice period",
+      "investor redemption gate",
+      "manual approval control",
+    );
+  }
+
+  return labels;
+}
+
+function buildRedemptionControlChecks(
+  redemption: FundRedemptionConfig,
+  fund?: FundIssuance,
+) {
+  const minimumNoticePeriod = fund?.noticePeriodDays ?? 0;
+  const hasWindowSchedule =
+    redemption.redemptionMode !== "Window-based" ||
+    (Boolean(redemption.windowStart) && Boolean(redemption.windowEnd));
+
+  return [
+    {
+      label: "Linked fund is in an operating stage",
+      ok: Boolean(fund) && !["Draft", "Pending Approval"].includes(fund.status),
+      detail: fund ? fund.status : "Linked fund missing",
+    },
+    {
+      label: "Reference NAV is available",
+      ok: Boolean(redemption.latestNav),
+      detail: redemption.latestNav || "No NAV value recorded",
+    },
+    {
+      label: "Dealing cut-off is configured",
+      ok: Boolean(redemption.cutOffTime),
+      detail: redemption.cutOffTime || "Missing cut-off",
+    },
+    {
+      label: "Settlement cycle is configured",
+      ok: Boolean(redemption.settlementCycle),
+      detail: redemption.settlementCycle || "Missing settlement cycle",
+    },
+    {
+      label: "Notice period satisfies fund minimum",
+      ok: redemption.noticePeriodDays >= minimumNoticePeriod,
+      detail: `${redemption.noticePeriodDays} day(s) configured / minimum ${minimumNoticePeriod} day(s)`,
+    },
+    {
+      label: "Window schedule is complete",
+      ok: hasWindowSchedule,
+      detail:
+        redemption.redemptionMode === "Window-based"
+          ? `${redemption.windowStart || "start missing"} to ${redemption.windowEnd || "end missing"}`
+          : "Daily dealing does not require a separate window",
+    },
+    {
+      label: "Investor gate and manual review are defined",
+      ok: Boolean(redemption.maxRedemptionQuantityPerInvestor),
+      detail: `${redemption.maxRedemptionQuantityPerInvestor} / manual approval ${redemption.manualApprovalRequired ? "on" : "off"}`,
+    },
+  ];
+}
+
 function buildRedemptionEditState(config: FundRedemptionConfig): RedemptionEditState {
   return {
     name: config.name,
@@ -527,10 +608,12 @@ function OpenEndRedemptionOperatingCard({
 
 function RedemptionSetupEditor({
   redemption,
+  fund,
   onSave,
   onCancel,
 }: {
   redemption: FundRedemptionConfig;
+  fund?: FundIssuance;
   onSave: (updates: Partial<FundRedemptionConfig>) => void;
   onCancel: () => void;
 }) {
@@ -549,6 +632,61 @@ function RedemptionSetupEditor({
     value: RedemptionEditState[K],
   ) => {
     setForm((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const handleSave = () => {
+    const noticePeriodValue = Number(form.noticePeriodDays);
+    const minimumNoticePeriod = fund?.noticePeriodDays ?? 0;
+
+    if (!Number.isFinite(noticePeriodValue) || noticePeriodValue < 0) {
+      toast.error("Notice period must be 0 or greater.");
+      return;
+    }
+
+    if (noticePeriodValue < minimumNoticePeriod) {
+      toast.error(`Notice period cannot be lower than the fund minimum of ${minimumNoticePeriod} day(s).`);
+      return;
+    }
+
+    if (form.settlementCycle.trim() === "") {
+      toast.error("Settlement cycle is required.");
+      return;
+    }
+
+    if (form.cutOffTime.trim() === "") {
+      toast.error("Cut-off time is required.");
+      return;
+    }
+
+    if (redemption.redemptionMode === "Window-based") {
+      if (!form.windowStart || !form.windowEnd) {
+        toast.error("Window-based redemption requires both window start and window end.");
+        return;
+      }
+
+      if (form.windowStart >= form.windowEnd) {
+        toast.error("Window end must be later than window start.");
+        return;
+      }
+    }
+
+    onSave({
+      name: form.name.trim() || redemption.name,
+      description: form.description.trim() || redemption.description,
+      effectiveDate: fromDateTimeLocal(form.effectiveDate) || redemption.effectiveDate,
+      announcementDate: fromDateTimeLocal(form.announcementDate),
+      windowStart: fromDateTimeLocal(form.windowStart),
+      windowEnd: fromDateTimeLocal(form.windowEnd),
+      latestNav: form.latestNav.trim() || redemption.latestNav,
+      settlementCycle: form.settlementCycle,
+      noticePeriodDays: noticePeriodValue,
+      maxRedemptionQuantityPerInvestor:
+        form.maxRedemptionQuantityPerInvestor.trim() ||
+        redemption.maxRedemptionQuantityPerInvestor,
+      cutOffTime: form.cutOffTime,
+      manualApprovalRequired: form.manualApprovalRequired,
+      pauseRedemptionAfterListing: form.pauseRedemptionAfterListing,
+    });
   };
 
   return (
@@ -668,27 +806,7 @@ function RedemptionSetupEditor({
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button
-            onClick={() =>
-              onSave({
-                name: form.name.trim() || redemption.name,
-                description: form.description.trim() || redemption.description,
-                effectiveDate: fromDateTimeLocal(form.effectiveDate) || redemption.effectiveDate,
-                announcementDate: fromDateTimeLocal(form.announcementDate),
-                windowStart: fromDateTimeLocal(form.windowStart),
-                windowEnd: fromDateTimeLocal(form.windowEnd),
-                latestNav: form.latestNav.trim() || redemption.latestNav,
-                settlementCycle: form.settlementCycle,
-                noticePeriodDays: Number(form.noticePeriodDays) || 0,
-                maxRedemptionQuantityPerInvestor:
-                  form.maxRedemptionQuantityPerInvestor.trim() ||
-                  redemption.maxRedemptionQuantityPerInvestor,
-                cutOffTime: form.cutOffTime,
-                manualApprovalRequired: form.manualApprovalRequired,
-                pauseRedemptionAfterListing: form.pauseRedemptionAfterListing,
-              })
-            }
-          >
+          <Button onClick={handleSave}>
             Save Changes
           </Button>
         </div>
@@ -699,7 +817,9 @@ function RedemptionSetupEditor({
 
 export function FundRedemptionDetail() {
   const { id } = useParams();
+  const location = useLocation();
   const [isInlineEditing, setIsInlineEditing] = useState(false);
+  const [hasAppliedEditIntent, setHasAppliedEditIntent] = useState(false);
   const [actionModalOpen, setActionModalOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<
     ReturnType<typeof getRedemptionAction> | null
@@ -748,6 +868,20 @@ export function FundRedemptionDetail() {
   const updatePermission = getPermissionResult("update", "redemption");
   const editableSections = getEditableRedemptionSections(redemption);
   const canEditSetup = userRole === "issuer" && updatePermission.allowed && editableSections.length > 0;
+  const editableFieldLabels = getEditableRedemptionFieldLabels(redemption);
+  const controlChecks = buildRedemptionControlChecks(redemption, fund);
+  const editIntentRequested = new URLSearchParams(location.search).get("mode") === "edit";
+
+  useEffect(() => {
+    setHasAppliedEditIntent(false);
+  }, [redemption.id]);
+
+  useEffect(() => {
+    if (editIntentRequested && canEditSetup && !hasAppliedEditIntent) {
+      setIsInlineEditing(true);
+      setHasAppliedEditIntent(true);
+    }
+  }, [editIntentRequested, canEditSetup, hasAppliedEditIntent]);
 
   const handleStatusChange = (nextStatus: typeof redemption.status, message: string) => {
     if (!pendingAction) return;
@@ -831,6 +965,20 @@ export function FundRedemptionDetail() {
           <div className="mt-1 text-sm text-muted-foreground">
             {getRedemptionEditingPolicyMessage(redemption)}
           </div>
+          {editableFieldLabels.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {editableFieldLabels.map((label) => (
+                <Badge key={label} variant="outline">
+                  Editable: {label}
+                </Badge>
+              ))}
+            </div>
+          )}
+          {editIntentRequested && !canEditSetup && (
+            <div className="mt-3 text-sm text-amber-700">
+              This setup is currently view-only, so the page opened in review mode instead of edit mode.
+            </div>
+          )}
         </div>
         {canEditSetup && !isInlineEditing && (
           <Button variant="outline" onClick={() => setIsInlineEditing(true)}>
@@ -843,6 +991,7 @@ export function FundRedemptionDetail() {
         <div className="mb-8">
           <RedemptionSetupEditor
             redemption={redemption}
+            fund={fund}
             onCancel={() => setIsInlineEditing(false)}
             onSave={(updates) => {
               const updated = updateFundRedemption(redemption.id, updates, "update");
@@ -925,6 +1074,38 @@ export function FundRedemptionDetail() {
               </CardContent>
             </Card>
           )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Operational Checklist</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {controlChecks.map((check) => {
+                const Icon = check.ok
+                  ? CheckCircle2
+                  : check.detail.includes("missing")
+                    ? TriangleAlert
+                    : CircleDashed;
+
+                return (
+                  <div key={check.label} className="rounded-lg border p-3">
+                    <div className="flex items-start gap-3">
+                      <Icon
+                        className={cn(
+                          "mt-0.5 h-4 w-4 shrink-0",
+                          check.ok ? "text-green-600" : "text-amber-600",
+                        )}
+                      />
+                      <div>
+                        <div className="font-medium">{check.label}</div>
+                        <div className="mt-1 text-muted-foreground">{check.detail}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
         </div>
 
         <div className="lg:col-span-2">
@@ -972,6 +1153,38 @@ export function FundRedemptionDetail() {
                   <p>
                     For the demo, this setup also doubles as the main place to explain redemption gates, cut-off handling, and T+1 cash settlement behavior.
                   </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Manager Controls</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-2 text-sm">
+                  <div className="rounded-lg border p-4">
+                    <div className="text-muted-foreground">Approval Control</div>
+                    <div className="mt-1 font-medium">
+                      {redemption.manualApprovalRequired
+                        ? "Manual issuer review before NAV"
+                        : "Straight-through after submission"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-muted-foreground">Investor Gate</div>
+                    <div className="mt-1 font-medium">{redemption.maxRedemptionQuantityPerInvestor}</div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-muted-foreground">Notice and Activation</div>
+                    <div className="mt-1 font-medium">
+                      {redemption.noticePeriodDays} day(s) / {redemption.pauseRedemptionAfterListing ? "pause after listing enabled" : "activate immediately"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-muted-foreground">Settlement Discipline</div>
+                    <div className="mt-1 font-medium">
+                      {redemption.cutOffTime} / {redemption.settlementCycle}
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

@@ -7,9 +7,9 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
@@ -69,6 +69,118 @@ function getDistributionModuleDescription(
   const payoutMode = distribution.payoutMode || "Claim";
   const paymentDate = distribution.paymentDate || "payment date pending";
   return `${payoutMode} payout flow with ${paymentDate}.`;
+}
+
+function canEditRedemptionSetup(status: string) {
+  return [
+    "Draft",
+    "Pending Approval",
+    "Announced",
+    "Active",
+    "Paused",
+    "Window Open",
+  ].includes(status);
+}
+
+function canEditDistributionSetup(status: string) {
+  return [
+    "Draft",
+    "Pending Approval",
+    "Pending Listing",
+    "Upcoming",
+    "Pending Allocation",
+    "Put On Chain",
+    "Open For Distribution",
+  ].includes(status);
+}
+
+function getRedemptionModuleAction(
+  userRole: "issuer" | "investor",
+  fund: FundIssuance,
+  redemption:
+    | {
+        id: string;
+        status: string;
+      }
+    | undefined,
+) {
+  if (userRole === "investor") {
+    if (!redemption) return null;
+    return {
+      label: "View Window",
+      to: "/marketplace/fund-redemption",
+    };
+  }
+
+  if (fund.fundType === "Closed-end") {
+    if (!redemption) return null;
+    return {
+      label: "View Setup",
+      to: `/fund-redemption/${redemption.id}`,
+    };
+  }
+
+  if (!redemption) {
+    return {
+      label: "Add Setup",
+      to: "/create/fund-redemption",
+    };
+  }
+
+  if (canEditRedemptionSetup(redemption.status)) {
+    return {
+      label:
+        redemption.status === "Draft" || redemption.status === "Pending Approval"
+          ? "Continue Setup"
+          : "Edit Rules",
+      to: `/fund-redemption/${redemption.id}?mode=edit`,
+    };
+  }
+
+  return {
+    label: "View Setup",
+    to: `/fund-redemption/${redemption.id}`,
+  };
+}
+
+function getDistributionModuleAction(
+  userRole: "issuer" | "investor",
+  distribution:
+    | {
+        id: string;
+        status: string;
+      }
+    | undefined,
+) {
+  if (userRole === "investor") {
+    if (!distribution) return null;
+    return {
+      label: "View Event",
+      to: `/marketplace/fund-distribution/${distribution.id}`,
+    };
+  }
+
+  if (!distribution) {
+    return {
+      label: "Add Event",
+      to: "/create/fund-distribution",
+    };
+  }
+
+  if (canEditDistributionSetup(distribution.status)) {
+    return {
+      label:
+        distribution.status === "Draft" || distribution.status === "Pending Approval"
+          ? "Continue Setup"
+          : "Edit Payout Rules",
+      to: `/fund-distribution/${distribution.id}?mode=edit`,
+    };
+  }
+
+  return {
+    label: "View Event",
+    to: `/fund-distribution/${distribution.id}`,
+  };
 }
 
 export function FundsWorkspace() {
@@ -196,10 +308,20 @@ export function FundsWorkspace() {
           const linkedDistribution = distributionByFundId.get(fund.id);
           const fundDetailPath =
             userRole === "issuer" ? `/fund-issuance/${fund.id}` : `/marketplace/fund-issuance/${fund.id}`;
+          const redemptionAction = getRedemptionModuleAction(userRole, fund, linkedRedemption);
+          const distributionAction = getDistributionModuleAction(userRole, linkedDistribution);
 
           return (
             <Card key={fund.id} className="overflow-hidden border-[var(--navy-100)] bg-white shadow-sm">
               <CardHeader className="border-b bg-gradient-to-br from-[var(--navy-50)] via-white to-[var(--gold-50)]">
+                <CardAction>
+                  <Button asChild>
+                    <Link to={fundDetailPath}>
+                      <Coins className="w-4 h-4" />
+                      {userRole === "issuer" ? "Open Fund Workspace" : "Open Fund"}
+                    </Link>
+                  </Button>
+                </CardAction>
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -263,6 +385,14 @@ export function FundsWorkspace() {
                         <StatusBadge status={fund.status} />
                       </div>
                       <p className="text-sm text-muted-foreground">{getLaunchModuleDescription(fund)}</p>
+                      <div className="mt-4">
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to={fundDetailPath}>
+                            {userRole === "issuer" ? "Open Launch Module" : "Open Fund Detail"}
+                            <ArrowRight className="w-4 h-4" />
+                          </Link>
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="rounded-xl border bg-[var(--gold-50)]/70 p-4">
@@ -282,6 +412,16 @@ export function FundsWorkspace() {
                       <p className="text-sm text-muted-foreground">
                         {getRedemptionModuleDescription(fund, linkedRedemption)}
                       </p>
+                      {redemptionAction && (
+                        <div className="mt-4">
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to={redemptionAction.to}>
+                              {redemptionAction.label}
+                              <ArrowRight className="w-4 h-4" />
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="rounded-xl border bg-emerald-50 p-4">
@@ -299,72 +439,20 @@ export function FundsWorkspace() {
                       <p className="text-sm text-muted-foreground">
                         {getDistributionModuleDescription(linkedDistribution)}
                       </p>
+                      {distributionAction && (
+                        <div className="mt-4">
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to={distributionAction.to}>
+                              {distributionAction.label}
+                              <ArrowRight className="w-4 h-4" />
+                            </Link>
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               </CardContent>
-
-              <CardFooter className="flex flex-wrap gap-3 border-t bg-slate-50/70">
-                <Button asChild>
-                  <Link to={fundDetailPath}>
-                    <Coins className="w-4 h-4" />
-                    {userRole === "issuer" ? "Open Fund Workspace" : "Open Fund"}
-                  </Link>
-                </Button>
-
-                {userRole === "issuer" && fund.fundType === "Open-end" && (
-                  linkedRedemption ? (
-                    <Button variant="outline" asChild>
-                      <Link to={`/fund-redemption/${linkedRedemption.id}`}>
-                        Open Redemption Setup
-                        <ArrowRight className="w-4 h-4" />
-                      </Link>
-                    </Button>
-                  ) : (
-                    <Button variant="outline" asChild>
-                      <Link to="/create/fund-redemption">
-                        Add Redemption Setup
-                        <ArrowRight className="w-4 h-4" />
-                      </Link>
-                    </Button>
-                  )
-                )}
-
-                {userRole === "issuer" &&
-                  (linkedDistribution ? (
-                    <Button variant="outline" asChild>
-                      <Link to={`/fund-distribution/${linkedDistribution.id}`}>
-                        Open Distribution Event
-                        <ArrowRight className="w-4 h-4" />
-                      </Link>
-                    </Button>
-                  ) : (
-                    <Button variant="outline" asChild>
-                      <Link to="/create/fund-distribution">
-                        Add Distribution Event
-                        <ArrowRight className="w-4 h-4" />
-                      </Link>
-                    </Button>
-                  ))}
-
-                {userRole === "investor" && fund.fundType === "Open-end" && linkedRedemption && (
-                  <Button variant="outline" asChild>
-                    <Link to="/marketplace/fund-redemption">
-                      View Redemption Window
-                      <ArrowRight className="w-4 h-4" />
-                    </Link>
-                  </Button>
-                )}
-
-                {userRole === "investor" && linkedDistribution && (
-                  <Button variant="outline" asChild>
-                    <Link to={`/marketplace/fund-distribution/${linkedDistribution.id}`}>
-                      View Distribution Event
-                      <ArrowRight className="w-4 h-4" />
-                    </Link>
-                  </Button>
-                )}
-              </CardFooter>
             </Card>
           );
         })}

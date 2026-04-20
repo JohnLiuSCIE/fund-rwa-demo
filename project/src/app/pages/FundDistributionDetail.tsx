@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useLocation, useParams, Link } from "react-router-dom";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -14,7 +14,7 @@ import {
 } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { ChevronRight, Copy } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleDashed, Copy, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
 import { EmptyState } from "../components/EmptyState";
@@ -73,6 +73,63 @@ function getDistributionEditingPolicyMessage(status: string) {
     return "Current stage allows full editing of distribution details and payout rules.";
   }
   return "Current stage only allows payout-rule updates. Core setup details are locked.";
+}
+
+function getEditableDistributionFieldLabels(status: string) {
+  const editableSections = getEditableDistributionSections(status);
+  const labels: string[] = [];
+
+  if (editableSections.includes("details")) {
+    labels.push("distribution identity", "description", "record date", "payment date");
+  }
+
+  if (editableSections.includes("payout")) {
+    labels.push("payout mode", "payout token", "payout account", "rate mechanics", "day-count basis");
+  }
+
+  return labels;
+}
+
+function buildDistributionControlChecks(distribution: FundDistribution, linkedFundStatus?: string) {
+  const paymentAfterRecord =
+    !distribution.recordDate ||
+    !distribution.paymentDate ||
+    new Date(distribution.paymentDate).getTime() >= new Date(distribution.recordDate).getTime();
+
+  return [
+    {
+      label: "Linked fund is beyond draft onboarding",
+      ok: Boolean(linkedFundStatus) && !["Draft", "Pending Approval"].includes(linkedFundStatus),
+      detail: linkedFundStatus || "Linked fund missing",
+    },
+    {
+      label: "Record and payment dates are set",
+      ok: Boolean(distribution.recordDate) && Boolean(distribution.paymentDate),
+      detail: `${distribution.recordDate || "record date missing"} / ${distribution.paymentDate || "payment date missing"}`,
+    },
+    {
+      label: "Payment date follows record date",
+      ok: paymentAfterRecord,
+      detail: paymentAfterRecord ? "Date ordering is valid" : "Payment date is earlier than record date",
+    },
+    {
+      label: "Payout route is defined",
+      ok: Boolean(distribution.payoutToken) && Boolean(distribution.payoutAccount),
+      detail: `${distribution.payoutToken || "token missing"} / ${distribution.payoutAccount || "account missing"}`,
+    },
+    {
+      label: "Distribution economics are configured",
+      ok: Boolean(distribution.distributionRate) && Boolean(distribution.distributionRateType),
+      detail: distribution.distributionRate
+        ? `${distribution.distributionRate} ${distribution.distributionRateType || ""}`
+        : "Rate missing",
+    },
+    {
+      label: "Day-count basis is complete",
+      ok: Boolean(distribution.actualDaysInPeriod) && Boolean(distribution.actualDaysInYear),
+      detail: `${distribution.actualDaysInPeriod || "period missing"} / ${distribution.actualDaysInYear || "year missing"}`,
+    },
+  ];
 }
 
 function buildDistributionEditState(distribution: FundDistribution): DistributionEditState {
@@ -152,6 +209,48 @@ function DistributionSetupEditor({
     value: DistributionEditState[K],
   ) => {
     setForm((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const handleSave = () => {
+    if (!form.payoutToken.trim()) {
+      toast.error("Payout token is required.");
+      return;
+    }
+
+    if (!form.payoutAccount.trim()) {
+      toast.error("Payout source account is required.");
+      return;
+    }
+
+    if (!form.distributionRate.trim()) {
+      toast.error("Distribution rate is required.");
+      return;
+    }
+
+    if (!form.actualDaysInPeriod.trim() || !form.actualDaysInYear.trim()) {
+      toast.error("Day-count basis must include both actual days in period and actual days in year.");
+      return;
+    }
+
+    if (form.recordDate && form.paymentDate && form.recordDate > form.paymentDate) {
+      toast.error("Payment date must be later than or equal to record date.");
+      return;
+    }
+
+    onSave({
+      name: form.name.trim() || distribution.name,
+      description: form.description.trim() || distribution.description,
+      distributionRateType: form.distributionRateType,
+      distributionRate: form.distributionRate.trim() || undefined,
+      distributionUnit: form.distributionUnit.trim() || undefined,
+      payoutMode: form.payoutMode,
+      payoutToken: form.payoutToken.trim() || undefined,
+      payoutAccount: form.payoutAccount.trim() || undefined,
+      recordDate: fromDateTimeLocal(form.recordDate),
+      paymentDate: fromDateTimeLocal(form.paymentDate),
+      actualDaysInPeriod: form.actualDaysInPeriod.trim() || undefined,
+      actualDaysInYear: form.actualDaysInYear.trim() || undefined,
+    });
   };
 
   return (
@@ -268,24 +367,7 @@ function DistributionSetupEditor({
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button
-            onClick={() =>
-              onSave({
-                name: form.name.trim() || distribution.name,
-                description: form.description.trim() || distribution.description,
-                distributionRateType: form.distributionRateType,
-                distributionRate: form.distributionRate.trim() || undefined,
-                distributionUnit: form.distributionUnit.trim() || undefined,
-                payoutMode: form.payoutMode,
-                payoutToken: form.payoutToken.trim() || undefined,
-                payoutAccount: form.payoutAccount.trim() || undefined,
-                recordDate: fromDateTimeLocal(form.recordDate),
-                paymentDate: fromDateTimeLocal(form.paymentDate),
-                actualDaysInPeriod: form.actualDaysInPeriod.trim() || undefined,
-                actualDaysInYear: form.actualDaysInYear.trim() || undefined,
-              })
-            }
-          >
+          <Button onClick={handleSave}>
             Save Changes
           </Button>
         </div>
@@ -296,6 +378,7 @@ function DistributionSetupEditor({
 
 export function FundDistributionDetail() {
   const { id } = useParams();
+  const location = useLocation();
   const {
     fundDistributions,
     fundIssuances,
@@ -307,6 +390,7 @@ export function FundDistributionDetail() {
 
   const distribution = fundDistributions.find(d => d.id === id);
   const linkedFund = fundIssuances.find((fund) => fund.id === distribution?.fundId);
+  const editIntentRequested = new URLSearchParams(location.search).get("mode") === "edit";
 
   if (!distribution) {
     return (
@@ -321,6 +405,7 @@ export function FundDistributionDetail() {
 
   const [currentStatus, setCurrentStatus] = useState(distribution.status);
   const [isInlineEditing, setIsInlineEditing] = useState(false);
+  const [hasAppliedEditIntent, setHasAppliedEditIntent] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showListingModal, setShowListingModal] = useState(false);
   const [showPendingAllocationModal, setShowPendingAllocationModal] = useState(false);
@@ -374,6 +459,22 @@ export function FundDistributionDetail() {
     userRole === "issuer" &&
     updatePermission.allowed &&
     getEditableDistributionSections(currentStatus).length > 0;
+  const editableFieldLabels = getEditableDistributionFieldLabels(currentStatus);
+  const controlChecks = buildDistributionControlChecks(
+    { ...distribution, status: currentStatus },
+    linkedFund?.status,
+  );
+
+  useEffect(() => {
+    setHasAppliedEditIntent(false);
+  }, [distribution.id]);
+
+  useEffect(() => {
+    if (editIntentRequested && canEditSetup && !hasAppliedEditIntent) {
+      setIsInlineEditing(true);
+      setHasAppliedEditIntent(true);
+    }
+  }, [editIntentRequested, canEditSetup, hasAppliedEditIntent]);
 
   const renderActionButton = () => {
     const permission = getActionPermission();
@@ -515,6 +616,20 @@ export function FundDistributionDetail() {
           <div className="mt-1 text-sm text-muted-foreground">
             {getDistributionEditingPolicyMessage(currentStatus)}
           </div>
+          {editableFieldLabels.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {editableFieldLabels.map((label) => (
+                <Badge key={label} variant="outline">
+                  Editable: {label}
+                </Badge>
+              ))}
+            </div>
+          )}
+          {editIntentRequested && !canEditSetup && (
+            <div className="mt-3 text-sm text-amber-700">
+              This event is currently view-only, so the page opened in review mode instead of edit mode.
+            </div>
+          )}
         </div>
         {canEditSetup && !isInlineEditing && (
           <Button variant="outline" onClick={() => setIsInlineEditing(true)}>
@@ -679,6 +794,33 @@ export function FundDistributionDetail() {
               </CardContent>
             </Card>
           )}
+
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Distribution Checklist</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {controlChecks.map((check) => {
+                const Icon = check.ok
+                  ? CheckCircle2
+                  : check.detail.includes("missing")
+                    ? TriangleAlert
+                    : CircleDashed;
+
+                return (
+                  <div key={check.label} className="rounded-lg border p-3">
+                    <div className="flex items-start gap-3">
+                      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${check.ok ? "text-green-600" : "text-amber-600"}`} />
+                      <div>
+                        <div className="font-medium">{check.label}</div>
+                        <div className="mt-1 text-muted-foreground">{check.detail}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Main Content - Tabs */}
@@ -708,6 +850,36 @@ export function FundDistributionDetail() {
                       {distribution.payoutMode === "Direct Transfer"
                         ? "After opening, the system starts fund transfer automatically."
                         : "After opening, investors can claim payout on-chain."}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Manager Controls</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-2 text-sm">
+                  <div className="rounded-lg border p-4">
+                    <div className="text-muted-foreground">Payout Route</div>
+                    <div className="mt-1 font-medium">
+                      {distribution.payoutMode || "Claim"} / {distribution.payoutToken || "Token pending"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-muted-foreground">Treasury Source</div>
+                    <div className="mt-1 font-medium">{distribution.payoutAccount || "Account pending"}</div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-muted-foreground">Record and Payment Discipline</div>
+                    <div className="mt-1 font-medium">
+                      {distribution.recordDate || "Record date pending"} / {distribution.paymentDate || "Payment date pending"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border p-4">
+                    <div className="text-muted-foreground">Day-count Basis</div>
+                    <div className="mt-1 font-medium">
+                      {distribution.actualDaysInPeriod || "Period pending"} / {distribution.actualDaysInYear || "Year pending"}
                     </div>
                   </div>
                 </CardContent>
