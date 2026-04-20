@@ -86,7 +86,6 @@ interface FundEditFormState {
   tokenDecimals: string;
   isinCode: string;
   unitPerToken: string;
-  transferRestricted: boolean;
   whitelistRequired: boolean;
   mintingRule: string;
   tradable: boolean;
@@ -173,7 +172,6 @@ function buildFundEditFormState(fund: FundIssuance): FundEditFormState {
     tokenDecimals: String(fund.tokenDecimals ?? 18),
     isinCode: fund.isinCode || "",
     unitPerToken: fund.unitPerToken || "1 fund unit",
-    transferRestricted: parseBooleanLabel(fund.transferRestricted),
     whitelistRequired: parseBooleanLabel(fund.whitelistRequired),
     mintingRule: parseMintingRule(fund.mintingRule),
     tradable: parseBooleanLabel(fund.tradable),
@@ -245,9 +243,180 @@ function formatRuleType(ruleType: string) {
       return "Investor type";
     case "investor-jurisdiction":
       return "Investor jurisdiction";
+    case "risk-test-level":
+      return "Risk test level";
     default:
       return ruleType || "Rule";
   }
+}
+
+function parseLeadingNumber(value: string) {
+  const normalized = value.replace(/,/g, "");
+  const match = normalized.match(/[\d.]+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function getInvestorCategory(order: FundOrder) {
+  if (order.investorName.toLowerCase().includes("family office")) return "Family Office";
+  if (order.investorName.toLowerCase().includes("institutional")) return "Institutional";
+  if (order.investorName.toLowerCase().includes("qualified")) return "Qualified Investor";
+  if (order.investorName.toLowerCase().includes("treasury")) return "Treasury";
+  return "Professional Investor";
+}
+
+function buildBuyerSummary(orders: FundOrder[]) {
+  const buyers = new Map<
+    string,
+    {
+      investorId: string;
+      investorName: string;
+      investorWallet: string;
+      category: string;
+      orderCount: number;
+      totalRequestedAmount: number;
+      totalRequestedUnits: number;
+      latestStatus: string;
+    }
+  >();
+
+  orders.forEach((order) => {
+    const existing = buyers.get(order.investorId) || {
+      investorId: order.investorId,
+      investorName: order.investorName,
+      investorWallet: order.investorWallet,
+      category: getInvestorCategory(order),
+      orderCount: 0,
+      totalRequestedAmount: 0,
+      totalRequestedUnits: 0,
+      latestStatus: order.status,
+    };
+
+    existing.orderCount += 1;
+    existing.totalRequestedAmount += parseLeadingNumber(order.requestAmount);
+    existing.totalRequestedUnits += parseLeadingNumber(order.requestQuantity);
+    existing.latestStatus = order.status;
+    buyers.set(order.investorId, existing);
+  });
+
+  return Array.from(buyers.values());
+}
+
+function buildAllocationPreview(
+  orders: FundOrder[],
+  fundData: FundIssuance,
+) {
+  const subscriptionOrders = orders.filter((order) => order.type === "subscription");
+  const totalRequestedAmount = subscriptionOrders.reduce(
+    (sum, order) => sum + parseLeadingNumber(order.requestAmount),
+    0,
+  );
+  const targetSize = fundData.targetFundSizeValue || 0;
+  const proRataRatio =
+    totalRequestedAmount > 0 ? Math.min(1, targetSize / totalRequestedAmount) : 1;
+
+  let remainingAmount = targetSize;
+  const sortedOrders = [...subscriptionOrders].sort((left, right) =>
+    left.submitTime.localeCompare(right.submitTime),
+  );
+
+  const rows = sortedOrders.map((order) => {
+    const requestedAmount = parseLeadingNumber(order.requestAmount);
+    const requestedUnits = parseLeadingNumber(order.requestQuantity);
+    const allocatedAmount =
+      fundData.allocationRule === "First-come-first-served"
+        ? Math.max(Math.min(requestedAmount, remainingAmount), 0)
+        : requestedAmount * proRataRatio;
+
+    if (fundData.allocationRule === "First-come-first-served") {
+      remainingAmount = Math.max(remainingAmount - allocatedAmount, 0);
+    }
+
+    const allocatedUnits =
+      requestedAmount > 0 ? (requestedUnits * allocatedAmount) / requestedAmount : 0;
+
+    return {
+      ...order,
+      buyerCategory: getInvestorCategory(order),
+      requestedAmount,
+      requestedUnits,
+      allocatedAmount,
+      allocatedUnits,
+      shareClass: fundData.shareClass || "Class A",
+      allocationRatio: requestedAmount > 0 ? allocatedAmount / requestedAmount : 0,
+    };
+  });
+
+  const categoryBreakdown = Array.from(
+    rows.reduce((map, row) => {
+      const current = map.get(row.buyerCategory) || {
+        category: row.buyerCategory,
+        investorCount: 0,
+        allocatedAmount: 0,
+        allocatedUnits: 0,
+      };
+      current.investorCount += 1;
+      current.allocatedAmount += row.allocatedAmount;
+      current.allocatedUnits += row.allocatedUnits;
+      map.set(row.buyerCategory, current);
+      return map;
+    }, new Map<string, { category: string; investorCount: number; allocatedAmount: number; allocatedUnits: number }>()),
+  ).map(([, value]) => value);
+
+  return {
+    totalRequestedAmount,
+    totalAllocatedAmount: rows.reduce((sum, row) => sum + row.allocatedAmount, 0),
+    rows,
+    categoryBreakdown,
+    proRataRatio,
+  };
+}
+
+function renderBuyerTable(
+  orders: FundOrder[],
+  currency: string,
+) {
+  const buyers = buildBuyerSummary(orders);
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Buyer</TableHead>
+          <TableHead>Category</TableHead>
+          <TableHead>Order Count</TableHead>
+          <TableHead>Total Requested</TableHead>
+          <TableHead>Requested Units</TableHead>
+          <TableHead>Latest Status</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {buyers.map((buyer) => (
+          <TableRow key={buyer.investorId}>
+            <TableCell>
+              <div className="font-medium">{buyer.investorName}</div>
+              <div className="max-w-[220px] truncate text-xs text-muted-foreground">
+                {buyer.investorWallet}
+              </div>
+            </TableCell>
+            <TableCell>{buyer.category}</TableCell>
+            <TableCell>{buyer.orderCount}</TableCell>
+            <TableCell>{formatNumber(buyer.totalRequestedAmount, 2)} {currency}</TableCell>
+            <TableCell>{formatNumber(buyer.totalRequestedUnits, 2)} units</TableCell>
+            <TableCell>
+              <StatusBadge status={buyer.latestStatus} />
+            </TableCell>
+          </TableRow>
+        ))}
+        {buyers.length === 0 && (
+          <TableRow>
+            <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+              No buyers yet.
+            </TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
+  );
 }
 
 function OpenEndDealingCycleCard({ fundData }: { fundData: FundIssuance }) {
@@ -400,7 +569,6 @@ function FundSetupEditor({
       tokenDecimals: Math.max(Number(form.tokenDecimals) || 0, 0),
       isinCode: form.isinCode.trim() || undefined,
       unitPerToken: form.unitPerToken.trim() || undefined,
-      transferRestricted: form.transferRestricted ? "Yes" : "No",
       whitelistRequired: form.whitelistRequired ? "Yes" : "No",
       mintingRule:
         form.mintingRule === "pre-minted"
@@ -622,13 +790,7 @@ function FundSetupEditor({
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="flex items-center justify-between rounded-lg border p-4">
-                  <div>
-                    <div className="font-medium">Transfer restricted</div>
-                  </div>
-                  <Switch checked={form.transferRestricted} onCheckedChange={(value) => setField("transferRestricted", value)} />
-                </div>
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="flex items-center justify-between rounded-lg border p-4">
                   <div>
                     <div className="font-medium">Whitelist required</div>
@@ -637,7 +799,7 @@ function FundSetupEditor({
                 </div>
                 <div className="flex items-center justify-between rounded-lg border p-4">
                   <div>
-                    <div className="font-medium">Tradable</div>
+                    <div className="font-medium">Tradable on secondary market</div>
                   </div>
                   <Switch checked={form.tradable} onCheckedChange={(value) => setField("tradable", value)} />
                 </div>
@@ -1442,6 +1604,7 @@ export function FundIssuanceDetail() {
   const persistedInvestorRules = fundData.investorRules ?? [];
   const subscriptionOrders = visibleOrders.filter((order) => order.type === "subscription");
   const redemptionOrders = visibleOrders.filter((order) => order.type === "redemption");
+  const allocationPreview = buildAllocationPreview(allFundOrders, fundData);
   const pendingSubscriptionOrders = allFundOrders.filter(
     (order) =>
       order.type === "subscription" &&
@@ -2025,16 +2188,14 @@ export function FundIssuanceDetail() {
                         </div>
                       </div>
                       <div className="rounded-lg border p-4">
-                        <div className="text-muted-foreground">Transfer restricted</div>
-                        <div className="mt-1 font-medium">
-                          {fundData.transferRestricted || "N/A"}
-                        </div>
-                      </div>
-                      <div className="rounded-lg border p-4">
                         <div className="text-muted-foreground">Whitelist required</div>
                         <div className="mt-1 font-medium">
                           {fundData.whitelistRequired || "N/A"}
                         </div>
+                      </div>
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Tradable on secondary market</div>
+                        <div className="mt-1 font-medium">{fundData.tradable}</div>
                       </div>
                       <div className="rounded-lg border p-4 md:col-span-2">
                         <div className="text-muted-foreground">Minting rule</div>
@@ -2145,9 +2306,10 @@ export function FundIssuanceDetail() {
 
               <TabsContent value="orders" className="space-y-6">
                 <Tabs defaultValue="subscription" className="space-y-4">
-                  <TabsList className="grid w-full grid-cols-2">
+                  <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="subscription">Subscription Orders</TabsTrigger>
                     <TabsTrigger value="redemption">Redemption Orders</TabsTrigger>
+                    <TabsTrigger value="buyers">Buyers</TabsTrigger>
                   </TabsList>
                   <TabsContent value="subscription">
                     {renderOrderTable(
@@ -2166,6 +2328,9 @@ export function FundIssuanceDetail() {
                       manageOrderPermission.allowed,
                       manageOrderPermission.reason,
                     )}
+                  </TabsContent>
+                  <TabsContent value="buyers">
+                    {renderBuyerTable(subscriptionOrders, fundData.navCurrency)}
                   </TabsContent>
                 </Tabs>
               </TabsContent>
@@ -2364,16 +2529,14 @@ export function FundIssuanceDetail() {
                           </div>
                         </div>
                         <div className="rounded-lg border p-4">
-                          <div className="text-muted-foreground">Transfer restricted</div>
-                          <div className="mt-1 font-medium">
-                            {fundData.transferRestricted || "N/A"}
-                          </div>
-                        </div>
-                        <div className="rounded-lg border p-4">
                           <div className="text-muted-foreground">Whitelist required</div>
                           <div className="mt-1 font-medium">
                             {fundData.whitelistRequired || "N/A"}
                           </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Tradable on secondary market</div>
+                          <div className="mt-1 font-medium">{fundData.tradable}</div>
                         </div>
                       </div>
                     </CardContent>
@@ -2413,13 +2576,132 @@ export function FundIssuanceDetail() {
               </TabsContent>
 
               <TabsContent value="orders">
-                {renderOrderTable(
-                  subscriptionOrders,
-                  isMarketplaceView,
-                  handleOrderAdvance,
-                  manageOrderPermission.allowed,
-                  manageOrderPermission.reason,
-                )}
+                <Tabs defaultValue="orders" className="space-y-4">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="orders">Orders</TabsTrigger>
+                    <TabsTrigger value="buyers">Buyers</TabsTrigger>
+                    <TabsTrigger value="allocation">Allocation Preview</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="orders">
+                    {renderOrderTable(
+                      subscriptionOrders,
+                      isMarketplaceView,
+                      handleOrderAdvance,
+                      manageOrderPermission.allowed,
+                      manageOrderPermission.reason,
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="buyers">
+                    {renderBuyerTable(subscriptionOrders, fundData.navCurrency)}
+                  </TabsContent>
+
+                  <TabsContent value="allocation" className="space-y-6">
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <MetricCard
+                        icon={Wallet}
+                        label="Requested Book"
+                        value={formatNumber(allocationPreview.totalRequestedAmount)}
+                        suffix={fundData.navCurrency}
+                        variant="default"
+                      />
+                      <MetricCard
+                        icon={ShieldCheck}
+                        label="Allocatable Size"
+                        value={formatNumber(fundData.targetFundSizeValue)}
+                        suffix={fundData.navCurrency}
+                        variant="primary"
+                      />
+                      <MetricCard
+                        icon={RefreshCcw}
+                        label="Projected Allocation"
+                        value={formatNumber(allocationPreview.totalAllocatedAmount)}
+                        suffix={fundData.navCurrency}
+                        variant="success"
+                      />
+                      <MetricCard
+                        icon={LineChart}
+                        label="Pro-rata Ratio"
+                        value={(allocationPreview.proRataRatio * 100).toFixed(2)}
+                        suffix="%"
+                        variant="warning"
+                      />
+                    </div>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Allocation By Buyer</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Buyer</TableHead>
+                              <TableHead>Category</TableHead>
+                              <TableHead>Share Class</TableHead>
+                              <TableHead>Requested</TableHead>
+                              <TableHead>Allocated</TableHead>
+                              <TableHead>Allocated Units</TableHead>
+                              <TableHead>Ratio</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {allocationPreview.rows.map((row) => (
+                              <TableRow key={row.id}>
+                                <TableCell>
+                                  <div className="font-medium">{row.investorName}</div>
+                                  <div className="text-xs text-muted-foreground">{row.id}</div>
+                                </TableCell>
+                                <TableCell>{row.buyerCategory}</TableCell>
+                                <TableCell>{row.shareClass}</TableCell>
+                                <TableCell>{formatNumber(row.requestedAmount)} {fundData.navCurrency}</TableCell>
+                                <TableCell>{formatNumber(row.allocatedAmount)} {fundData.navCurrency}</TableCell>
+                                <TableCell>{formatNumber(row.allocatedUnits, 2)} units</TableCell>
+                                <TableCell>{(row.allocationRatio * 100).toFixed(2)}%</TableCell>
+                              </TableRow>
+                            ))}
+                            {allocationPreview.rows.length === 0 && (
+                              <TableRow>
+                                <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                                  No subscription orders are available for allocation preview.
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Allocation By Holder Category</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Category</TableHead>
+                              <TableHead>Buyer Count</TableHead>
+                              <TableHead>Allocated Amount</TableHead>
+                              <TableHead>Allocated Units</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {allocationPreview.categoryBreakdown.map((row) => (
+                              <TableRow key={row.category}>
+                                <TableCell>{row.category}</TableCell>
+                                <TableCell>{row.investorCount}</TableCell>
+                                <TableCell>{formatNumber(row.allocatedAmount)} {fundData.navCurrency}</TableCell>
+                                <TableCell>{formatNumber(row.allocatedUnits, 2)} units</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                </Tabs>
               </TabsContent>
             </Tabs>
           )}

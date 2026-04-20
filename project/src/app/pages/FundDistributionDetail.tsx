@@ -27,7 +27,7 @@ import {
   AllocationCompletedDistributionModal,
   OpenForDistributionModal,
 } from "../components/modals/DistributionModals";
-import { FundDistribution } from "../data/fundDemoData";
+import { FundDistribution, FundOrder } from "../data/fundDemoData";
 
 type DistributionEditableSection = "details" | "payout";
 
@@ -130,6 +130,114 @@ function buildDistributionControlChecks(distribution: FundDistribution, linkedFu
       detail: `${distribution.actualDaysInPeriod || "period missing"} / ${distribution.actualDaysInYear || "year missing"}`,
     },
   ];
+}
+
+function parseLeadingNumber(value?: string) {
+  if (!value) return 0;
+  const normalized = value.replace(/,/g, "");
+  const match = normalized.match(/[\d.]+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function getInvestorCategory(order: FundOrder) {
+  if (order.investorName.toLowerCase().includes("family office")) return "Family Office";
+  if (order.investorName.toLowerCase().includes("institutional")) return "Institutional";
+  if (order.investorName.toLowerCase().includes("qualified")) return "Qualified Investor";
+  if (order.investorName.toLowerCase().includes("treasury")) return "Treasury";
+  return "Professional Investor";
+}
+
+function buildDistributionRecipients(
+  distribution: FundDistribution,
+  linkedFund: { shareClass?: string; currentNav?: string; initialNav?: string; assetCurrency?: string } | undefined,
+  fundOrders: FundOrder[],
+) {
+  const orders = fundOrders.filter((order) => order.fundId === distribution.fundId);
+  const holders = new Map<
+    string,
+    {
+      investorId: string;
+      investorName: string;
+      investorWallet: string;
+      category: string;
+      shareClass: string;
+      eligibleUnits: number;
+      estimatedPayout: number;
+    }
+  >();
+
+  orders.forEach((order) => {
+    const existing = holders.get(order.investorId) || {
+      investorId: order.investorId,
+      investorName: order.investorName,
+      investorWallet: order.investorWallet,
+      category: getInvestorCategory(order),
+      shareClass: linkedFund?.shareClass || "Class A",
+      eligibleUnits: 0,
+      estimatedPayout: 0,
+    };
+
+    const units =
+      parseLeadingNumber(order.confirmedSharesOrCash) ||
+      parseLeadingNumber(order.estimatedSharesOrCash) ||
+      parseLeadingNumber(order.requestQuantity);
+
+    if (order.type === "subscription" && order.status !== "Rejected") {
+      existing.eligibleUnits += units;
+    }
+
+    if (order.type === "redemption" && order.status !== "Rejected") {
+      existing.eligibleUnits -= parseLeadingNumber(order.requestQuantity);
+    }
+
+    holders.set(order.investorId, existing);
+  });
+
+  const baseNav =
+    parseLeadingNumber(distribution.initialNav) ||
+    parseLeadingNumber(linkedFund?.currentNav) ||
+    parseLeadingNumber(linkedFund?.initialNav);
+  const distributionRate = parseLeadingNumber(distribution.distributionRate);
+
+  const rows = Array.from(holders.values())
+    .map((holder) => {
+      const eligibleUnits = Math.max(holder.eligibleUnits, 0);
+      const estimatedPayout =
+        distribution.distributionRateType === "Per Unit"
+          ? eligibleUnits * distributionRate
+          : eligibleUnits * baseNav * (distributionRate / 100);
+
+      return {
+        ...holder,
+        eligibleUnits,
+        estimatedPayout,
+      };
+    })
+    .filter((holder) => holder.eligibleUnits > 0);
+
+  const categoryBreakdown = Array.from(
+    rows.reduce((map, row) => {
+      const current = map.get(row.category) || {
+        category: row.category,
+        holderCount: 0,
+        eligibleUnits: 0,
+        estimatedPayout: 0,
+      };
+      current.holderCount += 1;
+      current.eligibleUnits += row.eligibleUnits;
+      current.estimatedPayout += row.estimatedPayout;
+      map.set(row.category, current);
+      return map;
+    }, new Map<string, { category: string; holderCount: number; eligibleUnits: number; estimatedPayout: number }>()),
+  ).map(([, value]) => value);
+
+  return {
+    rows,
+    categoryBreakdown,
+    totalRecipients: rows.length,
+    totalEligibleUnits: rows.reduce((sum, row) => sum + row.eligibleUnits, 0),
+    totalEstimatedPayout: rows.reduce((sum, row) => sum + row.estimatedPayout, 0),
+  };
 }
 
 function buildDistributionEditState(distribution: FundDistribution): DistributionEditState {
@@ -382,6 +490,7 @@ export function FundDistributionDetail() {
   const {
     fundDistributions,
     fundIssuances,
+    fundOrders,
     updateDistributionStatus,
     updateFundDistribution,
     getPermissionResult,
@@ -463,6 +572,11 @@ export function FundDistributionDetail() {
   const controlChecks = buildDistributionControlChecks(
     { ...distribution, status: currentStatus },
     linkedFund?.status,
+  );
+  const recipientPreview = buildDistributionRecipients(
+    { ...distribution, status: currentStatus },
+    linkedFund,
+    fundOrders,
   );
 
   useEffect(() => {
@@ -826,8 +940,9 @@ export function FundDistributionDetail() {
         {/* Main Content - Tabs */}
         <div className="lg:col-span-2">
           <Tabs defaultValue="overview" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="recipients">Recipients</TabsTrigger>
               <TabsTrigger value="distribution">Distribution</TabsTrigger>
             </TabsList>
 
@@ -882,6 +997,112 @@ export function FundDistributionDetail() {
                       {distribution.actualDaysInPeriod || "Period pending"} / {distribution.actualDaysInYear || "Year pending"}
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="recipients" className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Eligible Recipients</div>
+                    <div className="text-2xl font-semibold">{recipientPreview.totalRecipients}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Eligible Units</div>
+                    <div className="text-2xl font-semibold">
+                      {recipientPreview.totalEligibleUnits.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Estimated Payout</div>
+                    <div className="text-2xl font-semibold">
+                      {recipientPreview.totalEstimatedPayout.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {distribution.payoutToken || distribution.distributionUnit || linkedFund?.assetCurrency || "Unit"}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recipient Preview</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Recipient</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Share Class</TableHead>
+                        <TableHead>Eligible Units</TableHead>
+                        <TableHead>Estimated Payout</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recipientPreview.rows.map((recipient) => (
+                        <TableRow key={recipient.investorId}>
+                          <TableCell>
+                            <div className="font-medium">{recipient.investorName}</div>
+                            <div className="text-xs text-muted-foreground truncate max-w-[220px]">
+                              {recipient.investorWallet}
+                            </div>
+                          </TableCell>
+                          <TableCell>{recipient.category}</TableCell>
+                          <TableCell>{recipient.shareClass}</TableCell>
+                          <TableCell>{recipient.eligibleUnits.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
+                          <TableCell>
+                            {recipient.estimatedPayout.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+                            {distribution.payoutToken || distribution.distributionUnit || linkedFund?.assetCurrency || ""}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {recipientPreview.rows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
+                            No eligible recipients can be derived from current fund orders yet.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recipient Category Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Recipient Count</TableHead>
+                        <TableHead>Eligible Units</TableHead>
+                        <TableHead>Estimated Payout</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recipientPreview.categoryBreakdown.map((row) => (
+                        <TableRow key={row.category}>
+                          <TableCell>{row.category}</TableCell>
+                          <TableCell>{row.holderCount}</TableCell>
+                          <TableCell>{row.eligibleUnits.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
+                          <TableCell>
+                            {row.estimatedPayout.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+                            {distribution.payoutToken || distribution.distributionUnit || linkedFund?.assetCurrency || ""}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             </TabsContent>

@@ -51,6 +51,23 @@ function deriveTokenSymbol(value: string) {
   return normalized.slice(0, 15) || "NEWTOKEN";
 }
 
+function getInvestorRuleCondition(ruleType: string) {
+  return ruleType === "risk-test-level" ? "Must be at least" : "Must be";
+}
+
+function getInvestorRulePlaceholder(ruleType: string) {
+  switch (ruleType) {
+    case "investor-type":
+      return "Institutional / Qualified investor";
+    case "investor-jurisdiction":
+      return "Hong Kong SAR / Singapore";
+    case "risk-test-level":
+      return "4";
+    default:
+      return "Enter rule value";
+  }
+}
+
 export function CreateFundIssuance() {
   const navigate = useNavigate();
   const { addFundIssuance } = useApp();
@@ -81,7 +98,6 @@ export function CreateFundIssuance() {
   const [tokenDecimals, setTokenDecimals] = useState("18");
   const [isinCode, setIsinCode] = useState("");
   const [unitPerToken, setUnitPerToken] = useState("1 fund unit");
-  const [transferRestricted, setTransferRestricted] = useState(true);
   const [whitelistRequired, setWhitelistRequired] = useState(true);
   const [mintingRule, setMintingRule] = useState("mint-burn");
   const [isTokenTradable, setIsTokenTradable] = useState(false);
@@ -153,6 +169,11 @@ export function CreateFundIssuance() {
     const now = new Date();
     const newFundId = `fund-${Date.now()}`;
     const createdTime = format(now, "yyyy-MM-dd HH:mm:ss");
+    const defaultFundName = openEndMode ? "New Open-end Fund" : "New Closed-end Fund";
+    const effectiveFundName = fundName.trim() || defaultFundName;
+    const defaultDescription = openEndMode
+      ? "Open-end fund draft with dealing and settlement rules pending activation."
+      : "Closed-end fund issuance draft pending subscription, allocation, and activation setup.";
 
     const targetValue = Number(targetFundSize) || 0;
     const minSubValue = Number(minSubscriptionAmount) || 0;
@@ -160,7 +181,7 @@ export function CreateFundIssuance() {
     const navValue = Number(initialNav) || 1;
     const tokenSymbolValue = tokenSymbol.trim()
       ? tokenSymbol.trim().toUpperCase()
-      : deriveTokenSymbol(tokenName || fundName || "NEWFUND");
+      : deriveTokenSymbol(tokenName || effectiveFundName || "NEWFUND");
     const tokenDecimalsValue = Math.max(Number(tokenDecimals) || 0, 0);
     const normalizedReferences = references
       .filter((reference) => reference.value.trim())
@@ -191,25 +212,22 @@ export function CreateFundIssuance() {
 
     const newFund: FundIssuance = {
       id: newFundId,
-      name: fundName || "New Open-end Fund",
+      name: effectiveFundName,
       status: "Draft",
-      description:
-        fundDescription ||
-        "Open-end fund draft with dealing and settlement rules pending activation.",
+      description: fundDescription || defaultDescription,
       assetType: "Fund",
       allocationStatus: openEndMode ? "N/A" : "Upcoming",
       createdTime,
       issuerEntity: issuerEntity || fundManager || "To be assigned",
       fundJurisdiction: fundJurisdiction || "Hong Kong SAR",
       shareClass: shareClass || "Class A",
-      tokenName: tokenName || `${fundName || "NEW-FUND"} TOKEN`,
+      tokenName: tokenName || `${effectiveFundName} TOKEN`,
       tokenSymbol: tokenSymbolValue,
       tokenAddress: "–",
       tokenStandard,
       tokenDecimals: tokenDecimalsValue,
       isinCode: isinCode || undefined,
       unitPerToken: unitPerToken || "1 fund unit",
-      transferRestricted: transferRestricted ? "Yes" : "No",
       whitelistRequired: whitelistRequired ? "Yes" : "No",
       mintingRule:
         mintingRule === "mint-burn"
@@ -694,20 +712,6 @@ export function CreateFundIssuance() {
             <div className="grid md:grid-cols-2 gap-6">
               <div className="flex items-center justify-between rounded-lg border p-4">
                 <div>
-                  <div className="font-medium">Transfer restricted</div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    Control whether peer-to-peer token transfer requires issuer policy checks.
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">No</span>
-                  <Switch checked={transferRestricted} onCheckedChange={setTransferRestricted} />
-                  <span className="text-sm text-muted-foreground">Yes</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border p-4">
-                <div>
                   <div className="font-medium">Whitelist required</div>
                   <div className="text-sm text-muted-foreground mt-1">
                     Investor wallets must pass eligibility checks before holding or receiving tokens.
@@ -725,7 +729,7 @@ export function CreateFundIssuance() {
               <div>
                 <div className="font-medium">Is token tradable on secondary market</div>
                 <div className="text-sm text-muted-foreground mt-1">
-                  For the demo we keep open-end funds non-tradable by default and focus on daily dealing.
+                  Toggle whether this fund token is allowed to circulate in a secondary trading venue.
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -928,6 +932,7 @@ export function CreateFundIssuance() {
                       onValueChange={(value) => {
                         const next = [...investorRules];
                         next[index].ruleType = value;
+                        next[index].condition = getInvestorRuleCondition(value);
                         setInvestorRules(next);
                       }}
                     >
@@ -937,14 +942,16 @@ export function CreateFundIssuance() {
                       <SelectContent>
                         <SelectItem value="investor-type">Investor type</SelectItem>
                         <SelectItem value="investor-jurisdiction">Investor jurisdiction</SelectItem>
+                        <SelectItem value="risk-test-level">Risk test level</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value="must-be" disabled>
+                    <Select value={rule.condition} disabled>
                       <SelectTrigger>
                         <SelectValue placeholder="Condition" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="must-be">Must be</SelectItem>
+                        <SelectItem value="Must be">Must be</SelectItem>
+                        <SelectItem value="Must be at least">Must be at least</SelectItem>
                       </SelectContent>
                     </Select>
                     <Input
@@ -954,7 +961,7 @@ export function CreateFundIssuance() {
                         next[index].value = event.target.value;
                         setInvestorRules(next);
                       }}
-                      placeholder="Institutional / HK / Qualified investor"
+                      placeholder={getInvestorRulePlaceholder(rule.ruleType)}
                     />
                   </div>
                   <Button variant="outline" size="icon" onClick={() => removeInvestorRule(index)}>

@@ -68,7 +68,6 @@ export interface FundIssuance {
   tokenDecimals?: number;
   isinCode?: string;
   unitPerToken?: string;
-  transferRestricted?: string;
   whitelistRequired?: string;
   mintingRule?: string;
   assetCurrency: string;
@@ -494,6 +493,19 @@ export const initialFunds: FundIssuance[] = [
     subscriptionLotSize: 100,
     subscriptionMinQuantity: 1,
     subscriptionMaxQuantity: 100,
+    allocationRule: "Pro-rata",
+    investorRules: [
+      {
+        ruleType: "investor-type",
+        condition: "Must be",
+        value: "Professional investor",
+      },
+      {
+        ruleType: "risk-test-level",
+        condition: "Must be at least",
+        value: "4",
+      },
+    ],
     navHistory: [],
   },
 ];
@@ -599,6 +611,51 @@ export const initialFundOrders: FundOrder[] = [
     submitTime: "2026-04-16 15:12:00",
     status: "Pending Review",
     batchId: "batch-red-001",
+  },
+  {
+    id: "sub-ce-001",
+    fundId: "fund-closed-001",
+    investorId: "inv-101",
+    investorName: "Harbor Family Office",
+    investorWallet: "0x1a2B3c4D5e6F708192A3b4C5d6E7f8091A2b3C4d",
+    type: "subscription",
+    requestAmount: "4,000,000 HKD",
+    requestQuantity: "42,105.26 units",
+    estimatedNav: "95 HKD",
+    estimatedSharesOrCash: "42,105.26 units",
+    submitTime: "2026-04-18 10:15:00",
+    status: "Pending Review",
+    note: "Professional investor onboarding complete, pending issuer review.",
+  },
+  {
+    id: "sub-ce-002",
+    fundId: "fund-closed-001",
+    investorId: "inv-102",
+    investorName: "Granite Institutional Fund",
+    investorWallet: "0x2b3C4d5E6f708192A3b4C5d6E7f8091A2b3C4d5E",
+    type: "subscription",
+    requestAmount: "5,000,000 HKD",
+    requestQuantity: "52,631.58 units",
+    estimatedNav: "95 HKD",
+    estimatedSharesOrCash: "52,631.58 units",
+    submitTime: "2026-04-18 11:40:00",
+    status: "Submitted",
+    note: "Waiting for subscription review before allocation book closes.",
+  },
+  {
+    id: "sub-ce-003",
+    fundId: "fund-closed-001",
+    investorId: "inv-103",
+    investorName: "Summit Qualified Investors SPC",
+    investorWallet: "0x3c4D5e6F708192A3b4C5d6E7f8091A2b3C4d5E6f",
+    type: "subscription",
+    requestAmount: "4,500,000 HKD",
+    requestQuantity: "47,368.42 units",
+    estimatedNav: "95 HKD",
+    estimatedSharesOrCash: "47,368.42 units",
+    submitTime: "2026-04-18 14:05:00",
+    status: "Pending Review",
+    note: "Oversubscription expected if accepted in full.",
   },
 ];
 
