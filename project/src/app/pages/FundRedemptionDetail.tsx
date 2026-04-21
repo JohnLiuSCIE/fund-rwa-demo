@@ -39,6 +39,11 @@ import { InfoAlert } from "../components/InfoAlert";
 import { StatusBadge } from "../components/StatusBadge";
 import { FundRedemptionWorkflow } from "../components/FundIssuanceWorkflow";
 import { OperationActionModal } from "../components/modals/OperationActionModal";
+import {
+  TransferAgentChecklistCard,
+  TransferAgentOperationsCard,
+  WorkflowResponsibilityCard,
+} from "../components/TransferAgentPanels";
 import { useApp } from "../context/AppContext";
 import { FundIssuance, FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
 import { cn } from "../components/ui/utils";
@@ -363,6 +368,73 @@ function toDateTimeLocal(value?: string) {
 
 function fromDateTimeLocal(value: string) {
   return value ? `${value.replace("T", " ")}:00` : undefined;
+}
+
+function parseLeadingNumber(value?: string) {
+  if (!value) return 0;
+  const normalized = value.replace(/,/g, "");
+  const match = normalized.match(/[\d.]+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function getPaymentStatusLabel(status: FundOrder["status"]) {
+  switch (status) {
+    case "Completed":
+      return "Paid";
+    case "Pending Cash Settlement":
+      return "Ready";
+    case "Rejected":
+      return "Failed";
+    default:
+      return "Pending";
+  }
+}
+
+function buildRedemptionPaymentRows(requests: FundOrder[]) {
+  return requests.map((request) => {
+    const acceptedUnits = request.confirmedSharesOrCash
+      ? request.requestQuantity
+      : request.requestQuantity;
+    const grossAmount = request.confirmedSharesOrCash || request.estimatedSharesOrCash;
+    const pricePerUnitValue =
+      parseLeadingNumber(grossAmount) / Math.max(parseLeadingNumber(request.requestQuantity), 1);
+    const pricePerUnitCurrency =
+      request.confirmedNav?.split(" ").slice(-1)[0] ||
+      request.estimatedNav.split(" ").slice(-1)[0] ||
+      "";
+
+    return {
+      id: request.id,
+      investorName: request.investorName,
+      destinationAccount: request.investorWallet,
+      unitsAccepted: acceptedUnits,
+      pricePerUnit: `${pricePerUnitValue.toFixed(4)} ${pricePerUnitCurrency}`.trim(),
+      grossAmount,
+      netAmount: grossAmount,
+      paymentStatus: getPaymentStatusLabel(request.status),
+      paymentReference:
+        request.status === "Completed"
+          ? `PAY-${request.id.toUpperCase()}`
+          : request.status === "Pending Cash Settlement"
+            ? `READY-${request.id.toUpperCase()}`
+            : "—",
+    };
+  });
+}
+
+function buildHolderSnapshotRows(requests: FundOrder[]) {
+  return requests.map((request) => ({
+    id: request.id,
+    investorName: request.investorName,
+    destinationAccount: request.investorWallet,
+    snapshotUnits: request.requestQuantity,
+    estimatedCash: request.confirmedSharesOrCash || request.estimatedSharesOrCash,
+    requestStatus: request.status,
+  }));
+}
+
+function includesKeyword(value: string | undefined, keyword: string) {
+  return value?.toLowerCase().includes(keyword.toLowerCase()) ?? false;
 }
 
 function getRedemptionPermissionAction(label: string) {
@@ -858,6 +930,8 @@ export function FundRedemptionDetail() {
   const requests = fundOrders.filter(
     (order) => order.fundId === redemption.fundId && order.type === "redemption",
   );
+  const paymentRows = buildRedemptionPaymentRows(requests);
+  const holderSnapshotRows = buildHolderSnapshotRows(requests);
   const batches = fundBatches.filter(
     (batch) => batch.fundId === redemption.fundId && batch.type === "redemption",
   );
@@ -871,6 +945,149 @@ export function FundRedemptionDetail() {
   const editableFieldLabels = getEditableRedemptionFieldLabels(redemption);
   const controlChecks = buildRedemptionControlChecks(redemption, fund);
   const editIntentRequested = new URLSearchParams(location.search).get("mode") === "edit";
+  const transferAgentOps = redemption.transferAgentOps;
+  const showTransferAgentLayer = !isOpenEndFund || Boolean(transferAgentOps);
+  const responsibilityItems = !isOpenEndFund
+    ? [
+        {
+          label: "1. Launch Event",
+          owner: "Issuer / Fund Manager",
+          description: "Announce the repurchase event, define the window, and approve participation terms.",
+        },
+        {
+          label: "2. Receive Participation",
+          owner: "Investor / System",
+          description: "Collect investor requests during the announced participation window.",
+        },
+        {
+          label: "3. Lock Holder Snapshot",
+          owner: "Transfer Agent",
+          description: "Freeze the accepted holdings and lock the holder snapshot after cut-off.",
+        },
+        {
+          label: "4. Generate Payment List",
+          owner: "Transfer Agent",
+          description: "Validate accepted units and prepare the redemption payment file.",
+        },
+        {
+          label: "5. Confirm Funding",
+          owner: "Issuer / Fund Manager",
+          description: "Fund the settlement account before the payment list is released.",
+        },
+        {
+          label: "6. Reconcile Cash Out",
+          owner: "Transfer Agent",
+          description: "Mark payments complete and reconcile units against cash movements.",
+        },
+      ]
+    : [];
+  const totalSnapshotUnits = holderSnapshotRows.reduce(
+    (sum, row) => sum + parseLeadingNumber(row.snapshotUnits),
+    0,
+  );
+  const totalEstimatedCash = holderSnapshotRows.reduce(
+    (sum, row) => sum + parseLeadingNumber(row.estimatedCash),
+    0,
+  );
+  const paidPaymentCount = paymentRows.filter((row) => row.paymentStatus === "Paid").length;
+  const transferAgentFields = [
+    {
+      label: "Register date",
+      value: transferAgentOps?.holderRegisterDate || redemption.windowEnd || "Pending register cut-off",
+    },
+    {
+      label: "Snapshot ID",
+      value: transferAgentOps?.holderSnapshotId || "Snapshot not locked yet",
+    },
+    {
+      label: "Snapshot locked at",
+      value: transferAgentOps?.holderSnapshotLockedAt || "Waiting for TA confirmation",
+    },
+    {
+      label: "Payment list status",
+      value: transferAgentOps?.paymentListStatus || "Pending generation",
+    },
+    {
+      label: "Payment list generated at",
+      value: transferAgentOps?.paymentListGeneratedAt || "Not generated yet",
+    },
+    {
+      label: "Funding check",
+      value: transferAgentOps?.fundingCheckStatus || "Pending funding confirmation",
+    },
+    {
+      label: "Reconciliation status",
+      value: transferAgentOps?.reconciliationStatus || "Pending",
+    },
+    {
+      label: "Last operator action",
+      value: transferAgentOps?.lastTransferAgentAction || "Transfer agent has not logged an action yet.",
+    },
+  ];
+  const transferAgentChecklistItems = [
+    {
+      label: "Holder register verified",
+      detail: transferAgentOps?.holderRegisterDate
+        ? `Register refreshed on ${transferAgentOps.holderRegisterDate}.`
+        : "Waiting for the transfer agent to validate the holder register.",
+      status: transferAgentOps?.holderRegisterDate ? "done" : "pending",
+    },
+    {
+      label: "Holder snapshot locked",
+      detail: transferAgentOps?.holderSnapshotId
+        ? `${transferAgentOps.holderSnapshotId} locked at ${transferAgentOps.holderSnapshotLockedAt || "TA lock time pending"}.`
+        : "Snapshot lock will happen after the participation window is finalized.",
+      status: transferAgentOps?.holderSnapshotId ? "done" : "pending",
+    },
+    {
+      label: "Payment list generated",
+      detail: transferAgentOps?.paymentListStatus
+        ? `${transferAgentOps.paymentListStatus}${transferAgentOps.paymentListGeneratedAt ? ` at ${transferAgentOps.paymentListGeneratedAt}` : ""}.`
+        : "Payment list has not been generated yet.",
+      status:
+        includesKeyword(transferAgentOps?.paymentListStatus, "generated") ||
+        includesKeyword(transferAgentOps?.paymentListStatus, "ready")
+          ? "done"
+          : "pending",
+    },
+    {
+      label: "Funding confirmed",
+      detail: transferAgentOps?.fundingCheckStatus
+        ? `${transferAgentOps.fundingCheckStatus}${transferAgentOps.fundingConfirmedAt ? ` at ${transferAgentOps.fundingConfirmedAt}` : ""}.`
+        : "Issuer funding has not been confirmed yet.",
+      status: includesKeyword(transferAgentOps?.fundingCheckStatus, "confirmed")
+        ? "done"
+        : transferAgentOps?.fundingCheckStatus
+          ? "attention"
+          : "pending",
+    },
+    {
+      label: "Payment execution completed",
+      detail:
+        paymentRows.length > 0
+          ? `${paidPaymentCount} of ${paymentRows.length} payment rows are marked paid.`
+          : "No payment rows have been released yet.",
+      status:
+        paymentRows.length > 0 && paidPaymentCount === paymentRows.length
+          ? "done"
+          : paidPaymentCount > 0
+            ? "attention"
+            : "pending",
+    },
+    {
+      label: "Reconciliation completed",
+      detail: transferAgentOps?.reconciliationStatus
+        ? `${transferAgentOps.reconciliationStatus}${transferAgentOps?.reconciledAt ? ` at ${transferAgentOps.reconciledAt}` : ""}.`
+        : "Waiting for transfer-agent close-out.",
+      status:
+        includesKeyword(transferAgentOps?.reconciliationStatus, "reconciled") ||
+        includesKeyword(transferAgentOps?.reconciliationStatus, "completed")
+          ? "done"
+          : transferAgentOps?.reconciliationStatus
+            ? "attention"
+            : "pending",
+    },
+  ] as const;
 
   useEffect(() => {
     setHasAppliedEditIntent(false);
@@ -926,7 +1143,7 @@ export function FundRedemptionDetail() {
         >
           {isOpenEndFund
             ? "For open-end funds, redemption is a module under the active fund. The top progress bar tracks setup activation, while the operating state below shows the live window or daily-dealing mode."
-            : "This page tracks the redemption workflow from setup through operation, including request review, batch history, and liquidity window control."}
+            : "This page tracks a one-off holder cash-out workflow, including request review, payment-list preparation, and final cash settlement."}
         </InfoAlert>
       </div>
 
@@ -952,6 +1169,16 @@ export function FundRedemptionDetail() {
           }
         />
       </div>
+
+      {showTransferAgentLayer && (
+        <div className="mb-8">
+          <WorkflowResponsibilityCard
+            title="Redemption Responsibility Map"
+            description="This closed-end cash-out flow separates issuer funding from transfer-agent snapshot, payment-list, and reconciliation work."
+            items={responsibilityItems}
+          />
+        </div>
+      )}
 
       {isOpenEndFund && (
         <div className="mb-8">
@@ -1053,6 +1280,16 @@ export function FundRedemptionDetail() {
             </CardContent>
           </Card>
 
+          {showTransferAgentLayer && (
+            <TransferAgentOperationsCard
+              description="This panel makes the transfer-agent operating role explicit: holder snapshot, payment-list generation, funding check, and close-out."
+              operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
+              status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
+              fields={transferAgentFields}
+              note="For this closed-end redemption event, the transfer agent controls the holder snapshot and publishes the payment list after the participation window closes."
+            />
+          )}
+
           {fund && (
             <Card>
               <CardHeader>
@@ -1106,13 +1343,22 @@ export function FundRedemptionDetail() {
               })}
             </CardContent>
           </Card>
+
+          {showTransferAgentLayer && (
+            <TransferAgentChecklistCard
+              description="These controls focus on transfer-agent workflow readiness rather than issuer setup rules."
+              items={[...transferAgentChecklistItems]}
+            />
+          )}
         </div>
 
         <div className="lg:col-span-2">
           <Tabs defaultValue="overview" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className={cn("grid w-full", isOpenEndFund ? "grid-cols-4" : "grid-cols-5")}>
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              {!isOpenEndFund && <TabsTrigger value="snapshot">Holder Snapshot</TabsTrigger>}
               <TabsTrigger value="requests">Requests</TabsTrigger>
+              <TabsTrigger value="payment-list">Payment List</TabsTrigger>
               <TabsTrigger value="batches">Batch History</TabsTrigger>
             </TabsList>
 
@@ -1189,6 +1435,109 @@ export function FundRedemptionDetail() {
               </Card>
             </TabsContent>
 
+            {!isOpenEndFund && (
+              <TabsContent value="snapshot" className="space-y-6">
+                <div className="grid md:grid-cols-3 gap-4">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Snapshot ID</div>
+                      <div className="text-2xl font-semibold">
+                        {transferAgentOps?.holderSnapshotId || "Pending"}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Eligible Holders</div>
+                      <div className="text-2xl font-semibold">{holderSnapshotRows.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Eligible Units</div>
+                      <div className="text-2xl font-semibold">
+                        {totalSnapshotUnits.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Snapshot Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-2 text-sm">
+                    <div className="rounded-lg border p-4">
+                      <div className="text-muted-foreground">Register Date</div>
+                      <div className="mt-1 font-medium">
+                        {transferAgentOps?.holderRegisterDate || redemption.windowEnd || "Pending"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-4">
+                      <div className="text-muted-foreground">Snapshot Locked At</div>
+                      <div className="mt-1 font-medium">
+                        {transferAgentOps?.holderSnapshotLockedAt || "Pending"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-4">
+                      <div className="text-muted-foreground">Estimated Cash Out</div>
+                      <div className="mt-1 font-medium">
+                        {totalEstimatedCash.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+                        {requests[0]?.estimatedSharesOrCash.split(" ").slice(-1)[0] || ""}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-4">
+                      <div className="text-muted-foreground">Payment List Status</div>
+                      <div className="mt-1 font-medium">
+                        {transferAgentOps?.paymentListStatus || "Pending generation"}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Holder Snapshot</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Investor</TableHead>
+                          <TableHead>Settlement Account</TableHead>
+                          <TableHead>Snapshot Units</TableHead>
+                          <TableHead>Estimated Cash</TableHead>
+                          <TableHead>Request Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {holderSnapshotRows.map((row) => (
+                          <TableRow key={row.id}>
+                            <TableCell className="font-medium">{row.investorName}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {row.destinationAccount}
+                            </TableCell>
+                            <TableCell>{row.snapshotUnits}</TableCell>
+                            <TableCell>{row.estimatedCash}</TableCell>
+                            <TableCell>
+                              <StatusBadge status={row.requestStatus} />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {holderSnapshotRows.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
+                              No holder snapshot has been generated yet.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
+
             <TabsContent value="requests">
               <Table>
                 <TableHeader>
@@ -1256,6 +1605,85 @@ export function FundRedemptionDetail() {
                   })}
                 </TableBody>
               </Table>
+            </TabsContent>
+
+            <TabsContent value="payment-list" className="space-y-6">
+              <div className="grid md:grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Payment Rows</div>
+                    <div className="text-2xl font-semibold">{paymentRows.length}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Ready / Paid</div>
+                    <div className="text-2xl font-semibold">
+                      {paymentRows.filter((row) => row.paymentStatus === "Ready" || row.paymentStatus === "Paid").length}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Total Gross Amount</div>
+                    <div className="text-2xl font-semibold">
+                      {paymentRows
+                        .reduce((sum, row) => sum + parseLeadingNumber(row.grossAmount), 0)
+                        .toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {requests[0]?.estimatedSharesOrCash.split(" ").slice(-1)[0] || ""}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Redemption Payment List</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Investor</TableHead>
+                        <TableHead>Destination Account</TableHead>
+                        <TableHead>Units Accepted</TableHead>
+                        <TableHead>Price / Unit</TableHead>
+                        <TableHead>Gross Amount</TableHead>
+                        <TableHead>Net Amount</TableHead>
+                        <TableHead>Payment Status</TableHead>
+                        <TableHead>Reference</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paymentRows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="font-medium">{row.investorName}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {row.destinationAccount}
+                          </TableCell>
+                          <TableCell>{row.unitsAccepted}</TableCell>
+                          <TableCell>{row.pricePerUnit}</TableCell>
+                          <TableCell>{row.grossAmount}</TableCell>
+                          <TableCell>{row.netAmount}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{row.paymentStatus}</Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{row.paymentReference}</TableCell>
+                        </TableRow>
+                      ))}
+                      {paymentRows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                            No payment rows have been generated yet.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="batches">

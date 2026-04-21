@@ -28,7 +28,7 @@ const getStatusColor = (status: string) => {
 
 export function ManageFundDistribution() {
   const navigate = useNavigate();
-  const { fundDistributions } = useApp();
+  const { fundDistributions, fundIssuances } = useApp();
 
   const handleViewDetails = (id: string) => {
     navigate(`/fund-distribution/${id}`);
@@ -43,21 +43,21 @@ export function ManageFundDistribution() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)' }}>Fund Distribution List</h1>
+          <h1 style={{ fontFamily: 'var(--font-heading)' }}>Fund Payout Event List</h1>
           <p className="text-muted-foreground mt-2">
-            Manage all fund income distributions
+            Manage open-end distributions and closed-end dividends from one queue.
           </p>
         </div>
         <Button onClick={handleCreateNew}>
           <Plus className="w-4 h-4 mr-2" />
-          Create Distribution
+          Create Payout Event
         </Button>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-muted-foreground mb-1">Total Distributions</div>
+          <div className="text-sm text-muted-foreground mb-1">Total Payout Events</div>
           <div className="text-2xl font-semibold">{fundDistributions.length}</div>
         </div>
         <div className="bg-white border rounded-lg p-4">
@@ -86,6 +86,7 @@ export function ManageFundDistribution() {
           <TableHeader>
             <TableRow>
               <TableHead>ID</TableHead>
+              <TableHead>Event Type</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Description</TableHead>
               <TableHead>Asset Type</TableHead>
@@ -98,10 +99,20 @@ export function ManageFundDistribution() {
             {fundDistributions.length > 0 ? (
               fundDistributions.map((distribution) => (
                 <TableRow key={distribution.id}>
+                  {(() => {
+                    const linkedFund = fundIssuances.find((fund) => fund.id === distribution.fundId);
+                    const eventLabel =
+                      linkedFund?.fundType === "Closed-end" ? "Dividend" : "Distribution";
+
+                    return (
+                      <>
                   <TableCell className="font-mono text-xs">
                     <span className="text-muted-foreground">
                       {distribution.id.substring(0, 12)}...
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{eventLabel}</Badge>
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">{distribution.name}</div>
@@ -132,17 +143,20 @@ export function ManageFundDistribution() {
                   <TableCell className="text-sm text-muted-foreground">
                     {distribution.createdTime || "N/A"}
                   </TableCell>
+                      </>
+                    );
+                  })()}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={8} className="text-center py-12">
                   <div className="text-muted-foreground">
-                    No distributions found. Create your first distribution to get started!
+                    No payout events found. Create your first distribution or dividend to get started.
                   </div>
                   <Button className="mt-4" onClick={handleCreateNew}>
                     <Plus className="w-4 h-4 mr-2" />
-                    Create Your First Distribution
+                    Create Your First Payout Event
                   </Button>
                 </TableCell>
               </TableRow>

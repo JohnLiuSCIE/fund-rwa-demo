@@ -30,7 +30,7 @@ const getStatusColor = (status: string) => {
 };
 
 export function MarketplaceFundDistribution() {
-  const { fundDistributions } = useApp();
+  const { fundDistributions, fundIssuances } = useApp();
 
   const openForClaimCount = useMemo(
     () =>
@@ -44,15 +44,15 @@ export function MarketplaceFundDistribution() {
   return (
     <div className="container mx-auto px-6 py-8 max-w-7xl">
       <div className="mb-8">
-        <h1 style={{ fontFamily: "var(--font-heading)" }}>Fund Distribution Marketplace</h1>
+        <h1 style={{ fontFamily: "var(--font-heading)" }}>Fund Payout Events</h1>
         <p className="text-muted-foreground mt-2">
-          View distribution schedules and claim payouts when claim windows are open.
+          View open-end distribution schedules and closed-end dividend events in one investor-facing list.
         </p>
       </div>
 
       <div className="grid md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-muted-foreground mb-1">Total Distributions</div>
+          <div className="text-sm text-muted-foreground mb-1">Total Payout Events</div>
           <div className="text-2xl font-semibold">{fundDistributions.length}</div>
         </div>
         <div className="bg-white border rounded-lg p-4">
@@ -83,6 +83,7 @@ export function MarketplaceFundDistribution() {
           <TableHeader>
             <TableRow>
               <TableHead>ID</TableHead>
+              <TableHead>Event Type</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Payout Mode</TableHead>
               <TableHead>Status</TableHead>
@@ -95,10 +96,16 @@ export function MarketplaceFundDistribution() {
             {fundDistributions.map((distribution) => {
               const claimable =
                 distribution.status === "Open For Distribution" && distribution.payoutMode !== "Direct Transfer";
+              const linkedFund = fundIssuances.find((fund) => fund.id === distribution.fundId);
+              const eventLabel =
+                linkedFund?.fundType === "Closed-end" ? "Dividend" : "Distribution";
 
               return (
                 <TableRow key={distribution.id}>
                   <TableCell className="font-mono text-xs">{distribution.id}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{eventLabel}</Badge>
+                  </TableCell>
                   <TableCell>
                     <div className="font-medium">{distribution.name}</div>
                     <div className="text-xs text-muted-foreground truncate max-w-[280px]">
@@ -136,8 +143,8 @@ export function MarketplaceFundDistribution() {
             })}
             {fundDistributions.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                  No fund distributions are currently available.
+                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                  No payout events are currently available.
                 </TableCell>
               </TableRow>
             )}

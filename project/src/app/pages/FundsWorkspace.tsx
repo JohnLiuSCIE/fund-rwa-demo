@@ -46,7 +46,10 @@ function getRedemptionModuleDescription(
     | undefined,
 ) {
   if (fund.fundType === "Closed-end") {
-    return "Closed-end liquidity normally comes from maturity or secondary trading, not issuer-led redemption.";
+    if (!redemption) {
+      return "Closed-end liquidity normally comes from maturity or secondary trading unless a one-off repurchase event is scheduled.";
+    }
+    return "One-off issuer-led cash-out event with a payment-list settlement workflow.";
   }
   if (!redemption) {
     return "No redemption setup linked yet for this fund.";
@@ -55,6 +58,7 @@ function getRedemptionModuleDescription(
 }
 
 function getDistributionModuleDescription(
+  fund: FundIssuance,
   distribution:
     | {
         status: string;
@@ -63,8 +67,9 @@ function getDistributionModuleDescription(
       }
     | undefined,
 ) {
+  const eventLabelLower = fund.fundType === "Closed-end" ? "dividend" : "distribution";
   if (!distribution) {
-    return "No distribution event has been scheduled yet.";
+    return `No ${eventLabelLower} event has been scheduled yet.`;
   }
   const payoutMode = distribution.payoutMode || "Claim";
   const paymentDate = distribution.paymentDate || "payment date pending";
@@ -145,6 +150,7 @@ function getRedemptionModuleAction(
 
 function getDistributionModuleAction(
   userRole: "issuer" | "investor",
+  fund: FundIssuance,
   distribution:
     | {
         id: string;
@@ -155,14 +161,14 @@ function getDistributionModuleAction(
   if (userRole === "investor") {
     if (!distribution) return null;
     return {
-      label: "View Event",
+      label: fund.fundType === "Closed-end" ? "View Dividend" : "View Event",
       to: `/marketplace/fund-distribution/${distribution.id}`,
     };
   }
 
   if (!distribution) {
     return {
-      label: "Add Event",
+      label: fund.fundType === "Closed-end" ? "Add Dividend" : "Add Event",
       to: "/create/fund-distribution",
     };
   }
@@ -171,14 +177,18 @@ function getDistributionModuleAction(
     return {
       label:
         distribution.status === "Draft" || distribution.status === "Pending Approval"
-          ? "Continue Setup"
-          : "Edit Payout Rules",
+          ? fund.fundType === "Closed-end"
+            ? "Continue Dividend Setup"
+            : "Continue Setup"
+          : fund.fundType === "Closed-end"
+            ? "Edit Dividend Terms"
+            : "Edit Payout Rules",
       to: `/fund-distribution/${distribution.id}?mode=edit`,
     };
   }
 
   return {
-    label: "View Event",
+    label: fund.fundType === "Closed-end" ? "View Dividend" : "View Event",
     to: `/fund-distribution/${distribution.id}`,
   };
 }
@@ -236,8 +246,8 @@ export function FundsWorkspace() {
           <h1 style={{ fontFamily: "var(--font-heading)" }}>Funds Workspace</h1>
           <p className="mt-2 text-muted-foreground">
             {userRole === "issuer"
-              ? "Manage each fund as a first-class object, then open issuance, redemption, and distribution modules from the same operating surface."
-              : "Review each fund as a single product record, then move into subscription, redemption, and distribution touchpoints from one place."}
+              ? "Manage each fund as a first-class object, then open issuance, redemption, and payout modules from the same operating surface."
+              : "Review each fund as a single product record, then move into subscription, redemption, and payout touchpoints from one place."}
           </p>
         </div>
 
@@ -281,7 +291,7 @@ export function FundsWorkspace() {
           <div className="text-2xl font-semibold">{totalRedemptionModules}</div>
         </div>
         <div className="rounded-lg border bg-white p-4">
-          <div className="mb-1 text-sm text-muted-foreground">Distribution Modules</div>
+          <div className="mb-1 text-sm text-muted-foreground">Payout Modules</div>
           <div className="text-2xl font-semibold">{totalDistributionModules}</div>
         </div>
       </div>
@@ -309,7 +319,8 @@ export function FundsWorkspace() {
           const fundDetailPath =
             userRole === "issuer" ? `/fund-issuance/${fund.id}` : `/marketplace/fund-issuance/${fund.id}`;
           const redemptionAction = getRedemptionModuleAction(userRole, fund, linkedRedemption);
-          const distributionAction = getDistributionModuleAction(userRole, linkedDistribution);
+          const distributionAction = getDistributionModuleAction(userRole, fund, linkedDistribution);
+          const payoutModuleLabel = fund.fundType === "Closed-end" ? "Dividend" : "Distribution";
 
           return (
             <Card key={fund.id} className="overflow-hidden border-[var(--navy-100)] bg-white shadow-sm">
@@ -405,7 +416,7 @@ export function FundsWorkspace() {
                           <StatusBadge status={linkedRedemption.status} />
                         ) : (
                           <Badge variant="outline">
-                            {fund.fundType === "Closed-end" ? "Not Standard" : "Not Configured"}
+                            {fund.fundType === "Closed-end" ? "Not Scheduled" : "Not Configured"}
                           </Badge>
                         )}
                       </div>
@@ -427,7 +438,7 @@ export function FundsWorkspace() {
                     <div className="rounded-xl border bg-emerald-50 p-4">
                       <div className="mb-3 flex items-center gap-2 text-emerald-700">
                         <HandCoins className="w-4 h-4" />
-                        <div className="font-medium">Distribution</div>
+                        <div className="font-medium">{payoutModuleLabel}</div>
                       </div>
                       <div className="mb-3">
                         {linkedDistribution ? (
@@ -437,7 +448,7 @@ export function FundsWorkspace() {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {getDistributionModuleDescription(linkedDistribution)}
+                        {getDistributionModuleDescription(fund, linkedDistribution)}
                       </p>
                       {distributionAction && (
                         <div className="mt-4">

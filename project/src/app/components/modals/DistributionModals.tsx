@@ -4,20 +4,23 @@ interface ModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  eventLabel?: string;
 }
 
 export function SubmitDistributionApprovalModal({
   open,
   onOpenChange,
   onSuccess,
+  eventLabel = "Distribution",
 }: ModalProps) {
+  const eventLabelLower = eventLabel.toLowerCase();
   return (
     <OperationActionModal
       open={open}
       onOpenChange={onOpenChange}
       onSuccess={onSuccess}
-      title="Submit Distribution For Approval"
-      description="Review the linked fund distribution request and complete identity verification before submission."
+      title={`Submit ${eventLabel} For Approval`}
+      description={`Review the linked fund ${eventLabelLower} request and complete identity verification before submission.`}
       startLabel="Submit"
       completionLabel="Done"
       steps={[
@@ -25,27 +28,27 @@ export function SubmitDistributionApprovalModal({
           label: "Review",
           title: "Review Submission",
           description:
-            "Check the distribution settings and confirm the request is ready for approval review.",
+            `Check the ${eventLabelLower} settings and confirm the request is ready for approval review.`,
           state: "review",
         },
         {
           label: "Identity",
           title: "Verify Identity",
           description:
-            "Issuer identity and wallet authority are being verified before distribution submission.",
+            `Issuer identity and wallet authority are being verified before ${eventLabelLower} submission.`,
           state: "loading",
         },
         {
           label: "Submit",
           title: "Submit Request",
           description:
-            "The approval request is being recorded in the distribution workflow.",
+            `The approval request is being recorded in the ${eventLabelLower} workflow.`,
           state: "loading",
         },
         {
           label: "Completed",
-          title: "Distribution Submitted",
-          description: "The distribution has been submitted for approval.",
+          title: `${eventLabel} Submitted`,
+          description: `The ${eventLabelLower} has been submitted for approval.`,
           state: "success",
         },
       ]}
@@ -57,14 +60,16 @@ export function ListingDistributionModal({
   open,
   onOpenChange,
   onSuccess,
+  eventLabel = "Distribution",
 }: ModalProps) {
+  const eventLabelLower = eventLabel.toLowerCase();
   return (
     <OperationActionModal
       open={open}
       onOpenChange={onOpenChange}
       onSuccess={onSuccess}
-      title="Listing Distribution"
-      description="Verify issuer identity, sign the wallet actions, and list the distribution."
+      title={`Listing ${eventLabel}`}
+      description={`Verify issuer identity, sign the wallet actions, and list the ${eventLabelLower}.`}
       startLabel="Start"
       completionLabel="Goto Inbox"
       steps={[
@@ -72,7 +77,7 @@ export function ListingDistributionModal({
           label: "Review",
           title: "Review Listing Request",
           description:
-            "Confirm the distribution is approved and ready to be listed on the platform.",
+            `Confirm the ${eventLabelLower} is approved and ready to be listed on the platform.`,
           state: "review",
         },
         {
@@ -85,7 +90,7 @@ export function ListingDistributionModal({
         {
           label: "Sign",
           title: "Personal Sign",
-          description: "Please personal sign to proceed with distribution listing.",
+          description: `Please personal sign to proceed with ${eventLabelLower} listing.`,
           state: "loading",
         },
         {
@@ -96,7 +101,7 @@ export function ListingDistributionModal({
         },
         {
           label: "Completed",
-          title: "Listing distribution has been executed",
+          title: `Listing ${eventLabelLower} has been executed`,
           description: "You can go to Inbox page to view your request.",
           state: "success",
         },
@@ -109,14 +114,16 @@ export function PendingAllocationDistributionModal({
   open,
   onOpenChange,
   onSuccess,
+  eventLabel = "Distribution",
 }: ModalProps) {
+  const eventLabelLower = eventLabel.toLowerCase();
   return (
     <OperationActionModal
       open={open}
       onOpenChange={onOpenChange}
       onSuccess={onSuccess}
       title="Record of Ownership"
-      description="Verify identity before confirming the ownership snapshot for distribution."
+      description={`Verify identity before confirming the ownership snapshot for ${eventLabelLower}.`}
       startLabel="Start"
       completionLabel="Close"
       steps={[
@@ -144,7 +151,7 @@ export function PendingAllocationDistributionModal({
           label: "Completed",
           title: "Snapshot confirmed",
           description:
-            "Distribution list will be generated based on the verified ownership snapshot.",
+            `${eventLabel} recipient list will be generated based on the verified ownership snapshot.`,
           state: "success",
         },
       ]}
@@ -156,14 +163,16 @@ export function AllocationCompletedDistributionModal({
   open,
   onOpenChange,
   onSuccess,
+  eventLabel = "Distribution",
 }: ModalProps) {
+  const eventLabelLower = eventLabel.toLowerCase();
   return (
     <OperationActionModal
       open={open}
       onOpenChange={onOpenChange}
       onSuccess={onSuccess}
       title="Allocation Completed"
-      description="Verify identity before marking the distribution allocation as complete."
+      description={`Verify identity before marking the ${eventLabelLower} allocation as complete.`}
       startLabel="Start"
       completionLabel="Close"
       steps={[
@@ -171,14 +180,14 @@ export function AllocationCompletedDistributionModal({
           label: "Review",
           title: "Review Allocation",
           description:
-            "Confirm the distribution allocation result before moving to on-chain completion.",
+            `Confirm the ${eventLabelLower} allocation result before moving to on-chain completion.`,
           state: "review",
         },
         {
           label: "Identity",
           title: "Verify Identity",
           description:
-            "Issuer identity and distribution authority are being verified.",
+            `Issuer identity and ${eventLabelLower} authority are being verified.`,
           state: "loading",
         },
         {
@@ -190,7 +199,7 @@ export function AllocationCompletedDistributionModal({
         {
           label: "Completed",
           title: "Allocation completed",
-          description: "The distribution is ready to move to the next step.",
+          description: `The ${eventLabelLower} is ready to move to the next step.`,
           state: "success",
         },
       ]}
@@ -202,14 +211,16 @@ export function OpenForDistributionModal({
   open,
   onOpenChange,
   onSuccess,
+  eventLabel = "Distribution",
 }: ModalProps) {
+  const eventLabelLower = eventLabel.toLowerCase();
   return (
     <OperationActionModal
       open={open}
       onOpenChange={onOpenChange}
       onSuccess={onSuccess}
-      title="Open For Distribution"
-      description="Verify issuer identity and complete the wallet actions required to open the distribution window."
+      title={eventLabel === "Dividend" ? "Open Dividend" : "Open For Distribution"}
+      description={`Verify issuer identity and complete the wallet actions required to open the ${eventLabelLower} window.`}
       startLabel="Start"
       completionLabel="Close"
       steps={[
@@ -217,7 +228,7 @@ export function OpenForDistributionModal({
           label: "Review",
           title: "Review Window Opening",
           description:
-            "Check the distribution funding and opening conditions before enabling investor claims.",
+            `Check the ${eventLabelLower} funding and opening conditions before enabling investor claims.`,
           state: "review",
         },
         {
@@ -230,19 +241,25 @@ export function OpenForDistributionModal({
         {
           label: "Approve",
           title: "Sign Approve",
-          description: "Approve token transfer for the distribution.",
+          description: `Approve token transfer for the ${eventLabelLower}.`,
           state: "loading",
         },
         {
           label: "Open",
           title: "Sign Open",
-          description: "Open the distribution claim window for investors.",
+          description:
+            eventLabel === "Dividend"
+              ? "Open the dividend payout flow for investors."
+              : "Open the distribution claim window for investors.",
           state: "loading",
         },
         {
           label: "Completed",
-          title: "Distribution opened",
-          description: "Investors can now accept their distributions.",
+          title: `${eventLabel} opened`,
+          description:
+            eventLabel === "Dividend"
+              ? "Investors can now receive their dividends."
+              : "Investors can now accept their distributions.",
           state: "success",
         },
       ]}

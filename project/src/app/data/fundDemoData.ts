@@ -50,12 +50,44 @@ export interface InvestorRule {
   value: string;
 }
 
+export interface TransferAgentOperations {
+  transferAgentName?: string;
+  transferAgentStatus?: string;
+  holderRegisterDate?: string;
+  holderSnapshotId?: string;
+  holderSnapshotLockedAt?: string;
+  recipientListStatus?: string;
+  recipientListGeneratedAt?: string;
+  paymentListStatus?: string;
+  paymentListGeneratedAt?: string;
+  fundingCheckStatus?: string;
+  fundingConfirmedAt?: string;
+  reconciliationStatus?: string;
+  reconciledAt?: string;
+  lastTransferAgentAction?: string;
+}
+
+export interface FundIssuanceTransferAgentOps extends TransferAgentOperations {
+  investorOnboardingStatus?: string;
+  orderBookStatus?: string;
+  allocationBookStatus?: string;
+  registerVersion?: string;
+  ledgerApprovalStatus?: string;
+  ledgerApprovedAt?: string;
+  mintInstructionStatus?: string;
+}
+
 export interface FundIssuance {
   id: string;
   name: string;
   status: FundLifecycleStatus | string;
   description: string;
   assetType: string;
+  offeringType?: string;
+  legalStructure?: string;
+  fundDistributionChannel?: string;
+  listedFundSubtype?: string;
+  assetStrategyCategory?: string;
   allocationStatus?: string;
   createdTime?: string;
   issuerEntity?: string;
@@ -122,6 +154,7 @@ export interface FundIssuance {
   allocationRule?: string;
   references?: FundReference[];
   investorRules?: InvestorRule[];
+  transferAgentOps?: FundIssuanceTransferAgentOps;
   navHistory: NavRecord[];
   lastAction?: string;
   lastActorRole?: ActorRole;
@@ -190,6 +223,7 @@ export interface FundRedemptionConfig {
   pauseRedemptionAfterListing: boolean;
   cutOffTime: string;
   createdTime: string;
+  transferAgentOps?: TransferAgentOperations;
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
@@ -218,6 +252,7 @@ export interface FundDistribution {
   recordDate?: string;
   paymentDate?: string;
   createdTime?: string;
+  transferAgentOps?: TransferAgentOperations;
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
@@ -231,6 +266,10 @@ export const initialFunds: FundIssuance[] = [
     status: "Active Dealing",
     description: "Open-end money market style fund with daily subscription and redemption processing.",
     assetType: "Fund",
+    offeringType: "Publicly Offered Fund",
+    legalStructure: "OFC",
+    fundDistributionChannel: "Unlisted fund",
+    assetStrategyCategory: "Money Market Fund",
     allocationStatus: "N/A",
     createdTime: "2026-04-10 09:30:00",
     tokenName: "DLF-2026",
@@ -284,6 +323,19 @@ export const initialFunds: FundIssuance[] = [
     pendingRedemptionOrders: 3,
     totalSubscribedAmount: "8,460,000 HKD",
     totalRedeemedAmount: "1,240,000 HKD",
+    transferAgentOps: {
+      transferAgentName: "WeBank Transfer Agent Desk",
+      transferAgentStatus: "Daily Register Maintenance",
+      holderRegisterDate: "2026-04-16 18:20:00",
+      registerVersion: "REG-DLF-20260416-018",
+      investorOnboardingStatus: "Confirmed",
+      orderBookStatus: "Daily batch locked",
+      ledgerApprovalStatus: "Posted after NAV confirmation",
+      ledgerApprovedAt: "2026-04-16 18:22:00",
+      mintInstructionStatus: "Not applicable for daily dealing",
+      lastTransferAgentAction:
+        "Booked confirmed subscriptions and earmarked redemption units after the cut-off batch.",
+    },
     navHistory: [
       {
         id: "nav-dlf-1",
@@ -315,6 +367,10 @@ export const initialFunds: FundIssuance[] = [
     status: "Paused",
     description: "Open-end treasury management fund temporarily paused for new subscriptions while redemption remains open.",
     assetType: "Fund",
+    offeringType: "Publicly Offered Fund",
+    legalStructure: "OFC",
+    fundDistributionChannel: "Unlisted fund",
+    assetStrategyCategory: "Bond Fund",
     allocationStatus: "N/A",
     createdTime: "2026-03-28 11:10:00",
     tokenName: "ITP-2026",
@@ -368,6 +424,19 @@ export const initialFunds: FundIssuance[] = [
     pendingRedemptionOrders: 2,
     totalSubscribedAmount: "5,200,000 USDC",
     totalRedeemedAmount: "980,000 USDC",
+    transferAgentOps: {
+      transferAgentName: "WeBank Transfer Agent Desk",
+      transferAgentStatus: "Paused With Register Servicing",
+      holderRegisterDate: "2026-04-16 17:40:00",
+      registerVersion: "REG-ITP-20260416-011",
+      investorOnboardingStatus: "Issuer review required",
+      orderBookStatus: "Redemption-only servicing",
+      ledgerApprovalStatus: "Posted after manual confirmation",
+      ledgerApprovedAt: "2026-04-16 17:45:00",
+      mintInstructionStatus: "Subscription minting paused",
+      lastTransferAgentAction:
+        "Continued redemption servicing while keeping the subscription register closed for new units.",
+    },
     navHistory: [
       {
         id: "nav-itp-1",
@@ -391,6 +460,10 @@ export const initialFunds: FundIssuance[] = [
     status: "Initial Subscription",
     description: "Open-end income fund still in its initial launch subscription window before daily dealing starts.",
     assetType: "Fund",
+    offeringType: "Publicly Offered Fund",
+    legalStructure: "Unit Trust",
+    fundDistributionChannel: "Unlisted fund",
+    assetStrategyCategory: "Mixed Asset Fund",
     allocationStatus: "Upcoming",
     createdTime: "2026-04-12 14:20:00",
     tokenName: "AIAF-2026",
@@ -461,6 +534,10 @@ export const initialFunds: FundIssuance[] = [
     status: "Open For Subscription",
     description: "Closed-end commercial real estate investment opportunity retained for legacy demo coverage.",
     assetType: "Fund",
+    offeringType: "Private Fund",
+    legalStructure: "LPF",
+    fundDistributionChannel: "Unlisted fund",
+    assetStrategyCategory: "Real Estate Fund / REIT",
     allocationStatus: "Ongoing",
     createdTime: "2026-04-01 11:22:45",
     tokenName: "RE-FUND-A-2024",
@@ -494,6 +571,19 @@ export const initialFunds: FundIssuance[] = [
     subscriptionMinQuantity: 1,
     subscriptionMaxQuantity: 100,
     allocationRule: "Pro-rata",
+    transferAgentOps: {
+      transferAgentName: "Harbor Registry Services",
+      transferAgentStatus: "Subscription Book Monitoring",
+      holderRegisterDate: "2026-04-18 16:30:00",
+      registerVersion: "PRE-ISS-REA-001",
+      investorOnboardingStatus: "KYC / eligibility reviewed",
+      orderBookStatus: "Live subscription book",
+      allocationBookStatus: "Pending close and calculation",
+      ledgerApprovalStatus: "Pre-issuance register draft prepared",
+      mintInstructionStatus: "Pending final allocation",
+      lastTransferAgentAction:
+        "Validated investor eligibility and prepared the pre-allocation holder register draft.",
+    },
     investorRules: [
       {
         ruleType: "investor-type",
@@ -657,6 +747,44 @@ export const initialFundOrders: FundOrder[] = [
     status: "Pending Review",
     note: "Oversubscription expected if accepted in full.",
   },
+  {
+    id: "red-ce-001",
+    fundId: "fund-closed-001",
+    investorId: "inv-101",
+    investorName: "Harbor Family Office",
+    investorWallet: "HK-SETTLE-FO-001",
+    type: "redemption",
+    requestAmount: "20,000 units",
+    requestQuantity: "20,000 units",
+    estimatedNav: "100 HKD",
+    confirmedNav: "100 HKD",
+    estimatedSharesOrCash: "2,000,000 HKD",
+    confirmedSharesOrCash: "2,000,000 HKD",
+    submitTime: "2026-05-10 10:30:00",
+    confirmTime: "2026-05-12 16:20:00",
+    settlementTime: "2026-05-15 11:00:00",
+    status: "Pending Cash Settlement",
+    note: "Accepted into the issuer-led repurchase event and queued for cash payment.",
+  },
+  {
+    id: "red-ce-002",
+    fundId: "fund-closed-001",
+    investorId: "inv-102",
+    investorName: "Granite Institutional Fund",
+    investorWallet: "HK-SETTLE-IF-002",
+    type: "redemption",
+    requestAmount: "15,000 units",
+    requestQuantity: "15,000 units",
+    estimatedNav: "100 HKD",
+    confirmedNav: "100 HKD",
+    estimatedSharesOrCash: "1,500,000 HKD",
+    confirmedSharesOrCash: "1,500,000 HKD",
+    submitTime: "2026-05-10 13:15:00",
+    confirmTime: "2026-05-12 16:22:00",
+    settlementTime: "2026-05-14 15:35:00",
+    status: "Completed",
+    note: "Cash payment completed against the approved repurchase event.",
+  },
 ];
 
 export const initialFundBatches: FundBatch[] = [
@@ -733,6 +861,43 @@ export const initialRedemptions: FundRedemptionConfig[] = [
     cutOffTime: "15:00 UTC",
     createdTime: "2026-04-16 09:45:00",
   },
+  {
+    id: "redemption-003",
+    fundId: "fund-closed-001",
+    name: "Real Estate Fund A Repurchase Event",
+    description: "Issuer-led closed-end liquidity event with a cash payment list for accepted holders.",
+    status: "Window Closed",
+    assetType: "Fund",
+    fundName: "Real Estate Fund A",
+    fundToken: "RE-FUND-A-2024",
+    tokenAddress: "0xa7E4F2c8b9D1e3A5C7F6B2d8E9A1c3F5b7D9e2A4",
+    redemptionMode: "Window-based",
+    effectiveDate: "2026-05-01 09:00:00",
+    windowStart: "2026-05-10 09:00:00",
+    windowEnd: "2026-05-12 17:00:00",
+    announcementDate: "2026-04-25 09:00:00",
+    latestNav: "100 HKD",
+    settlementCycle: "T+2",
+    noticePeriodDays: 14,
+    maxRedemptionQuantityPerInvestor: "20,000 units / event",
+    manualApprovalRequired: true,
+    pauseRedemptionAfterListing: false,
+    cutOffTime: "17:00 HKT",
+    createdTime: "2026-04-22 12:30:00",
+    transferAgentOps: {
+      transferAgentName: "Harbor Registry Services",
+      transferAgentStatus: "Payment List Ready",
+      holderRegisterDate: "2026-05-12 17:00:00",
+      holderSnapshotId: "SNAP-RED-20260512-001",
+      holderSnapshotLockedAt: "2026-05-12 17:05:00",
+      paymentListStatus: "Generated",
+      paymentListGeneratedAt: "2026-05-13 09:15:00",
+      fundingCheckStatus: "Confirmed",
+      fundingConfirmedAt: "2026-05-13 14:30:00",
+      reconciliationStatus: "In Progress",
+      lastTransferAgentAction: "Settlement file released to paying agent after holder validation.",
+    },
+  },
 ];
 
 export const initialDistributions: FundDistribution[] = [
@@ -758,6 +923,41 @@ export const initialDistributions: FundDistribution[] = [
     recordDate: "2026-04-20 18:00:00",
     paymentDate: "2026-04-25 10:00:00",
     createdTime: "2026-04-14 09:30:00",
+  },
+  {
+    id: "distribution-002",
+    fundId: "fund-closed-001",
+    fundName: "Real Estate Fund A",
+    fundToken: "RE-FUND-A-2024",
+    name: "2026 Interim Dividend",
+    description: "Closed-end fund dividend event for holders on the record date.",
+    status: "Pending Allocation",
+    assetType: "Fund",
+    tokenAddress: "0xa7E4F2c8b9D1e3A5C7F6B2d8E9A1c3F5b7D9e2A4",
+    initialNav: "95 HKD",
+    distributionRateType: "Per Unit",
+    distributionRate: "0.80",
+    distributionUnit: "HKD",
+    payoutMode: "Direct Transfer",
+    payoutToken: "HKD",
+    payoutAccount: "Fund treasury settlement account",
+    actualDaysInPeriod: "180",
+    actualDaysInYear: "365",
+    recordDate: "2026-05-20 18:00:00",
+    paymentDate: "2026-05-25 10:00:00",
+    createdTime: "2026-05-02 10:15:00",
+    transferAgentOps: {
+      transferAgentName: "Harbor Registry Services",
+      transferAgentStatus: "Snapshot Locked",
+      holderRegisterDate: "2026-05-20 18:00:00",
+      holderSnapshotId: "SNAP-DIV-20260520-001",
+      holderSnapshotLockedAt: "2026-05-20 18:05:00",
+      recipientListStatus: "Generated",
+      recipientListGeneratedAt: "2026-05-20 18:20:00",
+      fundingCheckStatus: "Pending Treasury Funding",
+      reconciliationStatus: "Pending",
+      lastTransferAgentAction: "Recipient list generated from the record-date holder snapshot.",
+    },
   },
 ];
 

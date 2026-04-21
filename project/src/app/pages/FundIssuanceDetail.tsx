@@ -42,6 +42,11 @@ import { InfoAlert } from "../components/InfoAlert";
 import { MetricCard } from "../components/MetricCard";
 import { StatusBadge } from "../components/StatusBadge";
 import { FundIssuanceWorkflow } from "../components/FundIssuanceWorkflow";
+import {
+  TransferAgentChecklistCard,
+  TransferAgentOperationsCard,
+  WorkflowResponsibilityCard,
+} from "../components/TransferAgentPanels";
 import { RedeemModal, SubscribeModal } from "../components/modals/InvestorModals";
 import { OperationActionModal } from "../components/modals/OperationActionModal";
 import { useApp } from "../context/AppContext";
@@ -369,6 +374,276 @@ function buildAllocationPreview(
     categoryBreakdown,
     proRataRatio,
   };
+}
+
+function includesKeyword(value: string | undefined, keyword: string) {
+  return value?.toLowerCase().includes(keyword.toLowerCase()) ?? false;
+}
+
+function getOrderTaCheckpoint(order: FundOrder) {
+  switch (order.status) {
+    case "Submitted":
+      return {
+        label: "Queued for TA intake",
+        detail:
+          order.type === "subscription"
+            ? "Transfer Agent is waiting to review the incoming subscription package."
+            : "Transfer Agent is waiting to review the incoming redemption request.",
+        registerEffect: "No register change yet",
+      };
+    case "Pending Review":
+      return {
+        label: "TA validating eligibility",
+        detail:
+          order.type === "subscription"
+            ? "Transfer Agent is checking investor eligibility, wallet mapping, and onboarding evidence."
+            : "Transfer Agent is checking holder balance and redemption eligibility.",
+        registerEffect: "Pending approval",
+      };
+    case "Pending NAV":
+      return {
+        label: "TA preparing register delta",
+        detail:
+          "Transfer Agent is waiting for official NAV and final booking quantities before approving the ledger delta.",
+        registerEffect: "Awaiting official pricing",
+      };
+    case "Pending Confirmation":
+      return {
+        label: "TA preparing booking",
+        detail: "Transfer Agent is preparing the unit booking after pricing is confirmed.",
+        registerEffect: "Booking instruction pending",
+      };
+    case "Pending Cash Settlement":
+      return {
+        label: "TA booked units, cash pending",
+        detail:
+          "Transfer Agent has locked the unit movement and is waiting for cash settlement to complete reconciliation.",
+        registerEffect:
+          order.type === "subscription"
+            ? "Units earmarked for booking"
+            : "Units removed pending cash settlement",
+      };
+    case "Confirmed":
+      return {
+        label: "Register updated",
+        detail: "Transfer Agent approved the ledger delta and posted the holder-register update.",
+        registerEffect:
+          order.type === "subscription"
+            ? "Units added to holder register"
+            : "Units removed from holder register",
+      };
+    case "Completed":
+      return {
+        label: "Cash and units reconciled",
+        detail:
+          "Transfer Agent completed the unit and cash reconciliation and closed the operational record.",
+        registerEffect:
+          order.type === "subscription"
+            ? "Booked and settled"
+            : "Redeemed and settled",
+      };
+    case "Rejected":
+      return {
+        label: "Rejected with no ledger change",
+        detail: "Transfer Agent did not approve this request, so the holder register remains unchanged.",
+        registerEffect: "No register change",
+      };
+    default:
+      return {
+        label: "TA review pending",
+        detail: "Transfer Agent review is still pending for this order.",
+        registerEffect: "Pending",
+      };
+  }
+}
+
+function getIssuanceResponsibilityItems(fundData: FundIssuance) {
+  if (fundData.fundType === "Open-end") {
+    return [
+      {
+        label: "1. Prepare Launch",
+        owner: "Issuer / Approver",
+        description: "Approve fund terms, launch controls, and dealing policy before opening the initial window.",
+      },
+      {
+        label: "2. Collect Initial Orders",
+        owner: "Investor / Transfer Agent",
+        description: "Receive initial subscriptions and validate investor onboarding before the first register booking.",
+      },
+      {
+        label: "3. Confirm Launch Register",
+        owner: "Transfer Agent",
+        description: "Approve the first holder-register baseline before the fund enters daily dealing.",
+      },
+      {
+        label: "4. Run Daily Dealing",
+        owner: "Transfer Agent / System",
+        description: "Process subscription and redemption batches, official NAV, and settlement instructions.",
+      },
+      {
+        label: "5. Post Register Delta",
+        owner: "Transfer Agent",
+        description: "Post unit ledger changes and reconcile investor cash and fund units after each batch.",
+      },
+    ];
+  }
+
+  return [
+    {
+      label: "1. Draft And List Fund",
+      owner: "Issuer / Approver",
+      description: "Approve issuance terms, listing readiness, and investor rule pack before subscriptions open.",
+    },
+    {
+      label: "2. Collect Subscriptions",
+      owner: "Investor / Issuer",
+      description: "Open the subscription window and collect investor orders during the offering period.",
+    },
+    {
+      label: "3. Validate Book",
+      owner: "Transfer Agent",
+      description: "Review investor onboarding, freeze the subscription book, and approve the allocation workbook.",
+    },
+    {
+      label: "4. Approve Mint File",
+      owner: "Transfer Agent / System",
+      description: "Approve the final holder list and push the minted allocation file into execution.",
+    },
+    {
+      label: "5. Publish Register Baseline",
+      owner: "Transfer Agent",
+      description: "Confirm the initial holder register and hand the active ledger over to post-issuance operations.",
+    },
+  ];
+}
+
+function buildIssuanceApprovalObjects(
+  fundData: FundIssuance,
+  totalOrderCount: number,
+  allocationPreview: ReturnType<typeof buildAllocationPreview>,
+) {
+  const taOps = fundData.transferAgentOps;
+
+  if (fundData.fundType === "Open-end") {
+    return [
+      {
+        label: "Investor onboarding pack",
+        status: taOps?.investorOnboardingStatus || "Pending",
+        detail: "Investor KYC, wallet binding, and eligibility checks for launch and recurring dealing.",
+      },
+      {
+        label: "Daily dealing batch",
+        status: taOps?.orderBookStatus || `${totalOrderCount} order(s) in the current batch`,
+        detail: "Subscription and redemption requests that the transfer agent reviews before NAV confirmation.",
+      },
+      {
+        label: "Holder register version",
+        status: taOps?.registerVersion || "Pending register version",
+        detail: "The current transfer-agent ledger baseline used for booking unit movements.",
+      },
+      {
+        label: "Ledger approval",
+        status: taOps?.ledgerApprovalStatus || "Pending approval",
+        detail: taOps?.ledgerApprovedAt
+          ? `Most recent approval posted at ${taOps.ledgerApprovedAt}.`
+          : "Waiting for the next transfer-agent booking approval.",
+      },
+    ];
+  }
+
+  return [
+    {
+      label: "Investor onboarding pack",
+      status: taOps?.investorOnboardingStatus || "Pending",
+      detail: "Professional investor checks and wallet eligibility used before allocation.",
+    },
+    {
+      label: "Subscription order book",
+      status: taOps?.orderBookStatus || `${totalOrderCount} subscription order(s) collected`,
+      detail: "The accepted book that will be frozen before allocation starts.",
+    },
+    {
+      label: "Allocation workbook",
+      status: taOps?.allocationBookStatus || "Pending calculation",
+      detail: `${formatNumber(allocationPreview.totalAllocatedAmount, 2)} ${fundData.assetCurrency} currently projected for allocation.`,
+    },
+    {
+      label: "Mint instruction",
+      status: taOps?.mintInstructionStatus || "Pending final allocation",
+      detail: "The file the transfer agent approves before the on-chain issuance step runs.",
+    },
+    {
+      label: "Initial holder register",
+      status: taOps?.ledgerApprovalStatus || "Pending ledger approval",
+      detail: taOps?.registerVersion
+        ? `Register version ${taOps.registerVersion} will become the post-issuance ledger baseline.`
+        : "The initial holder register baseline will be published after booking completes.",
+    },
+  ];
+}
+
+function buildIssuanceLedgerRows(
+  orders: FundOrder[],
+  fundData: FundIssuance,
+  allocationPreview: ReturnType<typeof buildAllocationPreview>,
+) {
+  if (fundData.fundType === "Closed-end") {
+    const allocationReady = [
+      "Calculated",
+      "Allocate On Chain",
+      "Allocation Completed",
+      "Issuance Completed",
+      "Issuance Active",
+    ].includes(fundData.status);
+
+    return allocationPreview.rows.map((row) => ({
+      key: row.id,
+      investorName: row.investorName,
+      investorWallet: row.investorWallet,
+      sourceObject: allocationReady ? "Final allocation workbook" : "Subscription order book",
+      units: `${formatNumber(allocationReady ? row.allocatedUnits : row.requestedUnits, 2)} units`,
+      registerEffect:
+        fundData.status === "Open For Subscription"
+          ? "Awaiting allocation freeze"
+          : fundData.status === "Allocation Period"
+            ? "Book frozen for TA review"
+            : fundData.status === "Calculated"
+              ? "Allocation approved, booking pending"
+              : fundData.status === "Allocate On Chain"
+                ? "Mint instruction in progress"
+                : fundData.status === "Allocation Completed"
+                  ? "Waiting final ledger sign-off"
+                  : "Booked in initial holder register",
+      taStatus:
+        fundData.status === "Open For Subscription"
+          ? "Monitoring"
+          : fundData.status === "Allocation Period"
+            ? "Validating"
+            : fundData.status === "Calculated"
+              ? "Approved"
+              : fundData.status === "Allocate On Chain"
+                ? "Executing"
+                : fundData.status === "Allocation Completed"
+                  ? "Signing off"
+                  : "Published",
+    }));
+  }
+
+  return orders.map((order) => {
+    const checkpoint = getOrderTaCheckpoint(order);
+    return {
+      key: order.id,
+      investorName: order.investorName,
+      investorWallet: order.investorWallet,
+      sourceObject: order.type === "subscription" ? "Subscription batch" : "Redemption batch",
+      units:
+        order.type === "subscription"
+          ? order.confirmedSharesOrCash || order.estimatedSharesOrCash
+          : order.requestQuantity,
+      registerEffect: checkpoint.registerEffect,
+      taStatus: checkpoint.label,
+    };
+  });
 }
 
 function renderBuyerTable(
@@ -1489,6 +1764,7 @@ function renderOrderTable(
           <TableHead>Estimated</TableHead>
           <TableHead>Confirmed</TableHead>
           <TableHead>Status</TableHead>
+          <TableHead>TA Checkpoint</TableHead>
           <TableHead>Submit Time</TableHead>
           {!isMarketplaceView && <TableHead>Action</TableHead>}
         </TableRow>
@@ -1496,6 +1772,7 @@ function renderOrderTable(
       <TableBody>
         {orders.map((order) => {
           const nextAction = getNextOrderAction(order);
+          const taCheckpoint = getOrderTaCheckpoint(order);
           return (
             <TableRow key={order.id}>
               <TableCell className="font-mono text-xs">{order.id}</TableCell>
@@ -1513,6 +1790,12 @@ function renderOrderTable(
               <TableCell>{order.confirmedSharesOrCash || "Pending"}</TableCell>
               <TableCell>
                 <StatusBadge status={order.status} />
+              </TableCell>
+              <TableCell>
+                <div className="font-medium">{taCheckpoint.label}</div>
+                <div className="max-w-[220px] text-xs text-muted-foreground">
+                  {taCheckpoint.registerEffect}
+                </div>
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
                 {order.submitTime}
@@ -1540,7 +1823,7 @@ function renderOrderTable(
         {orders.length === 0 && (
           <TableRow>
             <TableCell
-              colSpan={isMarketplaceView ? 7 : 8}
+              colSpan={isMarketplaceView ? 8 : 9}
               className="py-12 text-center text-muted-foreground"
             >
               No orders yet.
@@ -1619,6 +1902,210 @@ export function FundIssuanceDetail() {
         order.status,
       ),
   ).length;
+  const issuanceTaOps = fundData.transferAgentOps;
+  const issuanceResponsibilityItems = getIssuanceResponsibilityItems(fundData);
+  const ledgerOrders = isMarketplaceView ? visibleOrders : allFundOrders;
+  const issuanceLedgerRows = buildIssuanceLedgerRows(ledgerOrders, fundData, allocationPreview);
+  const issuanceApprovalObjects = buildIssuanceApprovalObjects(
+    fundData,
+    ledgerOrders.length,
+    allocationPreview,
+  );
+  const issuanceTaFields = isOpenEnd
+    ? [
+        {
+          label: "Register timestamp",
+          value:
+            issuanceTaOps?.holderRegisterDate ||
+            fundData.lastNavUpdateTime ||
+            "Waiting for transfer-agent posting",
+        },
+        {
+          label: "Register version",
+          value: issuanceTaOps?.registerVersion || "Pending register version",
+        },
+        {
+          label: "Investor onboarding",
+          value: issuanceTaOps?.investorOnboardingStatus || "Pending onboarding review",
+        },
+        {
+          label: "Order book status",
+          value: issuanceTaOps?.orderBookStatus || "Waiting for dealing batch lock",
+        },
+        {
+          label: "Ledger approval",
+          value: issuanceTaOps?.ledgerApprovalStatus || "Pending booking approval",
+        },
+        {
+          label: "Last operator action",
+          value:
+            issuanceTaOps?.lastTransferAgentAction ||
+            "Transfer agent has not logged an issuance action yet.",
+        },
+      ]
+    : [
+        {
+          label: "Register timestamp",
+          value:
+            issuanceTaOps?.holderRegisterDate ||
+            fundData.subscriptionEndDate ||
+            "Waiting for book close",
+        },
+        {
+          label: "Register version",
+          value: issuanceTaOps?.registerVersion || "Pre-issuance register pending",
+        },
+        {
+          label: "Investor onboarding",
+          value: issuanceTaOps?.investorOnboardingStatus || "Pending onboarding review",
+        },
+        {
+          label: "Order book status",
+          value: issuanceTaOps?.orderBookStatus || "Subscription book pending",
+        },
+        {
+          label: "Allocation workbook",
+          value: issuanceTaOps?.allocationBookStatus || "Pending allocation review",
+        },
+        {
+          label: "Mint instruction",
+          value: issuanceTaOps?.mintInstructionStatus || "Pending allocation result",
+        },
+        {
+          label: "Ledger approval",
+          value: issuanceTaOps?.ledgerApprovalStatus || "Pending register sign-off",
+        },
+        {
+          label: "Last operator action",
+          value:
+            issuanceTaOps?.lastTransferAgentAction ||
+            "Transfer agent has not logged an issuance action yet.",
+        },
+      ];
+  const issuanceTaChecklistItems = isOpenEnd
+    ? [
+        {
+          label: "Investor onboarding reviewed",
+          detail: issuanceTaOps?.investorOnboardingStatus
+            ? `Current status: ${issuanceTaOps.investorOnboardingStatus}.`
+            : "Waiting for transfer-agent onboarding review.",
+          status:
+            includesKeyword(issuanceTaOps?.investorOnboardingStatus, "confirmed") ||
+            includesKeyword(issuanceTaOps?.investorOnboardingStatus, "reviewed")
+              ? "done"
+              : issuanceTaOps?.investorOnboardingStatus
+                ? "attention"
+                : "pending",
+        },
+        {
+          label: "Daily batch locked",
+          detail: issuanceTaOps?.orderBookStatus
+            ? issuanceTaOps.orderBookStatus
+            : "Waiting for dealing batch lock.",
+          status:
+            includesKeyword(issuanceTaOps?.orderBookStatus, "locked") ||
+            includesKeyword(issuanceTaOps?.orderBookStatus, "servicing")
+              ? "done"
+              : issuanceTaOps?.orderBookStatus
+                ? "attention"
+                : "pending",
+        },
+        {
+          label: "Ledger approval posted",
+          detail: issuanceTaOps?.ledgerApprovalStatus
+            ? `${issuanceTaOps.ledgerApprovalStatus}${issuanceTaOps.ledgerApprovedAt ? ` at ${issuanceTaOps.ledgerApprovedAt}` : ""}.`
+            : "Waiting for transfer-agent booking approval.",
+          status:
+            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "posted") ||
+            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "approved")
+              ? "done"
+              : issuanceTaOps?.ledgerApprovalStatus
+                ? "attention"
+                : "pending",
+        },
+        {
+          label: "Register delta reconciled",
+          detail:
+            pendingSubscriptionOrders + pendingRedemptionOrders === 0
+              ? "No pending daily dealing deltas remain."
+              : `${pendingSubscriptionOrders + pendingRedemptionOrders} batch item(s) still require transfer-agent reconciliation.`,
+          status:
+            pendingSubscriptionOrders + pendingRedemptionOrders === 0
+              ? "done"
+              : "attention",
+        },
+      ]
+    : [
+        {
+          label: "Investor onboarding reviewed",
+          detail: issuanceTaOps?.investorOnboardingStatus
+            ? `Current status: ${issuanceTaOps.investorOnboardingStatus}.`
+            : "Waiting for transfer-agent onboarding review.",
+          status:
+            includesKeyword(issuanceTaOps?.investorOnboardingStatus, "reviewed") ||
+            includesKeyword(issuanceTaOps?.investorOnboardingStatus, "confirmed")
+              ? "done"
+              : issuanceTaOps?.investorOnboardingStatus
+                ? "attention"
+                : "pending",
+        },
+        {
+          label: "Subscription book controlled",
+          detail: issuanceTaOps?.orderBookStatus
+            ? issuanceTaOps.orderBookStatus
+            : "Waiting for the book to close before TA review.",
+          status:
+            includesKeyword(issuanceTaOps?.orderBookStatus, "live") ||
+            includesKeyword(issuanceTaOps?.orderBookStatus, "locked")
+              ? "done"
+              : issuanceTaOps?.orderBookStatus
+                ? "attention"
+                : "pending",
+        },
+        {
+          label: "Allocation workbook approved",
+          detail: issuanceTaOps?.allocationBookStatus
+            ? issuanceTaOps.allocationBookStatus
+            : "Waiting for allocation calculation and TA sign-off.",
+          status:
+            includesKeyword(issuanceTaOps?.allocationBookStatus, "approved") ||
+            includesKeyword(issuanceTaOps?.allocationBookStatus, "prepared")
+              ? "done"
+              : issuanceTaOps?.allocationBookStatus
+                ? "attention"
+                : "pending",
+        },
+        {
+          label: "Mint instruction approved",
+          detail: issuanceTaOps?.mintInstructionStatus
+            ? issuanceTaOps.mintInstructionStatus
+            : "Mint instruction will be approved after final allocation.",
+          status:
+            includesKeyword(issuanceTaOps?.mintInstructionStatus, "approved") ||
+            includesKeyword(issuanceTaOps?.mintInstructionStatus, "executing") ||
+            includesKeyword(issuanceTaOps?.mintInstructionStatus, "pending")
+              ? issuanceTaOps?.mintInstructionStatus
+                ? "attention"
+                : "pending"
+              : "pending",
+        },
+        {
+          label: "Initial register baseline published",
+          detail: issuanceTaOps?.ledgerApprovalStatus
+            ? `${issuanceTaOps.ledgerApprovalStatus}${issuanceTaOps.ledgerApprovedAt ? ` at ${issuanceTaOps.ledgerApprovedAt}` : ""}.`
+            : "Waiting for final transfer-agent register sign-off.",
+          status:
+            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "approved") ||
+            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "published") ||
+            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "prepared")
+              ? issuanceTaOps?.ledgerApprovalStatus &&
+                (includesKeyword(issuanceTaOps.ledgerApprovalStatus, "published") ||
+                  includesKeyword(issuanceTaOps.ledgerApprovalStatus, "approved"))
+                ? "done"
+                : "attention"
+              : "pending",
+        },
+      ];
 
   const copyToClipboard = (value: string) => {
     navigator.clipboard.writeText(value);
@@ -1851,6 +2338,18 @@ export function FundIssuanceDetail() {
         />
       </div>
 
+      <div className="mb-8">
+        <WorkflowResponsibilityCard
+          title={isOpenEnd ? "Open-end Lifecycle Responsibility Map" : "Closed-end Lifecycle Responsibility Map"}
+          description={
+            isOpenEnd
+              ? "The transfer agent is now explicit in launch booking, daily dealing batches, and holder-register updates."
+              : "The transfer agent is now explicit in investor validation, allocation approval, mint-file sign-off, and holder-register publication."
+          }
+          items={issuanceResponsibilityItems}
+        />
+      </div>
+
       {isOpenEnd && (
         <div className="mb-8">
           <OpenEndDealingCycleCard fundData={fundData} />
@@ -2003,6 +2502,28 @@ export function FundIssuanceDetail() {
             </CardContent>
           </Card>
 
+          <TransferAgentOperationsCard
+            description={
+              isOpenEnd
+                ? "This panel shows what the transfer agent controls during launch and recurring dealing: onboarding, batch approval, and holder-register posting."
+                : "This panel shows what the transfer agent controls during closed-end issuance: investor onboarding, allocation approval, mint-file sign-off, and the initial holder register."
+            }
+            operatorName={
+              issuanceTaOps?.transferAgentName ||
+              (isOpenEnd ? "WeBank Transfer Agent Desk" : "Harbor Registry Services")
+            }
+            status={
+              issuanceTaOps?.transferAgentStatus ||
+              (isOpenEnd ? "Daily Register Maintenance" : "Pre-Issuance Register Review")
+            }
+            fields={issuanceTaFields}
+          />
+
+          <TransferAgentChecklistCard
+            description="These controls make the transfer-agent approvals and ledger checkpoints explicit inside the issuance lifecycle."
+            items={[...issuanceTaChecklistItems]}
+          />
+
           {!isMarketplaceView && (
             <Card>
               <CardHeader>
@@ -2026,10 +2547,11 @@ export function FundIssuanceDetail() {
         <div className="lg:col-span-2">
           {isOpenEnd ? (
             <Tabs defaultValue="overview" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="information">Information</TabsTrigger>
                 <TabsTrigger value="dealing">Dealing</TabsTrigger>
+                <TabsTrigger value="ta-ledger">TA Ledger</TabsTrigger>
                 <TabsTrigger value="orders">Orders</TabsTrigger>
                 <TabsTrigger value="nav-history">NAV History</TabsTrigger>
               </TabsList>
@@ -2304,6 +2826,92 @@ export function FundIssuanceDetail() {
                 </Card>
               </TabsContent>
 
+              <TabsContent value="ta-ledger" className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-4">
+                  <MetricCard
+                    icon={ShieldCheck}
+                    label="Register Version"
+                    value={issuanceTaOps?.registerVersion || "Pending"}
+                    variant="primary"
+                  />
+                  <MetricCard
+                    icon={RefreshCcw}
+                    label="Ledger Rows"
+                    value={issuanceLedgerRows.length}
+                    variant="default"
+                  />
+                  <MetricCard
+                    icon={ArrowRightLeft}
+                    label="Pending TA Items"
+                    value={pendingSubscriptionOrders + pendingRedemptionOrders}
+                    variant="warning"
+                  />
+                  <MetricCard
+                    icon={Clock3}
+                    label="Last TA Posting"
+                    value={issuanceTaOps?.holderRegisterDate?.split(" ")[0] || "Pending"}
+                    variant="success"
+                  />
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Transfer Agent Approved Data Objects</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-2">
+                    {issuanceApprovalObjects.map((item) => (
+                      <div key={item.label} className="rounded-lg border p-4 text-sm">
+                        <div className="text-muted-foreground">{item.label}</div>
+                        <div className="mt-1 font-medium">{item.status}</div>
+                        <div className="mt-2 text-muted-foreground">{item.detail}</div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Register Update Queue</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Investor</TableHead>
+                          <TableHead>Source Object</TableHead>
+                          <TableHead>Units / Cash</TableHead>
+                          <TableHead>Register Effect</TableHead>
+                          <TableHead>TA Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {issuanceLedgerRows.map((row) => (
+                          <TableRow key={row.key}>
+                            <TableCell>
+                              <div className="font-medium">{row.investorName}</div>
+                              <div className="max-w-[220px] truncate text-xs text-muted-foreground">
+                                {row.investorWallet}
+                              </div>
+                            </TableCell>
+                            <TableCell>{row.sourceObject}</TableCell>
+                            <TableCell>{row.units}</TableCell>
+                            <TableCell>{row.registerEffect}</TableCell>
+                            <TableCell>{row.taStatus}</TableCell>
+                          </TableRow>
+                        ))}
+                        {issuanceLedgerRows.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
+                              No transfer-agent ledger rows are available yet.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
               <TabsContent value="orders" className="space-y-6">
                 <Tabs defaultValue="subscription" className="space-y-4">
                   <TabsList className="grid w-full grid-cols-3">
@@ -2364,10 +2972,11 @@ export function FundIssuanceDetail() {
             </Tabs>
           ) : (
             <Tabs defaultValue="overview" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="information">Information</TabsTrigger>
                 <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                <TabsTrigger value="ta-ledger">TA Ledger</TabsTrigger>
                 <TabsTrigger value="orders">Orders</TabsTrigger>
               </TabsList>
 
@@ -2444,6 +3053,36 @@ export function FundIssuanceDetail() {
                         <p className="leading-6">{fundData.investmentStrategy}</p>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Offering type</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.offeringType || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Legal structure</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.legalStructure || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Distribution channel</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.fundDistributionChannel || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Listed fund subtype</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.listedFundSubtype || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Asset / strategy category</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.assetStrategyCategory || "N/A"}
+                          </div>
+                        </div>
                         <div className="rounded-lg border p-4">
                           <div className="text-muted-foreground">Fund manager</div>
                           <div className="mt-1 font-medium">{fundData.fundManager}</div>
@@ -2571,6 +3210,93 @@ export function FundIssuanceDetail() {
                         {fundData.maturityDate || "N/A"}
                       </span>
                     </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="ta-ledger" className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-4">
+                  <MetricCard
+                    icon={ShieldCheck}
+                    label="Register Version"
+                    value={issuanceTaOps?.registerVersion || "Pending"}
+                    variant="primary"
+                  />
+                  <MetricCard
+                    icon={RefreshCcw}
+                    label="Ledger Rows"
+                    value={issuanceLedgerRows.length}
+                    variant="default"
+                  />
+                  <MetricCard
+                    icon={Wallet}
+                    label="Projected Allocation"
+                    value={formatNumber(allocationPreview.totalAllocatedAmount)}
+                    suffix={fundData.assetCurrency}
+                    variant="success"
+                  />
+                  <MetricCard
+                    icon={Clock3}
+                    label="Last TA Posting"
+                    value={issuanceTaOps?.holderRegisterDate?.split(" ")[0] || "Pending"}
+                    variant="warning"
+                  />
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Transfer Agent Approved Data Objects</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-2">
+                    {issuanceApprovalObjects.map((item) => (
+                      <div key={item.label} className="rounded-lg border p-4 text-sm">
+                        <div className="text-muted-foreground">{item.label}</div>
+                        <div className="mt-1 font-medium">{item.status}</div>
+                        <div className="mt-2 text-muted-foreground">{item.detail}</div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Initial Holder Register Queue</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Investor</TableHead>
+                          <TableHead>Source Object</TableHead>
+                          <TableHead>Units</TableHead>
+                          <TableHead>Register Effect</TableHead>
+                          <TableHead>TA Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {issuanceLedgerRows.map((row) => (
+                          <TableRow key={row.key}>
+                            <TableCell>
+                              <div className="font-medium">{row.investorName}</div>
+                              <div className="max-w-[220px] truncate text-xs text-muted-foreground">
+                                {row.investorWallet}
+                              </div>
+                            </TableCell>
+                            <TableCell>{row.sourceObject}</TableCell>
+                            <TableCell>{row.units}</TableCell>
+                            <TableCell>{row.registerEffect}</TableCell>
+                            <TableCell>{row.taStatus}</TableCell>
+                          </TableRow>
+                        ))}
+                        {issuanceLedgerRows.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
+                              No transfer-agent holder-register rows are available yet.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
                   </CardContent>
                 </Card>
               </TabsContent>

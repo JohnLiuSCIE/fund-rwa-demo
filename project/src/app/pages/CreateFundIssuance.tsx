@@ -68,6 +68,41 @@ function getInvestorRulePlaceholder(ruleType: string) {
   }
 }
 
+const LEGAL_STRUCTURE_OPTIONS = [
+  "Unit Trust",
+  "Mutual Fund",
+  "OFC",
+  "LPF",
+] as const;
+
+const OFFERING_TYPE_OPTIONS = [
+  "Publicly Offered Fund",
+  "Private Fund",
+] as const;
+
+const DISTRIBUTION_CHANNEL_OPTIONS = [
+  "Unlisted fund",
+  "Listed fund",
+  "MPF fund",
+] as const;
+
+const LISTED_FUND_SUBTYPE_OPTIONS = [
+  "ETF",
+  "Listed closed-ended fund",
+  "REIT",
+] as const;
+
+const ASSET_STRATEGY_OPTIONS = [
+  "Equity Fund",
+  "Bond Fund",
+  "Mixed Asset Fund",
+  "Money Market Fund",
+  "Index Fund / ETF",
+  "Alternative Asset Fund",
+  "Real Estate Fund / REIT",
+  "Private Equity / VC / Private Credit",
+] as const;
+
 export function CreateFundIssuance() {
   const navigate = useNavigate();
   const { addFundIssuance } = useApp();
@@ -77,6 +112,15 @@ export function CreateFundIssuance() {
   const [fundName, setFundName] = useState("");
   const [fundDescription, setFundDescription] = useState("");
   const [fundType, setFundType] = useState<"open-end" | "closed-end">("open-end");
+  const [offeringType, setOfferingType] =
+    useState<(typeof OFFERING_TYPE_OPTIONS)[number]>("Publicly Offered Fund");
+  const [legalStructure, setLegalStructure] = useState<(typeof LEGAL_STRUCTURE_OPTIONS)[number]>("OFC");
+  const [distributionChannel, setDistributionChannel] =
+    useState<(typeof DISTRIBUTION_CHANNEL_OPTIONS)[number]>("Unlisted fund");
+  const [listedFundSubtype, setListedFundSubtype] =
+    useState<(typeof LISTED_FUND_SUBTYPE_OPTIONS)[number]>("ETF");
+  const [assetStrategyCategory, setAssetStrategyCategory] =
+    useState<(typeof ASSET_STRATEGY_OPTIONS)[number]>("Bond Fund");
   const [dealSizeUnit, setDealSizeUnit] = useState("HKD");
   const [targetFundSize, setTargetFundSize] = useState("10000000");
   const [minSubscriptionAmount, setMinSubscriptionAmount] = useState("10000");
@@ -130,6 +174,7 @@ export function CreateFundIssuance() {
   >([]);
 
   const openEndMode = fundType === "open-end";
+  const listedChannelSelected = distributionChannel === "Listed fund";
 
   const addReference = () => {
     setReferences((prev) => [...prev, { type: "file", value: "" }]);
@@ -216,6 +261,11 @@ export function CreateFundIssuance() {
       status: "Draft",
       description: fundDescription || defaultDescription,
       assetType: "Fund",
+      offeringType,
+      legalStructure,
+      fundDistributionChannel: distributionChannel,
+      listedFundSubtype: listedChannelSelected ? listedFundSubtype : undefined,
+      assetStrategyCategory,
       allocationStatus: openEndMode ? "N/A" : "Upcoming",
       createdTime,
       issuerEntity: issuerEntity || fundManager || "To be assigned",
@@ -407,23 +457,133 @@ export function CreateFundIssuance() {
           </InfoAlert>
 
           <div className="bg-white border rounded-lg p-6 space-y-6">
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label>Fund name</Label>
-                <Input value={fundName} onChange={(event) => setFundName(event.target.value)} placeholder="Daily Liquidity Fund" />
+            <div className="space-y-2">
+              <Label>Fund name</Label>
+              <Input value={fundName} onChange={(event) => setFundName(event.target.value)} placeholder="Daily Liquidity Fund" />
+            </div>
+
+            <div className="rounded-lg border bg-secondary/20 p-5 space-y-5">
+              <div>
+                <div className="font-medium">Hong Kong Fund Classification</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Capture the fund on the key Hong Kong market axes so the draft reflects offering type,
+                  legal structure, operating mechanism, channel, and strategy instead of only showing
+                  open-end or closed-end.
+                </p>
               </div>
-              <div className="space-y-2">
-                <Label>Fund type</Label>
-                <Select value={fundType} onValueChange={(value) => setFundType(value as "open-end" | "closed-end")}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select fund type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open-end">Open-end</SelectItem>
-                    <SelectItem value="closed-end">Closed-end</SelectItem>
-                  </SelectContent>
-                </Select>
+
+              <div className="grid md:grid-cols-2 gap-6 xl:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Offering type</Label>
+                  <Select
+                    value={offeringType}
+                    onValueChange={(value) => setOfferingType(value as (typeof OFFERING_TYPE_OPTIONS)[number])}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select offering type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OFFERING_TYPE_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Legal structure</Label>
+                  <Select value={legalStructure} onValueChange={(value) => setLegalStructure(value as (typeof LEGAL_STRUCTURE_OPTIONS)[number])}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select legal structure" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LEGAL_STRUCTURE_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Operating mechanism</Label>
+                  <Select value={fundType} onValueChange={(value) => setFundType(value as "open-end" | "closed-end")}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select fund type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open-end">Open-ended</SelectItem>
+                      <SelectItem value="closed-end">Closed-ended</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Distribution channel</Label>
+                  <Select
+                    value={distributionChannel}
+                    onValueChange={(value) => {
+                      const nextValue = value as (typeof DISTRIBUTION_CHANNEL_OPTIONS)[number];
+                      setDistributionChannel(nextValue);
+                      if (nextValue !== "Listed fund") {
+                        setListedFundSubtype("ETF");
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select channel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DISTRIBUTION_CHANNEL_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Asset / strategy category</Label>
+                  <Select
+                    value={assetStrategyCategory}
+                    onValueChange={(value) => setAssetStrategyCategory(value as (typeof ASSET_STRATEGY_OPTIONS)[number])}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select strategy category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ASSET_STRATEGY_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
+              {listedChannelSelected && (
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label>Listed fund subtype</Label>
+                    <Select
+                      value={listedFundSubtype}
+                      onValueChange={(value) => setListedFundSubtype(value as (typeof LISTED_FUND_SUBTYPE_OPTIONS)[number])}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select listed subtype" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LISTED_FUND_SUBTYPE_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
