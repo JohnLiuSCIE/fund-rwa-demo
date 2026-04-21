@@ -19,6 +19,19 @@ import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
 import { FundDistributionWorkflow } from "../components/FundIssuanceWorkflow";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table";
+import {
+  TransferAgentChecklistCard,
+  TransferAgentOperationsCard,
+  WorkflowResponsibilityCard,
+} from "../components/TransferAgentPanels";
+import {
   SubmitDistributionApprovalModal,
   ListingDistributionModal,
   PendingAllocationDistributionModal,
@@ -253,6 +266,10 @@ function buildDistributionEditState(distribution: FundDistribution): Distributio
     actualDaysInPeriod: distribution.actualDaysInPeriod || "",
     actualDaysInYear: distribution.actualDaysInYear || "",
   };
+}
+
+function includesKeyword(value: string | undefined, keyword: string) {
+  return value?.toLowerCase().includes(keyword.toLowerCase()) ?? false;
 }
 
 function OpenEndDistributionContextCard({
@@ -583,6 +600,130 @@ export function FundDistributionDetail() {
     linkedFund,
     fundOrders,
   );
+  const transferAgentOps = distribution.transferAgentOps;
+  const showTransferAgentLayer = isClosedEndDividend || Boolean(transferAgentOps);
+  const responsibilityItems = isClosedEndDividend
+    ? [
+        {
+          label: "1. Draft Dividend",
+          owner: "Issuer / Fund Manager",
+          description: "Define record date, payment date, and dividend economics for approval.",
+        },
+        {
+          label: "2. Lock Snapshot",
+          owner: "Transfer Agent",
+          description: "Freeze the holder register and record-date ownership snapshot.",
+        },
+        {
+          label: "3. Generate Recipient List",
+          owner: "Transfer Agent",
+          description: "Prepare the eligible recipient list and validate payout destinations.",
+        },
+        {
+          label: "4. Confirm Funding",
+          owner: "Issuer / Fund Manager",
+          description: "Fund the treasury account that will be used for the dividend release.",
+        },
+        {
+          label: "5. Release Payout",
+          owner: "Transfer Agent",
+          description: "Release the payout file, monitor settlement, and close reconciliation.",
+        },
+      ]
+    : [];
+  const transferAgentFields = [
+    {
+      label: "Register date",
+      value: transferAgentOps?.holderRegisterDate || distribution.recordDate || "Pending record date",
+    },
+    {
+      label: "Snapshot ID",
+      value: transferAgentOps?.holderSnapshotId || "Snapshot not locked yet",
+    },
+    {
+      label: "Snapshot locked at",
+      value: transferAgentOps?.holderSnapshotLockedAt || "Waiting for TA confirmation",
+    },
+    {
+      label: "Recipient list status",
+      value: transferAgentOps?.recipientListStatus || "Pending generation",
+    },
+    {
+      label: "Recipient list generated at",
+      value: transferAgentOps?.recipientListGeneratedAt || "Not generated yet",
+    },
+    {
+      label: "Funding check",
+      value: transferAgentOps?.fundingCheckStatus || "Pending funding confirmation",
+    },
+    {
+      label: "Reconciliation status",
+      value: transferAgentOps?.reconciliationStatus || "Pending",
+    },
+    {
+      label: "Last operator action",
+      value: transferAgentOps?.lastTransferAgentAction || "Transfer agent has not logged an action yet.",
+    },
+  ];
+  const transferAgentChecklistItems = [
+    {
+      label: "Holder register verified",
+      detail: transferAgentOps?.holderRegisterDate
+        ? `Register refreshed on ${transferAgentOps.holderRegisterDate}.`
+        : "Waiting for the transfer agent to confirm the holder register refresh.",
+      status: transferAgentOps?.holderRegisterDate ? "done" : "pending",
+    },
+    {
+      label: "Record date snapshot frozen",
+      detail: transferAgentOps?.holderSnapshotId
+        ? `${transferAgentOps.holderSnapshotId} locked at ${transferAgentOps.holderSnapshotLockedAt || "TA lock time pending"}.`
+        : "Snapshot will be frozen on the record date before recipient generation.",
+      status: transferAgentOps?.holderSnapshotId ? "done" : "pending",
+    },
+    {
+      label: "Recipient list reviewed",
+      detail: transferAgentOps?.recipientListStatus
+        ? `${transferAgentOps.recipientListStatus}${transferAgentOps.recipientListGeneratedAt ? ` at ${transferAgentOps.recipientListGeneratedAt}` : ""}.`
+        : "Recipient list has not been generated yet.",
+      status:
+        includesKeyword(transferAgentOps?.recipientListStatus, "generated") ||
+        includesKeyword(transferAgentOps?.recipientListStatus, "ready")
+          ? "done"
+          : "pending",
+    },
+    {
+      label: "Cash funding confirmed",
+      detail: transferAgentOps?.fundingCheckStatus
+        ? `${transferAgentOps.fundingCheckStatus}${transferAgentOps?.fundingConfirmedAt ? ` at ${transferAgentOps.fundingConfirmedAt}` : ""}.`
+        : "Treasury funding has not been confirmed yet.",
+      status: includesKeyword(transferAgentOps?.fundingCheckStatus, "confirmed")
+        ? "done"
+        : transferAgentOps?.fundingCheckStatus
+          ? "attention"
+          : "pending",
+    },
+    {
+      label: "Payment execution completed",
+      detail:
+        currentStatus === "Done"
+          ? "Dividend payout has been marked complete."
+          : "Payout release remains pending until the event moves into the completion stage.",
+      status: currentStatus === "Done" ? "done" : "pending",
+    },
+    {
+      label: "Reconciliation completed",
+      detail: transferAgentOps?.reconciliationStatus
+        ? `${transferAgentOps.reconciliationStatus}${transferAgentOps?.reconciledAt ? ` at ${transferAgentOps.reconciledAt}` : ""}.`
+        : "Waiting for transfer-agent close-out.",
+      status:
+        includesKeyword(transferAgentOps?.reconciliationStatus, "reconciled") ||
+        includesKeyword(transferAgentOps?.reconciliationStatus, "completed")
+          ? "done"
+          : transferAgentOps?.reconciliationStatus
+            ? "attention"
+            : "pending",
+    },
+  ] as const;
 
   useEffect(() => {
     setHasAppliedEditIntent(false);
@@ -725,6 +866,16 @@ export function FundDistributionDetail() {
           distributionLabel={eventLabel}
         />
       </div>
+
+      {showTransferAgentLayer && (
+        <div className="mb-8">
+          <WorkflowResponsibilityCard
+            title="Dividend Responsibility Map"
+            description="Closed-end dividend processing is split across issuer approval, transfer-agent register control, and payout release."
+            items={responsibilityItems}
+          />
+        </div>
+      )}
 
       {isOpenEndDistribution && (
         <div className="mb-8">
@@ -894,6 +1045,17 @@ export function FundDistributionDetail() {
             </CardContent>
           </Card>
 
+          {showTransferAgentLayer && (
+            <TransferAgentOperationsCard
+              className="mt-6"
+              description="Use the transfer-agent operating layer to prove who locked the snapshot, who generated the recipient list, and whether funding is ready."
+              operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
+              status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
+              fields={transferAgentFields}
+              note="Eligibility logic for this dividend is fixed: all holders on the record date are included in the recipient list."
+            />
+          )}
+
           {linkedFund && (
             <Card className="mt-6">
               <CardHeader>
@@ -946,6 +1108,14 @@ export function FundDistributionDetail() {
               })}
             </CardContent>
           </Card>
+
+          {showTransferAgentLayer && (
+            <TransferAgentChecklistCard
+              className="mt-6"
+              description="This checklist focuses on transfer-agent controls instead of issuer setup fields."
+              items={[...transferAgentChecklistItems]}
+            />
+          )}
         </div>
 
         {/* Main Content - Tabs */}
@@ -960,6 +1130,21 @@ export function FundDistributionDetail() {
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
+              {isClosedEndDividend && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Eligibility Logic</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm text-muted-foreground">
+                    <p>All holders on the record date are eligible for this dividend event.</p>
+                    <p>
+                      The transfer agent freezes the snapshot first and then generates the recipient
+                      list from the verified holder register instead of applying investor rules.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
               <Card>
                 <CardHeader>
                   <CardTitle>{eventLabel} Overview</CardTitle>

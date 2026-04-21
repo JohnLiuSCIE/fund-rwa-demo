@@ -50,6 +50,23 @@ export interface InvestorRule {
   value: string;
 }
 
+export interface TransferAgentOperations {
+  transferAgentName?: string;
+  transferAgentStatus?: string;
+  holderRegisterDate?: string;
+  holderSnapshotId?: string;
+  holderSnapshotLockedAt?: string;
+  recipientListStatus?: string;
+  recipientListGeneratedAt?: string;
+  paymentListStatus?: string;
+  paymentListGeneratedAt?: string;
+  fundingCheckStatus?: string;
+  fundingConfirmedAt?: string;
+  reconciliationStatus?: string;
+  reconciledAt?: string;
+  lastTransferAgentAction?: string;
+}
+
 export interface FundIssuance {
   id: string;
   name: string;
@@ -195,6 +212,7 @@ export interface FundRedemptionConfig {
   pauseRedemptionAfterListing: boolean;
   cutOffTime: string;
   createdTime: string;
+  transferAgentOps?: TransferAgentOperations;
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
@@ -223,6 +241,7 @@ export interface FundDistribution {
   recordDate?: string;
   paymentDate?: string;
   createdTime?: string;
+  transferAgentOps?: TransferAgentOperations;
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
@@ -797,7 +816,7 @@ export const initialRedemptions: FundRedemptionConfig[] = [
     fundId: "fund-closed-001",
     name: "Real Estate Fund A Repurchase Event",
     description: "Issuer-led closed-end liquidity event with a cash payment list for accepted holders.",
-    status: "Window Open",
+    status: "Window Closed",
     assetType: "Fund",
     fundName: "Real Estate Fund A",
     fundToken: "RE-FUND-A-2024",
@@ -815,6 +834,19 @@ export const initialRedemptions: FundRedemptionConfig[] = [
     pauseRedemptionAfterListing: false,
     cutOffTime: "17:00 HKT",
     createdTime: "2026-04-22 12:30:00",
+    transferAgentOps: {
+      transferAgentName: "Harbor Registry Services",
+      transferAgentStatus: "Payment List Ready",
+      holderRegisterDate: "2026-05-12 17:00:00",
+      holderSnapshotId: "SNAP-RED-20260512-001",
+      holderSnapshotLockedAt: "2026-05-12 17:05:00",
+      paymentListStatus: "Generated",
+      paymentListGeneratedAt: "2026-05-13 09:15:00",
+      fundingCheckStatus: "Confirmed",
+      fundingConfirmedAt: "2026-05-13 14:30:00",
+      reconciliationStatus: "In Progress",
+      lastTransferAgentAction: "Settlement file released to paying agent after holder validation.",
+    },
   },
 ];
 
@@ -849,7 +881,7 @@ export const initialDistributions: FundDistribution[] = [
     fundToken: "RE-FUND-A-2024",
     name: "2026 Interim Dividend",
     description: "Closed-end fund dividend event for holders on the record date.",
-    status: "Upcoming",
+    status: "Pending Allocation",
     assetType: "Fund",
     tokenAddress: "0xa7E4F2c8b9D1e3A5C7F6B2d8E9A1c3F5b7D9e2A4",
     initialNav: "95 HKD",
@@ -864,6 +896,18 @@ export const initialDistributions: FundDistribution[] = [
     recordDate: "2026-05-20 18:00:00",
     paymentDate: "2026-05-25 10:00:00",
     createdTime: "2026-05-02 10:15:00",
+    transferAgentOps: {
+      transferAgentName: "Harbor Registry Services",
+      transferAgentStatus: "Snapshot Locked",
+      holderRegisterDate: "2026-05-20 18:00:00",
+      holderSnapshotId: "SNAP-DIV-20260520-001",
+      holderSnapshotLockedAt: "2026-05-20 18:05:00",
+      recipientListStatus: "Generated",
+      recipientListGeneratedAt: "2026-05-20 18:20:00",
+      fundingCheckStatus: "Pending Treasury Funding",
+      reconciliationStatus: "Pending",
+      lastTransferAgentAction: "Recipient list generated from the record-date holder snapshot.",
+    },
   },
 ];
 
