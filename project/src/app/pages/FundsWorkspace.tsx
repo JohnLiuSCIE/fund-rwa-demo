@@ -1,23 +1,60 @@
-import { useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Coins, HandCoins, Landmark, Plus, RefreshCcw } from "lucide-react";
+import {
+  ArrowRight,
+  Coins,
+  HandCoins,
+  Landmark,
+  Plus,
+  RefreshCcw,
+  Search,
+  Sparkles,
+} from "lucide-react";
 
 import { StatusBadge } from "../components/StatusBadge";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "../components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { cn } from "../components/ui/utils";
 import { useApp } from "../context/AppContext";
 import type { FundIssuance } from "../data/fundDemoData";
 
 type FundWorkspaceFilter = "all" | "open-end" | "closed-end";
+
+type WorkspaceRedemption = {
+  id: string;
+  status: string;
+  redemptionMode: string;
+  settlementCycle: string;
+};
+
+type WorkspaceDistribution = {
+  id: string;
+  status: string;
+  payoutMode?: string;
+  paymentDate?: string;
+};
+
+type WorkspaceAction = {
+  label: string;
+  to: string;
+  summary: string;
+};
 
 function getInvestorVisibleFunds(funds: FundIssuance[]) {
   return funds.filter((fund) => {
@@ -28,55 +65,70 @@ function getInvestorVisibleFunds(funds: FundIssuance[]) {
   });
 }
 
+function getFundDetailPath(userRole: "issuer" | "investor", fundId: string) {
+  return userRole === "issuer" ? `/fund-issuance/${fundId}` : `/marketplace/fund-issuance/${fundId}`;
+}
+
+function getLiquidityModel(fund: FundIssuance) {
+  if (fund.fundType === "Open-end") {
+    return fund.dealingFrequency || fund.redemptionFrequency || "Configured dealing";
+  }
+  return "Closed-end issuance";
+}
+
+function getFundingLabel(fund: FundIssuance) {
+  if (fund.subscriptionPaymentMethod === "Fiat") {
+    return `${fund.subscriptionCashCurrency || fund.assetCurrency} bank transfer`;
+  }
+  if (fund.subscriptionPaymentMethod === "Tokenized Deposit") {
+    return "Tokenized deposit";
+  }
+  if (fund.subscriptionPaymentMethod === "Stablecoin") {
+    return `${fund.assetCurrency} stablecoin`;
+  }
+  return fund.assetCurrency;
+}
+
 function getLaunchModuleDescription(fund: FundIssuance) {
   if (fund.fundType === "Open-end") {
-    return `Recurring dealing cycle with ${fund.dealingFrequency || fund.redemptionFrequency || "configured"} liquidity windows.`;
+    return `Recurring dealing with ${getLiquidityModel(fund)} and ${fund.settlementCycle || "T+1"} settlement.`;
   }
-  return "Primary issuance workflow from onboarding through subscription, allocation, and activation.";
+  return "Primary issuance object covering onboarding, allocation, and activation milestones.";
 }
 
 function getRedemptionModuleDescription(
   fund: FundIssuance,
-  redemption:
-    | {
-        status: string;
-        redemptionMode: string;
-        settlementCycle: string;
-      }
-    | undefined,
+  redemption: WorkspaceRedemption | undefined,
 ) {
   if (fund.fundType === "Closed-end") {
     if (!redemption) {
-      return "Closed-end liquidity normally comes from maturity or secondary trading unless a one-off repurchase event is scheduled.";
+      return "No cash-out event is scheduled. Liquidity stays outside the fund until a special redemption event is launched.";
     }
-    return "One-off issuer-led cash-out event with a payment-list settlement workflow.";
+    return `${redemption.redemptionMode} cash-out event with ${redemption.settlementCycle} settlement.`;
   }
+
   if (!redemption) {
-    return "No redemption setup linked yet for this fund.";
+    return "No redemption object has been created yet for this fund.";
   }
-  return `${redemption.redemptionMode} processing with ${redemption.settlementCycle} settlement.`;
+
+  return `${redemption.redemptionMode} redemptions with ${redemption.settlementCycle} settlement.`;
 }
 
 function getDistributionModuleDescription(
   fund: FundIssuance,
-  distribution:
-    | {
-        status: string;
-        payoutMode?: string;
-        paymentDate?: string;
-      }
-    | undefined,
+  distribution: WorkspaceDistribution | undefined,
 ) {
-  const eventLabelLower = fund.fundType === "Closed-end" ? "dividend" : "distribution";
   if (!distribution) {
-    return `No ${eventLabelLower} event has been scheduled yet.`;
+    return fund.fundType === "Closed-end"
+      ? "No dividend event has been scheduled yet."
+      : "No distribution event has been scheduled yet.";
   }
-  const payoutMode = distribution.payoutMode || "Claim";
-  const paymentDate = distribution.paymentDate || "payment date pending";
-  return `${payoutMode} payout flow with ${paymentDate}.`;
+
+  const routeLabel = distribution.payoutMode === "Direct Transfer" ? "Direct transfer" : "Claim";
+  return `${routeLabel} route with ${distribution.paymentDate || "payment date pending"}.`;
 }
 
-function canEditRedemptionSetup(status: string) {
+function canManageRedemption(status: string) {
   return [
     "Draft",
     "Pending Approval",
@@ -87,7 +139,7 @@ function canEditRedemptionSetup(status: string) {
   ].includes(status);
 }
 
-function canEditDistributionSetup(status: string) {
+function canManageDistribution(status: string) {
   return [
     "Draft",
     "Pending Approval",
@@ -99,103 +151,260 @@ function canEditDistributionSetup(status: string) {
   ].includes(status);
 }
 
-function getRedemptionModuleAction(
+function canCreateDistributionForFund(status: string) {
+  return !["Draft", "Pending Approval"].includes(status);
+}
+
+function isFundLaunchHeavy(status: string) {
+  return [
+    "Draft",
+    "Pending Approval",
+    "Pending Listing",
+    "Upcoming Launch",
+    "Allocation Period",
+    "Calculated",
+    "Allocate On Chain",
+    "Allocation Completed",
+  ].includes(status);
+}
+
+function isLiveRedemption(status: string) {
+  return ["Announced", "Active", "Paused", "Window Open"].includes(status);
+}
+
+function isLiveDistribution(status: string) {
+  return ["Pending Listing", "Upcoming", "Pending Allocation", "Put On Chain", "Open For Distribution"].includes(status);
+}
+
+function getFundSortPriority(status: string) {
+  const priorities: Record<string, number> = {
+    "Active Dealing": 0,
+    "Issuance Active": 1,
+    "Initial Subscription": 2,
+    "Open For Subscription": 3,
+    "Paused": 4,
+    "Upcoming": 5,
+    "Issuance Completed": 6,
+    "Allocation Completed": 7,
+    "Allocation Period": 8,
+    "Calculated": 9,
+    "Allocate On Chain": 10,
+    "Pending Listing": 11,
+    "Pending Approval": 12,
+    "Draft": 13,
+  };
+
+  return priorities[status] ?? 99;
+}
+
+function getRedemptionEntryAction(
   userRole: "issuer" | "investor",
   fund: FundIssuance,
-  redemption:
-    | {
-        id: string;
-        status: string;
-      }
-    | undefined,
-) {
+  redemption: WorkspaceRedemption | undefined,
+): WorkspaceAction | null {
   if (userRole === "investor") {
     if (!redemption) return null;
     return {
-      label: "View Window",
+      label: "View Windows",
       to: "/marketplace/fund-redemption",
-    };
-  }
-
-  if (fund.fundType === "Closed-end") {
-    if (!redemption) return null;
-    return {
-      label: "View Setup",
-      to: `/fund-redemption/${redemption.id}`,
+      summary: "Review the live redemption window and investor-facing terms.",
     };
   }
 
   if (!redemption) {
     return {
-      label: "Add Setup",
-      to: "/create/fund-redemption",
-    };
-  }
-
-  if (canEditRedemptionSetup(redemption.status)) {
-    return {
-      label:
-        redemption.status === "Draft" || redemption.status === "Pending Approval"
-          ? "Continue Setup"
-          : "Edit Rules",
-      to: `/fund-redemption/${redemption.id}?mode=edit`,
+      label: "Create Redemption",
+      to: `/fund-issuance/${fund.id}/redemptions/create`,
+      summary: "Launch a new redemption object for this fund.",
     };
   }
 
   return {
-    label: "View Setup",
-    to: `/fund-redemption/${redemption.id}`,
+    label: "Open Redemptions",
+    to: `/fund-issuance/${fund.id}/redemptions`,
+    summary: "Review the linked redemption object and manage the active cash-out workflow.",
   };
 }
 
-function getDistributionModuleAction(
+function getDistributionEntryAction(
   userRole: "issuer" | "investor",
   fund: FundIssuance,
-  distribution:
-    | {
-        id: string;
-        status: string;
-      }
-    | undefined,
-) {
+  distribution: WorkspaceDistribution | undefined,
+): WorkspaceAction | null {
   if (userRole === "investor") {
     if (!distribution) return null;
     return {
-      label: fund.fundType === "Closed-end" ? "View Dividend" : "View Event",
+      label: "View Event",
       to: `/marketplace/fund-distribution/${distribution.id}`,
+      summary: "Open the investor-facing distribution event for this fund.",
     };
   }
 
   if (!distribution) {
     return {
-      label: fund.fundType === "Closed-end" ? "Add Dividend" : "Add Event",
-      to: "/create/fund-distribution",
-    };
-  }
-
-  if (canEditDistributionSetup(distribution.status)) {
-    return {
-      label:
-        distribution.status === "Draft" || distribution.status === "Pending Approval"
-          ? fund.fundType === "Closed-end"
-            ? "Continue Dividend Setup"
-            : "Continue Setup"
-          : fund.fundType === "Closed-end"
-            ? "Edit Dividend Terms"
-            : "Edit Payout Rules",
-      to: `/fund-distribution/${distribution.id}?mode=edit`,
+      label: "Create Distribution",
+      to: `/fund-issuance/${fund.id}/distributions/create`,
+      summary: "Launch a new distribution object for this fund.",
     };
   }
 
   return {
-    label: fund.fundType === "Closed-end" ? "View Dividend" : "View Event",
-    to: `/fund-distribution/${distribution.id}`,
+    label: "Open Distributions",
+    to: `/fund-issuance/${fund.id}/distributions`,
+    summary: "Review the linked distribution object and manage the live event states.",
   };
+}
+
+function getRecommendedAction(
+  userRole: "issuer" | "investor",
+  fund: FundIssuance,
+  redemption: WorkspaceRedemption | undefined,
+  distribution: WorkspaceDistribution | undefined,
+): WorkspaceAction {
+  const detailPath = getFundDetailPath(userRole, fund.id);
+
+  if (userRole === "investor") {
+    return {
+      label: "Open Fund",
+      to: detailPath,
+      summary: "Review the product record first, then move into the investor activity relevant to this fund.",
+    };
+  }
+
+  if (isFundLaunchHeavy(fund.status)) {
+    return {
+      label: "Continue Fund Setup",
+      to: detailPath,
+      summary: "This fund is still launch-heavy, so the clearest next step is to continue the main fund object before opening more lifecycle events.",
+    };
+  }
+
+  if (!redemption && fund.fundType === "Open-end") {
+    return {
+      label: "Create Redemption",
+      to: `/fund-issuance/${fund.id}/redemptions/create`,
+      summary: "Open-end funds usually need a redemption object ready before the workspace feels complete.",
+    };
+  }
+
+  if (redemption && canManageRedemption(redemption.status)) {
+    return {
+      label: "Review Redemptions",
+      to: `/fund-issuance/${fund.id}/redemptions`,
+      summary: "The linked redemption object is still in a manageable stage and is the strongest next operational surface.",
+    };
+  }
+
+  if (!distribution && canCreateDistributionForFund(fund.status)) {
+    return {
+      label: "Create Distribution",
+      to: `/fund-issuance/${fund.id}/distributions/create`,
+      summary: "This fund is eligible for a distribution object and does not have one linked yet.",
+    };
+  }
+
+  if (distribution && canManageDistribution(distribution.status)) {
+    return {
+      label: "Review Distributions",
+      to: `/fund-issuance/${fund.id}/distributions`,
+      summary: "The linked distribution object is active enough to deserve the next click from this workspace.",
+    };
+  }
+
+  return {
+    label: "Open Fund",
+    to: detailPath,
+    summary: "Use the core fund record as the anchor and then open the object you need from the detail page.",
+  };
+}
+
+function getCompactSignalLabel(
+  fund: FundIssuance,
+  redemption: WorkspaceRedemption | undefined,
+  distribution: WorkspaceDistribution | undefined,
+) {
+  if (distribution && isLiveDistribution(distribution.status)) return "Distribution live";
+  if (redemption && isLiveRedemption(redemption.status)) return "Redemption live";
+  if (fund.status === "Active Dealing" || fund.status === "Issuance Active") return "Operating";
+  if (fund.status === "Paused") return "Paused";
+  return "In launch";
+}
+
+function getCompactSignalClass(label: string) {
+  switch (label) {
+    case "Distribution live":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "Redemption live":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "Operating":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "Paused":
+      return "border-slate-200 bg-slate-100 text-slate-700";
+    default:
+      return "border-[var(--navy-100)] bg-[var(--navy-50)] text-[var(--navy-700)]";
+  }
+}
+
+function FundActionCard({
+  title,
+  icon: Icon,
+  tintClassName,
+  status,
+  emptyState,
+  description,
+  action,
+  recommended = false,
+}: {
+  title: string;
+  icon: typeof Landmark;
+  tintClassName: string;
+  status?: string;
+  emptyState: string;
+  description: string;
+  action: WorkspaceAction | null;
+  recommended?: boolean;
+}) {
+  return (
+    <div className={cn("rounded-2xl border p-5 shadow-sm", tintClassName)}>
+      <div className="flex h-full flex-col gap-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/90 shadow-sm">
+            <Icon className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="font-medium">{title}</div>
+              {recommended && (
+                <Badge className="border-amber-200 bg-amber-50 text-amber-700">
+                  <Sparkles className="mr-1 h-3 w-3" />
+                  Recommended Next Step
+                </Badge>
+              )}
+              {status ? <StatusBadge status={status} /> : <Badge variant="outline">{emptyState}</Badge>}
+            </div>
+            <div className="text-sm text-muted-foreground">{description}</div>
+          </div>
+        </div>
+        {action ? (
+          <Button asChild className="mt-auto w-full justify-between">
+            <Link to={action.to}>
+              {action.label}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function FundsWorkspace() {
   const { fundIssuances, fundRedemptions, fundDistributions, userRole } = useApp();
   const [filter, setFilter] = useState<FundWorkspaceFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedFundId, setSelectedFundId] = useState<string | null>(null);
+  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
+  const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLowerCase());
 
   const visibleFunds = useMemo(() => {
     if (userRole === "issuer") {
@@ -205,7 +414,18 @@ export function FundsWorkspace() {
   }, [fundIssuances, userRole]);
 
   const redemptionByFundId = useMemo(
-    () => new Map(fundRedemptions.map((redemption) => [redemption.fundId, redemption])),
+    () =>
+      new Map(
+        fundRedemptions.map((redemption) => [
+          redemption.fundId,
+          {
+            id: redemption.id,
+            status: redemption.status,
+            redemptionMode: redemption.redemptionMode,
+            settlementCycle: redemption.settlementCycle,
+          },
+        ]),
+      ),
     [fundRedemptions],
   );
 
@@ -214,40 +434,130 @@ export function FundsWorkspace() {
       new Map(
         fundDistributions
           .filter((distribution) => distribution.fundId)
-          .map((distribution) => [distribution.fundId!, distribution]),
+          .map((distribution) => [
+            distribution.fundId!,
+            {
+              id: distribution.id,
+              status: distribution.status,
+              payoutMode: distribution.payoutMode,
+              paymentDate: distribution.paymentDate,
+            },
+          ]),
       ),
     [fundDistributions],
   );
 
   const filteredFunds = useMemo(() => {
     const funds = visibleFunds.filter((fund) => {
-      if (filter === "open-end") return fund.fundType === "Open-end";
-      if (filter === "closed-end") return fund.fundType === "Closed-end";
-      return true;
+      if (filter === "open-end" && fund.fundType !== "Open-end") return false;
+      if (filter === "closed-end" && fund.fundType !== "Closed-end") return false;
+
+      if (!deferredSearchQuery) return true;
+
+      const searchTarget = [
+        fund.name,
+        fund.id,
+        fund.fundManager,
+        fund.tokenName,
+        fund.legalStructure,
+        fund.assetStrategyCategory,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchTarget.includes(deferredSearchQuery);
     });
 
     return [...funds].sort((left, right) => {
+      const statusGap = getFundSortPriority(left.status) - getFundSortPriority(right.status);
+      if (statusGap !== 0) return statusGap;
       if (left.fundType !== right.fundType) {
         return left.fundType === "Open-end" ? -1 : 1;
       }
       return left.name.localeCompare(right.name);
     });
-  }, [filter, visibleFunds]);
+  }, [deferredSearchQuery, filter, visibleFunds]);
+
+  useEffect(() => {
+    if (filteredFunds.length === 0) {
+      setSelectedFundId(null);
+      setIsWorkspaceOpen(false);
+      return;
+    }
+
+    if (selectedFundId && !filteredFunds.some((fund) => fund.id === selectedFundId)) {
+      setSelectedFundId(null);
+      setIsWorkspaceOpen(false);
+    }
+  }, [filteredFunds, selectedFundId]);
+
+  const selectedFund =
+    filteredFunds.find((fund) => fund.id === selectedFundId) || null;
+  const selectedRedemption = selectedFund ? redemptionByFundId.get(selectedFund.id) : undefined;
+  const selectedDistribution = selectedFund ? distributionByFundId.get(selectedFund.id) : undefined;
 
   const totalOpenEnd = visibleFunds.filter((fund) => fund.fundType === "Open-end").length;
   const totalClosedEnd = visibleFunds.filter((fund) => fund.fundType === "Closed-end").length;
-  const totalRedemptionModules = visibleFunds.filter((fund) => redemptionByFundId.has(fund.id)).length;
-  const totalDistributionModules = visibleFunds.filter((fund) => distributionByFundId.has(fund.id)).length;
+  const totalOperatingFunds = visibleFunds.filter((fund) =>
+    ["Active Dealing", "Issuance Active", "Initial Subscription", "Open For Subscription", "Paused"].includes(fund.status),
+  ).length;
+  const totalLiveEventFunds = visibleFunds.filter((fund) => {
+    const redemption = redemptionByFundId.get(fund.id);
+    const distribution = distributionByFundId.get(fund.id);
+    return Boolean(
+      (redemption && isLiveRedemption(redemption.status)) ||
+      (distribution && isLiveDistribution(distribution.status)),
+    );
+  }).length;
+
+  const fundDetailPath = selectedFund ? getFundDetailPath(userRole, selectedFund.id) : "#";
+  const recommendedAction =
+    selectedFund &&
+    getRecommendedAction(userRole, selectedFund, selectedRedemption, selectedDistribution);
+  const launchAction =
+    selectedFund
+      ? {
+          label: userRole === "issuer" ? "Open Fund" : "View Fund",
+          to: fundDetailPath,
+          summary: "Open the core fund object and review the full lifecycle context.",
+        }
+      : null;
+  const redemptionAction =
+    selectedFund &&
+    getRedemptionEntryAction(userRole, selectedFund, selectedRedemption);
+  const distributionAction =
+    selectedFund &&
+    getDistributionEntryAction(userRole, selectedFund, selectedDistribution);
+  const recommendedModule =
+    recommendedAction?.to === launchAction?.to
+      ? "launch"
+      : recommendedAction?.to === redemptionAction?.to
+        ? "redemptions"
+        : recommendedAction?.to === distributionAction?.to
+          ? "distributions"
+          : null;
+
+  const handleSelectFund = (fundId: string) => {
+    if (selectedFundId === fundId && isWorkspaceOpen) {
+      setIsWorkspaceOpen(false);
+      setSelectedFundId(null);
+      return;
+    }
+
+    setSelectedFundId(fundId);
+    setIsWorkspaceOpen(true);
+  };
 
   return (
-    <div className="container mx-auto max-w-7xl px-6 py-8">
-      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="container mx-auto max-w-[1440px] px-6 py-8">
+      <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-3xl">
           <h1 style={{ fontFamily: "var(--font-heading)" }}>Funds Workspace</h1>
           <p className="mt-2 text-muted-foreground">
             {userRole === "issuer"
-              ? "Manage each fund as a first-class object, then open issuance, redemption, and payout modules from the same operating surface."
-              : "Review each fund as a single product record, then move into subscription, redemption, and payout touchpoints from one place."}
+              ? "Use a denser fund list on the left to pick the product you want, then manage its launch, redemption, and distribution objects from one focused panel."
+              : "Review the fund universe from a compact list first, then inspect the selected product and its investor-facing lifecycle events on the right."}
           </p>
         </div>
 
@@ -255,11 +565,11 @@ export function FundsWorkspace() {
           {userRole === "issuer" ? (
             <>
               <Button variant="outline" asChild>
-                <Link to="/manage/fund-issuance">Open Operations Queue</Link>
+                <Link to="/manage/fund-issuance">Open Launch Queue</Link>
               </Button>
               <Button asChild>
                 <Link to="/create/fund-issuance">
-                  <Plus className="w-4 h-4" />
+                  <Plus className="h-4 w-4" />
                   Create New Fund
                 </Link>
               </Button>
@@ -277,210 +587,270 @@ export function FundsWorkspace() {
         </div>
       </div>
 
-      <div className="mb-6 grid gap-4 md:grid-cols-4">
-        <div className="rounded-lg border bg-white p-4">
-          <div className="mb-1 text-sm text-muted-foreground">Visible Funds</div>
-          <div className="text-2xl font-semibold">{visibleFunds.length}</div>
-        </div>
-        <div className="rounded-lg border bg-white p-4">
-          <div className="mb-1 text-sm text-muted-foreground">Open-end Funds</div>
-          <div className="text-2xl font-semibold">{totalOpenEnd}</div>
-        </div>
-        <div className="rounded-lg border bg-white p-4">
-          <div className="mb-1 text-sm text-muted-foreground">Redemption Modules</div>
-          <div className="text-2xl font-semibold">{totalRedemptionModules}</div>
-        </div>
-        <div className="rounded-lg border bg-white p-4">
-          <div className="mb-1 text-sm text-muted-foreground">Payout Modules</div>
-          <div className="text-2xl font-semibold">{totalDistributionModules}</div>
-        </div>
+      <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="border-[var(--navy-100)] bg-gradient-to-br from-white to-[var(--navy-50)] shadow-sm">
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Funds In Scope</div>
+            <div className="mt-2 text-3xl font-semibold">{visibleFunds.length}</div>
+          </CardContent>
+        </Card>
+        <Card className="border-[var(--navy-100)] bg-gradient-to-br from-white to-sky-50 shadow-sm">
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Operating Now</div>
+            <div className="mt-2 text-3xl font-semibold">{totalOperatingFunds}</div>
+          </CardContent>
+        </Card>
+        <Card className="border-[var(--navy-100)] bg-gradient-to-br from-white to-[var(--gold-50)] shadow-sm">
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Open-end / Closed-end</div>
+            <div className="mt-2 text-3xl font-semibold">
+              {totalOpenEnd} <span className="text-base font-medium text-muted-foreground">/</span> {totalClosedEnd}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-[var(--navy-100)] bg-gradient-to-br from-white to-emerald-50 shadow-sm">
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Funds With Live Events</div>
+            <div className="mt-2 text-3xl font-semibold">{totalLiveEventFunds}</div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <Tabs value={filter} onValueChange={(value) => setFilter(value as FundWorkspaceFilter)}>
-          <TabsList>
-            <TabsTrigger value="all">All Funds ({visibleFunds.length})</TabsTrigger>
-            <TabsTrigger value="open-end">Open-end ({totalOpenEnd})</TabsTrigger>
-            <TabsTrigger value="closed-end">Closed-end ({totalClosedEnd})</TabsTrigger>
-          </TabsList>
-        </Tabs>
+      <Card className="overflow-hidden border-[var(--navy-100)] shadow-sm">
+        <CardHeader className="space-y-4 border-b bg-white">
+          <div>
+            <CardTitle className="text-lg">Fund Picker</CardTitle>
+            <CardDescription>
+              Click a fund card to open its workspace from the right. Click the same card again to close it.
+            </CardDescription>
+          </div>
 
-        <div className="text-sm text-muted-foreground">
-          {userRole === "issuer"
-            ? "Operational queues stay available for specialists, but this page is now the primary fund-level control surface."
-            : "Fund cards combine primary market visibility with downstream lifecycle events."}
-        </div>
-      </div>
+          <Tabs value={filter} onValueChange={(value) => setFilter(value as FundWorkspaceFilter)}>
+            <TabsList className="grid w-full max-w-md grid-cols-3">
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="open-end">Open-end</TabsTrigger>
+              <TabsTrigger value="closed-end">Closed-end</TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-      <div className="space-y-6">
-        {filteredFunds.map((fund) => {
-          const linkedRedemption = redemptionByFundId.get(fund.id);
-          const linkedDistribution = distributionByFundId.get(fund.id);
-          const fundDetailPath =
-            userRole === "issuer" ? `/fund-issuance/${fund.id}` : `/marketplace/fund-issuance/${fund.id}`;
-          const redemptionAction = getRedemptionModuleAction(userRole, fund, linkedRedemption);
-          const distributionAction = getDistributionModuleAction(userRole, fund, linkedDistribution);
-          const payoutModuleLabel = fund.fundType === "Closed-end" ? "Dividend" : "Distribution";
+          <div className="relative max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Search by fund, manager, token, or ID"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {filteredFunds.map((fund) => {
+              const linkedRedemption = redemptionByFundId.get(fund.id);
+              const linkedDistribution = distributionByFundId.get(fund.id);
+              const signalLabel = getCompactSignalLabel(fund, linkedRedemption, linkedDistribution);
+              const isActiveCard = isWorkspaceOpen && selectedFund?.id === fund.id;
 
-          return (
-            <Card key={fund.id} className="overflow-hidden border-[var(--navy-100)] bg-white shadow-sm">
-              <CardHeader className="border-b bg-gradient-to-br from-[var(--navy-50)] via-white to-[var(--gold-50)]">
-                <CardAction>
-                  <Button asChild>
-                    <Link to={fundDetailPath}>
-                      <Coins className="w-4 h-4" />
-                      {userRole === "issuer" ? "Open Fund Workspace" : "Open Fund"}
-                    </Link>
-                  </Button>
-                </CardAction>
+              return (
+                <button
+                  key={fund.id}
+                  type="button"
+                  onClick={() => handleSelectFund(fund.id)}
+                  className={cn(
+                    "w-full rounded-2xl border px-4 py-4 text-left transition-all",
+                    isActiveCard
+                      ? "border-[var(--navy-300)] bg-[var(--navy-50)] shadow-sm ring-1 ring-[var(--navy-200)]"
+                      : "border-border bg-white hover:border-[var(--navy-200)] hover:bg-secondary/20",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{fund.name}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">{fund.fundType}</Badge>
+                        <Badge className={cn("border", getCompactSignalClass(signalLabel))}>
+                          {signalLabel}
+                        </Badge>
+                        {isActiveCard && <Badge variant="secondary">Workspace Open</Badge>}
+                      </div>
+                    </div>
+                    <StatusBadge status={fund.status} />
+                  </div>
+
+                  <div className="mt-4 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.16em]">NAV</div>
+                      <div className="mt-1 font-medium text-foreground">{fund.currentNav}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.16em]">Liquidity</div>
+                      <div className="mt-1 font-medium text-foreground">{getLiquidityModel(fund)}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                    <Badge variant="outline">
+                      Redemption: {linkedRedemption ? linkedRedemption.status : "None"}
+                    </Badge>
+                    <Badge variant="outline">
+                      Distribution: {linkedDistribution ? linkedDistribution.status : "None"}
+                    </Badge>
+                  </div>
+                </button>
+              );
+            })}
+
+            {filteredFunds.length === 0 && (
+              <div className="rounded-2xl border border-dashed px-4 py-10 text-center lg:col-span-2 xl:col-span-3">
+                <div className="text-lg font-medium">No funds matched this view.</div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Try another filter or search term to reopen the relevant fund set.
+                </p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Sheet
+        open={isWorkspaceOpen}
+        onOpenChange={(open) => {
+          setIsWorkspaceOpen(open);
+          if (!open) {
+            setSelectedFundId(null);
+          }
+        }}
+      >
+        {selectedFund && (
+          <SheetContent
+            side="right"
+            className="w-[82vw] max-w-none overflow-hidden p-0 sm:max-w-none lg:w-[80vw] xl:w-[78vw]"
+          >
+            <div className="flex h-full min-h-0 flex-col">
+              <SheetHeader className="border-b bg-gradient-to-br from-[var(--navy-50)] via-white to-[var(--gold-50)] pr-12">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <CardTitle style={{ fontFamily: "var(--font-heading)" }}>{fund.name}</CardTitle>
-                      <Badge variant="outline">{fund.fundType}</Badge>
-                      <Badge variant={fund.tradable === "Yes" ? "secondary" : "outline"}>
-                        {fund.tradable === "Yes"
-                          ? "Secondary Market Enabled"
-                          : "Secondary Market Restricted"}
+                      <Badge variant="outline">{selectedFund.fundType}</Badge>
+                      <Badge variant="outline">{selectedFund.legalStructure || "Structure Pending"}</Badge>
+                      <Badge variant={selectedFund.tradable === "Yes" ? "secondary" : "outline"}>
+                        {selectedFund.tradable === "Yes" ? "Secondary Market Enabled" : "Secondary Market Restricted"}
                       </Badge>
                     </div>
-                    <CardDescription className="max-w-3xl text-sm leading-6">
-                      {fund.description}
-                    </CardDescription>
+                    <SheetTitle style={{ fontFamily: "var(--font-heading)" }}>{selectedFund.name}</SheetTitle>
+                    <SheetDescription className="max-w-4xl leading-6">
+                      {selectedFund.description}
+                    </SheetDescription>
                   </div>
-
-                  <div className="flex flex-col items-start gap-2 lg:items-end">
-                    <StatusBadge status={fund.status} />
-                    <div className="font-mono text-xs text-muted-foreground">{fund.id}</div>
-                  </div>
+                  <Button asChild className="shrink-0">
+                    <Link to={fundDetailPath}>
+                      <Coins className="h-4 w-4" />
+                      Open Full Workspace
+                    </Link>
+                  </Button>
                 </div>
+              </SheetHeader>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-lg border bg-white/80 p-3">
-                    <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Manager</div>
-                    <div className="mt-2 font-medium">{fund.fundManager}</div>
-                  </div>
-                  <div className="rounded-lg border bg-white/80 p-3">
-                    <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Latest NAV</div>
-                    <div className="mt-2 font-medium">{fund.currentNav}</div>
-                  </div>
-                  <div className="rounded-lg border bg-white/80 p-3">
-                    <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                      Minimum Ticket
-                    </div>
-                    <div className="mt-2 font-medium">{fund.minSubscriptionAmount}</div>
-                  </div>
-                  <div className="rounded-lg border bg-white/80 p-3">
-                    <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                      Liquidity Model
-                    </div>
-                    <div className="mt-2 font-medium">
-                      {fund.fundType === "Open-end"
-                        ? fund.dealingFrequency || fund.redemptionFrequency || "Configured"
-                        : "Closed-end primary issuance"}
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent className="space-y-4 pt-6">
-                <div>
-                  <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Fund Modules</div>
-                  <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                    <div className="rounded-xl border bg-[var(--navy-50)]/60 p-4">
-                      <div className="mb-3 flex items-center gap-2 text-[var(--navy-700)]">
-                        <Landmark className="w-4 h-4" />
-                        <div className="font-medium">Launch</div>
-                      </div>
-                      <div className="mb-3">
-                        <StatusBadge status={fund.status} />
-                      </div>
-                      <p className="text-sm text-muted-foreground">{getLaunchModuleDescription(fund)}</p>
-                      <div className="mt-4">
-                        <Button variant="outline" size="sm" asChild>
-                          <Link to={fundDetailPath}>
-                            {userRole === "issuer" ? "Open Launch Module" : "Open Fund Detail"}
-                            <ArrowRight className="w-4 h-4" />
-                          </Link>
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border bg-[var(--gold-50)]/70 p-4">
-                      <div className="mb-3 flex items-center gap-2 text-[var(--gold-700)]">
-                        <RefreshCcw className="w-4 h-4" />
-                        <div className="font-medium">Redemption</div>
-                      </div>
-                      <div className="mb-3">
-                        {linkedRedemption ? (
-                          <StatusBadge status={linkedRedemption.status} />
-                        ) : (
-                          <Badge variant="outline">
-                            {fund.fundType === "Closed-end" ? "Not Scheduled" : "Not Configured"}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {getRedemptionModuleDescription(fund, linkedRedemption)}
-                      </p>
-                      {redemptionAction && (
-                        <div className="mt-4">
-                          <Button variant="outline" size="sm" asChild>
-                            <Link to={redemptionAction.to}>
-                              {redemptionAction.label}
-                              <ArrowRight className="w-4 h-4" />
-                            </Link>
-                          </Button>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="space-y-6 p-6">
+                  <Card className="border-[var(--navy-100)] shadow-sm">
+                    <CardContent className="grid gap-4 pt-6 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-xl border bg-white/85 p-4">
+                        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Status</div>
+                        <div className="mt-3">
+                          <StatusBadge status={selectedFund.status} />
                         </div>
-                      )}
-                    </div>
+                      </div>
+                      <div className="rounded-xl border bg-white/85 p-4">
+                        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Latest NAV</div>
+                        <div className="mt-3 font-medium">{selectedFund.currentNav}</div>
+                      </div>
+                      <div className="rounded-xl border bg-white/85 p-4">
+                        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Liquidity Model</div>
+                        <div className="mt-3 font-medium">{getLiquidityModel(selectedFund)}</div>
+                      </div>
+                      <div className="rounded-xl border bg-white/85 p-4">
+                        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Subscription Funding</div>
+                        <div className="mt-3 font-medium">{getFundingLabel(selectedFund)}</div>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-                    <div className="rounded-xl border bg-emerald-50 p-4">
-                      <div className="mb-3 flex items-center gap-2 text-emerald-700">
-                        <HandCoins className="w-4 h-4" />
-                        <div className="font-medium">{payoutModuleLabel}</div>
+                  <Card className="border-[var(--navy-100)] shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="text-lg">Fund Actions</CardTitle>
+                      <CardDescription>
+                        Use these entry points to move from the selected fund into its main lifecycle objects.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 lg:grid-cols-3">
+                      <FundActionCard
+                        title="Launch"
+                        icon={Landmark}
+                        tintClassName="bg-[var(--navy-50)]/70"
+                        status={selectedFund.status}
+                        emptyState="No Launch Data"
+                        description={getLaunchModuleDescription(selectedFund)}
+                        action={launchAction}
+                        recommended={recommendedModule === "launch"}
+                      />
+
+                      <FundActionCard
+                        title="Redemptions"
+                        icon={RefreshCcw}
+                        tintClassName="bg-[var(--gold-50)]/80"
+                        status={selectedRedemption?.status}
+                        emptyState={selectedFund.fundType === "Closed-end" ? "Not Scheduled" : "Not Created"}
+                        description={getRedemptionModuleDescription(selectedFund, selectedRedemption)}
+                        action={redemptionAction}
+                        recommended={recommendedModule === "redemptions"}
+                      />
+
+                      <FundActionCard
+                        title="Distributions"
+                        icon={HandCoins}
+                        tintClassName="bg-emerald-50"
+                        status={selectedDistribution?.status}
+                        emptyState="Not Scheduled"
+                        description={getDistributionModuleDescription(selectedFund, selectedDistribution)}
+                        action={distributionAction}
+                        recommended={recommendedModule === "distributions"}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-[var(--navy-100)] shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="text-lg">Fund Snapshot</CardTitle>
+                      <CardDescription>
+                        Keep the most useful fund metadata visible without burying it under full detail-page content.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-lg border px-4 py-3">
+                        <div className="text-sm text-muted-foreground">Jurisdiction</div>
+                        <div className="mt-1 font-medium">{selectedFund.fundJurisdiction || "Pending"}</div>
                       </div>
-                      <div className="mb-3">
-                        {linkedDistribution ? (
-                          <StatusBadge status={linkedDistribution.status} />
-                        ) : (
-                          <Badge variant="outline">Not Scheduled</Badge>
-                        )}
+                      <div className="rounded-lg border px-4 py-3">
+                        <div className="text-sm text-muted-foreground">Asset Strategy</div>
+                        <div className="mt-1 font-medium">{selectedFund.assetStrategyCategory || selectedFund.assetType}</div>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {getDistributionModuleDescription(fund, linkedDistribution)}
-                      </p>
-                      {distributionAction && (
-                        <div className="mt-4">
-                          <Button variant="outline" size="sm" asChild>
-                            <Link to={distributionAction.to}>
-                              {distributionAction.label}
-                              <ArrowRight className="w-4 h-4" />
-                            </Link>
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                      <div className="rounded-lg border px-4 py-3">
+                        <div className="text-sm text-muted-foreground">Share Class</div>
+                        <div className="mt-1 font-medium">{selectedFund.shareClass || "Standard"}</div>
+                      </div>
+                      <div className="rounded-lg border px-4 py-3">
+                        <div className="text-sm text-muted-foreground">Token</div>
+                        <div className="mt-1 font-medium">{selectedFund.tokenName}</div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-
-        {filteredFunds.length === 0 && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <div className="text-lg font-medium">No funds matched this view.</div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {userRole === "issuer"
-                  ? "Try another fund-type filter or create a new fund record."
-                  : "Try another fund-type filter to reopen the relevant product set."}
-              </p>
-            </CardContent>
-          </Card>
+              </div>
+            </div>
+          </SheetContent>
         )}
-      </div>
+      </Sheet>
     </div>
   );
 }

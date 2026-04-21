@@ -1,4 +1,5 @@
-import { useNavigate } from "react-router-dom";
+import { useMemo } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Table,
   TableBody,
@@ -28,54 +29,89 @@ const getStatusColor = (status: string) => {
 
 export function ManageFundDistribution() {
   const navigate = useNavigate();
+  const { fundId } = useParams();
   const { fundDistributions, fundIssuances } = useApp();
+  const linkedFund = fundIssuances.find((fund) => fund.id === fundId);
+  const inFundContext = Boolean(fundId);
+  const visibleDistributions = useMemo(
+    () =>
+      inFundContext
+        ? fundDistributions.filter((distribution) => distribution.fundId === fundId)
+        : fundDistributions,
+    [fundDistributions, fundId, inFundContext],
+  );
+  const createPath = inFundContext
+    ? `/fund-issuance/${fundId}/distributions/create`
+    : "/create/fund-distribution";
+  const getDetailPath = (id: string) =>
+    inFundContext ? `/fund-issuance/${fundId}/distributions/${id}` : `/fund-distribution/${id}`;
 
   const handleViewDetails = (id: string) => {
-    navigate(`/fund-distribution/${id}`);
+    navigate(getDetailPath(id));
   };
 
   const handleCreateNew = () => {
-    navigate("/create/fund-distribution");
+    navigate(createPath);
   };
 
   return (
     <div className="container mx-auto px-6 py-8 max-w-7xl">
+      {inFundContext && linkedFund && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
+          <Link to="/" className="hover:text-foreground transition-colors">
+            Home
+          </Link>
+          <span>/</span>
+          <Link
+            to={`/fund-issuance/${linkedFund.id}`}
+            className="hover:text-foreground transition-colors"
+          >
+            {linkedFund.name}
+          </Link>
+          <span>/</span>
+          <span className="text-foreground">Distributions</span>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)' }}>Fund Payout Event List</h1>
+          <h1 style={{ fontFamily: 'var(--font-heading)' }}>
+            {inFundContext ? "Fund Distributions" : "Global Distribution Queue"}
+          </h1>
           <p className="text-muted-foreground mt-2">
-            Manage open-end distributions and closed-end dividends from one queue.
+            {inFundContext
+              ? `Manage distribution and dividend events for ${linkedFund?.name || "this fund"}.`
+              : "Manage open-end distributions and closed-end dividends from one global operations queue."}
           </p>
         </div>
         <Button onClick={handleCreateNew}>
           <Plus className="w-4 h-4 mr-2" />
-          Create Payout Event
+          {inFundContext ? "Create Distribution For This Fund" : "Create Distribution Event"}
         </Button>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-muted-foreground mb-1">Total Payout Events</div>
-          <div className="text-2xl font-semibold">{fundDistributions.length}</div>
+          <div className="text-sm text-muted-foreground mb-1">Total Distribution Events</div>
+          <div className="text-2xl font-semibold">{visibleDistributions.length}</div>
         </div>
         <div className="bg-white border rounded-lg p-4">
           <div className="text-sm text-muted-foreground mb-1">Draft</div>
           <div className="text-2xl font-semibold">
-            {fundDistributions.filter(d => d.status === "Draft").length}
+            {visibleDistributions.filter(d => d.status === "Draft").length}
           </div>
         </div>
         <div className="bg-white border rounded-lg p-4">
           <div className="text-sm text-muted-foreground mb-1">Active</div>
           <div className="text-2xl font-semibold">
-            {fundDistributions.filter(d => d.status === "Open For Distribution").length}
+            {visibleDistributions.filter(d => d.status === "Open For Distribution").length}
           </div>
         </div>
         <div className="bg-white border rounded-lg p-4">
           <div className="text-sm text-muted-foreground mb-1">Completed</div>
           <div className="text-2xl font-semibold">
-            {fundDistributions.filter(d => d.status === "Done").length}
+            {visibleDistributions.filter(d => d.status === "Done").length}
           </div>
         </div>
       </div>
@@ -96,8 +132,8 @@ export function ManageFundDistribution() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {fundDistributions.length > 0 ? (
-              fundDistributions.map((distribution) => (
+            {visibleDistributions.length > 0 ? (
+              visibleDistributions.map((distribution) => (
                 <TableRow key={distribution.id}>
                   {(() => {
                     const linkedFund = fundIssuances.find((fund) => fund.id === distribution.fundId);
@@ -152,11 +188,13 @@ export function ManageFundDistribution() {
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-12">
                   <div className="text-muted-foreground">
-                    No payout events found. Create your first distribution or dividend to get started.
+                    {inFundContext
+                      ? "No distribution events have been created for this fund yet."
+                      : "No distribution events found. Create your first distribution or dividend to get started."}
                   </div>
                   <Button className="mt-4" onClick={handleCreateNew}>
                     <Plus className="w-4 h-4 mr-2" />
-                    Create Your First Payout Event
+                    {inFundContext ? "Create Distribution For This Fund" : "Create Your First Distribution Event"}
                   </Button>
                 </TableCell>
               </TableRow>

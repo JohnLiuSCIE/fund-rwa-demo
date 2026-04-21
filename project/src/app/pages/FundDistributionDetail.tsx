@@ -81,9 +81,9 @@ function getDistributionEditingPolicyMessage(status: string) {
     return "This stage is locked. After distribution is completed, fields become read-only.";
   }
   if (editableSections.length === 2) {
-    return "Current stage allows full editing of distribution details and payout rules.";
+    return "Current stage allows full editing of distribution details and distribution routing.";
   }
-  return "Current stage only allows payout-rule updates. Core setup details are locked.";
+  return "Current stage only allows distribution-route updates. Core distribution details are locked.";
 }
 
 function getEditableDistributionFieldLabels(status: string) {
@@ -95,7 +95,7 @@ function getEditableDistributionFieldLabels(status: string) {
   }
 
   if (editableSections.includes("payout")) {
-    labels.push("payout mode", "payout token", "payout account", "rate mechanics", "day-count basis");
+    labels.push("distribution mode", "distribution token", "distribution account", "rate mechanics", "day-count basis");
   }
 
   return labels;
@@ -124,7 +124,7 @@ function buildDistributionControlChecks(distribution: FundDistribution, linkedFu
       detail: paymentAfterRecord ? "Date ordering is valid" : "Payment date is earlier than record date",
     },
     {
-      label: "Payout route is defined",
+      label: "Distribution route is defined",
       ok: Boolean(distribution.payoutToken) && Boolean(distribution.payoutAccount),
       detail: `${distribution.payoutToken || "token missing"} / ${distribution.payoutAccount || "account missing"}`,
     },
@@ -282,7 +282,7 @@ function OpenEndDistributionContextCard({
       <CardHeader>
         <CardTitle>Distribution Event Context</CardTitle>
         <p className="text-sm text-muted-foreground">
-          For open-end funds, distribution is a point-in-time payout event under an already active
+          For open-end funds, distribution is a point-in-time distribution event under an already active
           fund. It should be read as an event lifecycle, not as another fund issuance pipeline.
         </p>
       </CardHeader>
@@ -296,7 +296,7 @@ function OpenEndDistributionContextCard({
           <div className="mt-1 font-medium">{distribution.paymentDate || "N/A"}</div>
         </div>
         <div className="rounded-lg border p-4">
-          <div className="text-sm text-muted-foreground">Payout Mode</div>
+          <div className="text-sm text-muted-foreground">Distribution Mode</div>
           <div className="mt-1 font-medium">{distribution.payoutMode || "Claim"}</div>
         </div>
         <div className="rounded-lg border p-4">
@@ -338,12 +338,12 @@ function DistributionSetupEditor({
 
   const handleSave = () => {
     if (!form.payoutToken.trim()) {
-      toast.error("Payout token is required.");
+      toast.error("Distribution token is required.");
       return;
     }
 
     if (!form.payoutAccount.trim()) {
-      toast.error("Payout source account is required.");
+      toast.error("Distribution source account is required.");
       return;
     }
 
@@ -392,8 +392,7 @@ function DistributionSetupEditor({
             <div>
               <h3 className="font-medium">{eventLabel} Details</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Core identity, description, and record-date configuration for the {eventLabel.toLowerCase()}
-                {" "}setup.
+                Core identity, description, and record-date configuration for this {eventLabel.toLowerCase()} event.
               </p>
             </div>
 
@@ -423,15 +422,15 @@ function DistributionSetupEditor({
         {canEditPayout && (
           <div className="space-y-4 rounded-lg border p-4">
             <div>
-              <h3 className="font-medium">Payout Rules</h3>
+              <h3 className="font-medium">{eventLabel} Routing</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Configure the payout token, destination, and rate mechanics.
+                Configure the distribution token, destination, and rate mechanics.
               </p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Payout mode</Label>
+                <Label>{eventLabel} mode</Label>
                 <Select value={form.payoutMode} onValueChange={(value) => setField("payoutMode", value as "Direct Transfer" | "Claim")}>
                   <SelectTrigger>
                     <SelectValue />
@@ -443,13 +442,13 @@ function DistributionSetupEditor({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Payout token</Label>
+                <Label>{eventLabel} token</Label>
                 <Input value={form.payoutToken} onChange={(event) => setField("payoutToken", event.target.value)} />
               </div>
             </div>
 
             <div className="space-y-2">
-                <Label>Payout source account</Label>
+                <Label>{eventLabel} source account</Label>
                 <Input value={form.payoutAccount} onChange={(event) => setField("payoutAccount", event.target.value)} />
               </div>
 
@@ -503,7 +502,7 @@ function DistributionSetupEditor({
 }
 
 export function FundDistributionDetail() {
-  const { id } = useParams();
+  const { id, fundId } = useParams();
   const location = useLocation();
   const {
     fundDistributions,
@@ -515,8 +514,17 @@ export function FundDistributionDetail() {
     userRole,
   } = useApp();
 
-  const distribution = fundDistributions.find(d => d.id === id);
+  const distribution = fundDistributions.find(
+    (item) => item.id === id && (!fundId || item.fundId === fundId),
+  );
   const linkedFund = fundIssuances.find((fund) => fund.id === distribution?.fundId);
+  const inFundContext = Boolean(fundId);
+  const distributionsListPath =
+    inFundContext && fundId
+      ? `/fund-issuance/${fundId}/distributions`
+      : userRole === "issuer"
+        ? "/manage/fund-distribution"
+        : "/marketplace/fund-distribution";
   const editIntentRequested = new URLSearchParams(location.search).get("mode") === "edit";
 
   if (!distribution) {
@@ -617,7 +625,7 @@ export function FundDistributionDetail() {
         {
           label: "3. Generate Recipient List",
           owner: "Transfer Agent",
-          description: "Prepare the eligible recipient list and validate payout destinations.",
+          description: "Prepare the eligible recipient list and validate distribution destinations.",
         },
         {
           label: "4. Confirm Funding",
@@ -625,9 +633,9 @@ export function FundDistributionDetail() {
           description: "Fund the treasury account that will be used for the dividend release.",
         },
         {
-          label: "5. Release Payout",
+          label: `5. Release ${eventLabel}`,
           owner: "Transfer Agent",
-          description: "Release the payout file, monitor settlement, and close reconciliation.",
+          description: `Release the ${eventLabelLower} file, monitor settlement, and close reconciliation.`,
         },
       ]
     : [];
@@ -706,8 +714,8 @@ export function FundDistributionDetail() {
       label: "Payment execution completed",
       detail:
         currentStatus === "Done"
-          ? "Dividend payout has been marked complete."
-          : "Payout release remains pending until the event moves into the completion stage.",
+          ? "Dividend release has been marked complete."
+          : "Distribution release remains pending until the event moves into the completion stage.",
       status: currentStatus === "Done" ? "done" : "pending",
     },
     {
@@ -834,11 +842,19 @@ export function FundDistributionDetail() {
           Home
         </Link>
         <ChevronRight className="w-4 h-4" />
-        <Link
-          to={userRole === "issuer" ? "/manage/fund-distribution" : "/marketplace/fund-distribution"}
-          className="hover:text-foreground transition-colors"
-        >
-          {userRole === "issuer" ? "Manage Payout Events" : "Fund Payout Events"}
+        {inFundContext && linkedFund ? (
+          <>
+            <Link
+              to={`/fund-issuance/${linkedFund.id}`}
+              className="hover:text-foreground transition-colors"
+            >
+              {linkedFund.name}
+            </Link>
+            <ChevronRight className="w-4 h-4" />
+          </>
+        ) : null}
+        <Link to={distributionsListPath} className="hover:text-foreground transition-colors">
+          {inFundContext ? "Fund Distributions" : userRole === "issuer" ? "Global Distribution Queue" : "Fund Distribution Events"}
         </Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-foreground">{distribution.name}</span>
@@ -847,9 +863,16 @@ export function FundDistributionDetail() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <h1 style={{ fontFamily: 'var(--font-heading)' }}>{distribution.name}</h1>
-            <Badge className={getStatusColor(currentStatus)}>{currentStatus}</Badge>
+          <div>
+            <div className="flex items-center gap-4">
+              <h1 style={{ fontFamily: 'var(--font-heading)' }}>{distribution.name}</h1>
+              <Badge className={getStatusColor(currentStatus)}>{currentStatus}</Badge>
+            </div>
+            {inFundContext && linkedFund && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                {eventLabel} event for {linkedFund.name}
+              </p>
+            )}
           </div>
         </div>
         {!getActionPermission().allowed && (
@@ -871,7 +894,7 @@ export function FundDistributionDetail() {
         <div className="mb-8">
           <WorkflowResponsibilityCard
             title="Dividend Responsibility Map"
-            description="Closed-end dividend processing is split across issuer approval, transfer-agent register control, and payout release."
+            description="Closed-end dividend processing is split across issuer approval, transfer-agent register control, and distribution release."
             items={responsibilityItems}
           />
         </div>
@@ -965,24 +988,24 @@ export function FundDistributionDetail() {
               </div>
 
               <div>
-                <div className="text-sm text-muted-foreground mb-1">Payout Mode</div>
+                <div className="text-sm text-muted-foreground mb-1">Distribution Mode</div>
                 <div className="font-medium">{distribution.payoutMode || "Claim"}</div>
                 <div className="text-xs text-muted-foreground mt-1">
                   {distribution.payoutMode === "Direct Transfer"
-                    ? "Gas paid by fund operator, payout is system-triggered."
+                    ? "Gas paid by fund operator, distribution is system-triggered."
                     : "Gas paid by investor at claim time."}
                 </div>
               </div>
 
               <div>
-                <div className="text-sm text-muted-foreground mb-1">Payout Token</div>
+                <div className="text-sm text-muted-foreground mb-1">Distribution Token</div>
                 <div className="font-medium">
                   {distribution.payoutToken || distribution.distributionUnit || "–"}
                 </div>
               </div>
 
               <div>
-                <div className="text-sm text-muted-foreground mb-1">Payout Source Account</div>
+                <div className="text-sm text-muted-foreground mb-1">Distribution Source Account</div>
                 <div className="font-medium">{distribution.payoutAccount || "–"}</div>
               </div>
 
@@ -1112,7 +1135,7 @@ export function FundDistributionDetail() {
           {showTransferAgentLayer && (
             <TransferAgentChecklistCard
               className="mt-6"
-              description="This checklist focuses on transfer-agent controls instead of issuer setup fields."
+              description="This checklist focuses on transfer-agent controls instead of issuer form fields."
               items={[...transferAgentChecklistItems]}
             />
           )}
@@ -1126,7 +1149,7 @@ export function FundDistributionDetail() {
               <TabsTrigger value="recipients">
                 {isClosedEndDividend ? "Recipient List" : "Recipients"}
               </TabsTrigger>
-              <TabsTrigger value="payout">Payout</TabsTrigger>
+              <TabsTrigger value="payout">Distribution</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
@@ -1163,7 +1186,7 @@ export function FundDistributionDetail() {
                         : "Income distribution is paid to fund holders based on their shareholding at the record date."}{" "}
                       {distribution.payoutMode === "Direct Transfer"
                         ? `After opening, the system starts ${eventLabelLower} transfer automatically.`
-                        : `After opening, investors can claim ${eventLabelLower} payout on-chain.`}
+                        : `After opening, investors can claim the ${eventLabelLower} on-chain.`}
                     </div>
                   </div>
                 </CardContent>
@@ -1175,7 +1198,7 @@ export function FundDistributionDetail() {
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2 text-sm">
                   <div className="rounded-lg border p-4">
-                    <div className="text-muted-foreground">Payout Route</div>
+                    <div className="text-muted-foreground">Distribution Route</div>
                     <div className="mt-1 font-medium">
                       {distribution.payoutMode || "Claim"} / {distribution.payoutToken || "Token pending"}
                     </div>
@@ -1221,7 +1244,7 @@ export function FundDistributionDetail() {
                 <Card>
                   <CardContent className="pt-6">
                     <div className="text-sm text-muted-foreground mb-1">
-                      Estimated {eventLabel} Payout
+                      Estimated {eventLabel} Amount
                     </div>
                     <div className="text-2xl font-semibold">
                       {recipientPreview.totalEstimatedPayout.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -1245,7 +1268,7 @@ export function FundDistributionDetail() {
                         <TableHead>Category</TableHead>
                         <TableHead>Share Class</TableHead>
                         <TableHead>Eligible Units</TableHead>
-                        <TableHead>Estimated Payout</TableHead>
+                        <TableHead>Estimated Amount</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1289,7 +1312,7 @@ export function FundDistributionDetail() {
                         <TableHead>Category</TableHead>
                         <TableHead>Recipient Count</TableHead>
                         <TableHead>Eligible Units</TableHead>
-                        <TableHead>Estimated Payout</TableHead>
+                        <TableHead>Estimated Amount</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1329,7 +1352,7 @@ export function FundDistributionDetail() {
                 <Card>
                   <CardContent className="pt-6">
                     <div className="text-sm text-muted-foreground mb-1">
-                      {isClosedEndDividend ? "Recipient Count" : "Ready for Payout"}
+                      {isClosedEndDividend ? "Recipient Count" : "Ready for Distribution"}
                     </div>
                     <div className="text-2xl font-semibold">
                       {isClosedEndDividend
@@ -1345,7 +1368,7 @@ export function FundDistributionDetail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>{eventLabel} Payout List</CardTitle>
+                  <CardTitle>{eventLabel} List</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -1354,8 +1377,8 @@ export function FundDistributionDetail() {
                         <TableHead>Recipient</TableHead>
                         <TableHead>Destination</TableHead>
                         <TableHead>Eligible Units</TableHead>
-                        <TableHead>Payout Amount</TableHead>
-                        <TableHead>Payout Status</TableHead>
+                        <TableHead>Distribution Amount</TableHead>
+                        <TableHead>Distribution Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1396,7 +1419,7 @@ export function FundDistributionDetail() {
                       {recipientPreview.rows.length === 0 && (
                         <TableRow>
                           <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
-                            No payout recipients are available yet.
+                            No distribution recipients are available yet.
                           </TableCell>
                         </TableRow>
                       )}
@@ -1457,10 +1480,10 @@ export function FundDistributionDetail() {
           updateDistributionStatus(id || "", "Open For Distribution", "open");
           toast.success(
             isClosedEndDividend
-              ? "Dividend opened and payout is ready for investors"
+              ? "Dividend opened and distribution is ready for investors"
               : isClaimMode
                 ? "Distribution is open for claim by investors"
-                : "Distribution opened and system payout is in progress",
+                : "Distribution opened and system distribution is in progress",
           );
         }}
       />

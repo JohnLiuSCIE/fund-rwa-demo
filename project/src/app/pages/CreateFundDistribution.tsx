@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
@@ -8,6 +8,7 @@ import { useApp } from "../context/AppContext";
 
 export function CreateFundDistribution() {
   const navigate = useNavigate();
+  const { fundId } = useParams();
   const { addFundDistribution, fundIssuances } = useApp();
   const [activeTab, setActiveTab] = useState("about-deal");
 
@@ -18,8 +19,12 @@ export function CreateFundDistribution() {
       ),
     [fundIssuances],
   );
+  const contextFund = eligibleFunds.find((fund) => fund.id === fundId);
+  const inFundContext = Boolean(fundId);
 
-  const [selectedFundId, setSelectedFundId] = useState(eligibleFunds[0]?.id || "");
+  const [selectedFundId, setSelectedFundId] = useState(
+    contextFund?.id || (inFundContext ? "" : eligibleFunds[0]?.id || ""),
+  );
   const [dealName, setDealName] = useState("");
   const [dealDescription, setDealDescription] = useState("");
   const [distributionRateType, setDistributionRateType] = useState("Fixed Rate");
@@ -36,7 +41,8 @@ export function CreateFundDistribution() {
   const [actualDaysInYear, setActualDaysInYear] = useState("360");
 
   const selectedFund =
-    eligibleFunds.find((fund) => fund.id === selectedFundId) || eligibleFunds[0];
+    eligibleFunds.find((fund) => fund.id === selectedFundId) ||
+    (inFundContext ? undefined : eligibleFunds[0]);
   const isClosedEndSelected = selectedFund?.fundType === "Closed-end";
   const eventLabel = isClosedEndSelected ? "Dividend" : "Distribution";
   const eventLabelLower = isClosedEndSelected ? "dividend" : "distribution";
@@ -99,16 +105,48 @@ export function CreateFundDistribution() {
 
     addFundDistribution(newDistribution);
     toast.success(`Fund ${eventLabelLower} created successfully!`);
-    navigate(`/fund-distribution/${newDistributionId}`);
+    navigate(
+      inFundContext
+        ? `/fund-issuance/${selectedFund.id}/distributions/${newDistributionId}`
+        : `/fund-distribution/${newDistributionId}`,
+    );
   };
 
   return (
     <div className="container mx-auto max-w-5xl px-6 py-8">
+      {inFundContext && selectedFund && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
+          <Link to="/" className="hover:text-foreground transition-colors">
+            Home
+          </Link>
+          <span>/</span>
+          <Link
+            to={`/fund-issuance/${selectedFund.id}`}
+            className="hover:text-foreground transition-colors"
+          >
+            {selectedFund.name}
+          </Link>
+          <span>/</span>
+          <Link
+            to={`/fund-issuance/${selectedFund.id}/distributions`}
+            className="hover:text-foreground transition-colors"
+          >
+            Distributions
+          </Link>
+          <span>/</span>
+          <span className="text-foreground">Create</span>
+        </div>
+      )}
       <div className="mb-8">
-        <h1 style={{ fontFamily: "var(--font-heading)" }}>Create Fund {eventLabel}</h1>
+        <h1 style={{ fontFamily: "var(--font-heading)" }}>
+          {inFundContext && selectedFund
+            ? `Create Distribution For ${selectedFund.name}`
+            : `Create Fund ${eventLabel}`}
+        </h1>
         <p className="mt-2 text-muted-foreground">
-          Select an existing fund from the demo pool, then configure the linked income
-          {isClosedEndSelected ? " dividend event." : " distribution request."}
+          {inFundContext && selectedFund
+            ? `Configure a distribution operation for this fund. ${isClosedEndSelected ? "This fund will create a dividend event." : "This fund will create a distribution event."}`
+            : `Select an existing fund from the demo pool, then configure the linked income${isClosedEndSelected ? " dividend event." : " distribution request."}`}
         </p>
       </div>
 
@@ -130,6 +168,7 @@ export function CreateFundDistribution() {
                   className="w-full rounded-md border px-3 py-2"
                   value={selectedFundId}
                   onChange={(event) => handleFundChange(event.target.value)}
+                  disabled={inFundContext}
                 >
                   {eligibleFunds.length === 0 ? (
                     <option value="">No eligible funds</option>
@@ -166,7 +205,9 @@ export function CreateFundDistribution() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
-                  No eligible fund is available yet. Create and approve a fund first.
+                  {inFundContext
+                    ? "This fund is not yet eligible for a distribution event."
+                    : "No eligible fund is available yet. Create and approve a fund first."}
                 </div>
               )}
 
@@ -283,7 +324,7 @@ export function CreateFundDistribution() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-2 block text-sm font-medium">* Payout mode</label>
+                  <label className="mb-2 block text-sm font-medium">* {eventLabel} mode</label>
                   <select
                     className="w-full rounded-md border px-3 py-2"
                     value={payoutMode}
@@ -296,13 +337,13 @@ export function CreateFundDistribution() {
                   </select>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {payoutMode === "Direct Transfer"
-                      ? "System pushes payout to holders automatically."
-                      : `Holders claim payout on-chain after ${eventLabelLower} opens.`}
+                      ? `System releases ${eventLabelLower} to holders automatically.`
+                      : `Holders claim the ${eventLabelLower} on-chain after it opens.`}
                   </p>
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium">* Payout token</label>
+                  <label className="mb-2 block text-sm font-medium">* {eventLabel} token</label>
                   <input
                     type="text"
                     className="w-full rounded-md border px-3 py-2"
@@ -315,12 +356,12 @@ export function CreateFundDistribution() {
 
               <div>
                 <label className="mb-2 block text-sm font-medium">
-                  * Payout source account / treasury
+                  * {eventLabel} source account / treasury
                 </label>
                 <input
                   type="text"
                   className="w-full rounded-md border px-3 py-2"
-                  placeholder="Fund treasury settlement account"
+                  placeholder="Fund treasury distribution account"
                   value={payoutAccount}
                   onChange={(e) => setPayoutAccount(e.target.value)}
                 />
@@ -381,7 +422,24 @@ export function CreateFundDistribution() {
         <TabsContent value="rules" className="space-y-6">
           <Card>
             <CardContent className="space-y-4 pt-6">
-              <div className="space-y-4 rounded-lg border bg-secondary/30 p-4">
+              {isClosedEndSelected ? (
+                <div className="space-y-4 rounded-lg border bg-secondary/30 p-4">
+                  <div>
+                    <div className="text-sm font-medium">Eligibility Logic</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      All holders on the record date are eligible for this dividend. No
+                      additional investor rules are required for this dividend event.
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium">Recipient List</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      The recipient list will be generated from the linked fund holder
+                      register after the record date is locked.
+                    </p>
+                  </div>
+                </div>
+              ) : (
                 <div>
                   <div className="text-sm font-medium">Recipient Determination</div>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -403,7 +461,9 @@ export function CreateFundDistribution() {
                 <Button variant="outline" onClick={() => setActiveTab("about-distribution")}>
                   Back
                 </Button>
-                <Button onClick={handleCreate}>Create {eventLabel}</Button>
+                <Button onClick={handleCreate}>
+                  {inFundContext ? "Create Distribution For This Fund" : `Create ${eventLabel}`}
+                </Button>
               </div>
             </CardContent>
           </Card>

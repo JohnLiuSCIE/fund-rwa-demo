@@ -260,6 +260,12 @@ function parseLeadingNumber(value: string) {
   return match ? Number(match[0]) : 0;
 }
 
+function getLatestByCreatedTime<T extends { createdTime?: string }>(items: T[]) {
+  return [...items].sort((left, right) =>
+    (right.createdTime || "").localeCompare(left.createdTime || ""),
+  )[0];
+}
+
 function isFiatSubscriptionFunding(fundData: FundIssuance) {
   return (
     fundData.subscriptionPaymentMethod === "Fiat" ||
@@ -2074,6 +2080,8 @@ export function FundIssuanceDetail() {
   const {
     currentInvestor,
     fundIssuances,
+    fundRedemptions,
+    fundDistributions,
     fundOrders,
     addFundOrder,
     updateFundOrder,
@@ -2108,6 +2116,27 @@ export function FundIssuanceDetail() {
 
   const isOpenEnd = fundData.fundType === "Open-end";
   const subscriptionFundingIsFiat = isFiatSubscriptionFunding(fundData);
+  const relatedRedemptions = fundRedemptions.filter(
+    (redemption) => redemption.fundId === fundData.id,
+  );
+  const relatedDistributions = fundDistributions.filter(
+    (distribution) => distribution.fundId === fundData.id,
+  );
+  const latestRedemption = getLatestByCreatedTime(relatedRedemptions);
+  const latestDistribution = getLatestByCreatedTime(relatedDistributions);
+  const activeRedemptionCount = relatedRedemptions.filter(
+    (item) => item.status === "Active" || item.status === "Window Open",
+  ).length;
+  const draftPendingRedemptionCount = relatedRedemptions.filter((item) =>
+    ["Draft", "Pending Approval"].includes(item.status),
+  ).length;
+  const activeDistributionCount = relatedDistributions.filter(
+    (item) => item.status === "Open For Distribution",
+  ).length;
+  const draftPendingDistributionCount = relatedDistributions.filter((item) =>
+    ["Draft", "Pending Approval", "Pending Listing"].includes(item.status),
+  ).length;
+  const canCreateDistributionForFund = !["Draft", "Pending Approval"].includes(fundData.status);
   const persistedReferences = fundData.references ?? [];
   const persistedInvestorRules = fundData.investorRules ?? [];
   const subscriptionOrders = visibleOrders.filter((order) => order.type === "subscription");
@@ -2607,6 +2636,21 @@ export function FundIssuanceDetail() {
         />
       </div>
 
+      {!isOpenEnd && (
+        <div className="mb-8">
+          <WorkflowResponsibilityCard
+            title="Closed-end Lifecycle Responsibility Map"
+            description="The transfer agent is now explicit in investor validation, allocation approval, mint-file sign-off, and holder-register publication."
+            items={issuanceResponsibilityItems}
+          />
+        </div>
+      )}
+
+      {isOpenEnd && (
+        <div className="mb-8">
+          <OpenEndDealingCycleCard fundData={fundData} />
+        </div>
+      )}
       {!isMarketplaceView && (
         <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -2778,18 +2822,104 @@ export function FundIssuanceDetail() {
           {!isMarketplaceView && (
             <Card>
               <CardHeader>
-                <CardTitle>Related Setup</CardTitle>
+                <CardTitle>Fund Operations</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <p className="text-muted-foreground">
-                  Redemption and distribution are follow-on operating tasks, so they live here instead of competing with the main next-step action.
-                </p>
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/manage/fund-redemption">Redemption Setup</Link>
-                </Button>
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/manage/fund-distribution">Distribution Setup</Link>
-                </Button>
+              <CardContent className="space-y-4 text-sm">
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div>
+                    <div className="font-medium">Redemptions</div>
+                    <div className="mt-1 text-muted-foreground">
+                      Manage this fund's redemption policies, liquidity windows, and event history.
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-lg border bg-secondary/30 p-3">
+                      <div className="text-muted-foreground">Total</div>
+                      <div className="mt-1 font-medium">{relatedRedemptions.length}</div>
+                    </div>
+                    <div className="rounded-lg border bg-secondary/30 p-3">
+                      <div className="text-muted-foreground">Active / Draft</div>
+                      <div className="mt-1 font-medium">
+                        {activeRedemptionCount} / {draftPendingRedemptionCount}
+                      </div>
+                    </div>
+                  </div>
+                  {latestRedemption ? (
+                    <div className="rounded-lg border bg-secondary/20 p-3">
+                      <div className="text-muted-foreground">Latest redemption</div>
+                      <div className="mt-1 font-medium">{latestRedemption.name}</div>
+                      <div className="mt-2">
+                        <StatusBadge status={latestRedemption.status} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed p-3 text-muted-foreground">
+                      No redemption objects have been created for this fund yet.
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2">
+                    <Button asChild className="w-full justify-start" variant="outline">
+                      <Link to={`/fund-issuance/${fundData.id}/redemptions`}>Open Redemptions</Link>
+                    </Button>
+                    <Button
+                      className="w-full justify-start"
+                      onClick={() => navigate(`/fund-issuance/${fundData.id}/redemptions/create`)}
+                    >
+                      Create New
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div>
+                    <div className="font-medium">Distributions</div>
+                    <div className="mt-1 text-muted-foreground">
+                      Manage this fund's distribution and dividend events as child objects of the fund.
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-lg border bg-secondary/30 p-3">
+                      <div className="text-muted-foreground">Total</div>
+                      <div className="mt-1 font-medium">{relatedDistributions.length}</div>
+                    </div>
+                    <div className="rounded-lg border bg-secondary/30 p-3">
+                      <div className="text-muted-foreground">Active / Draft</div>
+                      <div className="mt-1 font-medium">
+                        {activeDistributionCount} / {draftPendingDistributionCount}
+                      </div>
+                    </div>
+                  </div>
+                  {latestDistribution ? (
+                    <div className="rounded-lg border bg-secondary/20 p-3">
+                      <div className="text-muted-foreground">Latest distribution</div>
+                      <div className="mt-1 font-medium">{latestDistribution.name}</div>
+                      <div className="mt-2">
+                        <StatusBadge status={latestDistribution.status} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed p-3 text-muted-foreground">
+                      No distribution objects have been created for this fund yet.
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2">
+                    <Button asChild className="w-full justify-start" variant="outline">
+                      <Link to={`/fund-issuance/${fundData.id}/distributions`}>Open Distributions</Link>
+                    </Button>
+                    <Button
+                      className="w-full justify-start"
+                      disabled={!canCreateDistributionForFund}
+                      onClick={() => navigate(`/fund-issuance/${fundData.id}/distributions/create`)}
+                      title={
+                        canCreateDistributionForFund
+                          ? undefined
+                          : "Fund must be beyond draft before a distribution event can be created."
+                      }
+                    >
+                      Create New
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           )}
