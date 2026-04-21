@@ -116,50 +116,50 @@ function getRedemptionAction(config: FundRedemptionConfig) {
       return {
         label: "Submit for Approval",
         nextStatus: "Pending Approval" as const,
-        message: "Redemption setup submitted for approval",
+        message: "Redemption operation submitted for approval",
         icon: Send,
         variant: "default" as const,
-        modalTitle: "Submit Redemption Setup For Approval",
+        modalTitle: "Submit Redemption Operation For Approval",
         modalDescription:
-          "Review the redemption setup, verify issuer identity, and submit it for approval.",
+          "Review the redemption operation, verify issuer identity, and submit it for approval.",
         modalSteps: buildRedemptionActionFlow({
           reviewTitle: "Review Redemption Draft",
           reviewDescription:
             "Confirm the linked fund, cut-off rules, and liquidity settings before submission.",
           identityDescription:
-            "Issuer identity and redemption setup authority are being verified.",
+            "Issuer identity and redemption authority are being verified.",
           actionLabel: "Submit",
           actionTitle: "Submit Approval Request",
           actionDescription:
             "The redemption approval request is being submitted to the workflow.",
           successTitle: "Redemption submitted",
           successDescription:
-            "The redemption setup is now waiting for approval review.",
+            "The redemption operation is now waiting for approval review.",
         }),
       };
     case "Pending Approval":
       return {
-        label: "Activate Setup",
+        label: "Activate Redemption",
         nextStatus: config.pauseRedemptionAfterListing ? "Announced" as const : "Active" as const,
-        message: "Redemption setup activated",
+        message: "Redemption operation activated",
         icon: ShieldCheck,
         variant: "default" as const,
-        modalTitle: "Activate Redemption Setup",
+        modalTitle: "Activate Redemption Operation",
         modalDescription:
-          "Verify issuer identity and activate the approved redemption operating setup.",
+          "Verify issuer identity and activate the approved redemption operation.",
         modalSteps: buildRedemptionActionFlow({
           reviewTitle: "Review Redemption Activation",
           reviewDescription:
-            "Confirm the approved redemption setup is ready to move into the operating stage.",
+            "Confirm the approved redemption operation is ready to move into the operating stage.",
           identityDescription:
             "Issuer identity and redemption activation authority are being verified.",
           actionLabel: "Activate",
-          actionTitle: "Activate Setup",
+          actionTitle: "Activate Redemption",
           actionDescription:
-            "The redemption setup activation request is being processed.",
-          successTitle: "Redemption setup activated",
+            "The redemption activation request is being processed.",
+          successTitle: "Redemption activated",
           successDescription:
-            "The redemption setup has moved into its next operating stage.",
+            "The redemption operation has moved into its next operating stage.",
         }),
       };
     case "Announced":
@@ -467,12 +467,12 @@ function getEditableRedemptionSections(config: FundRedemptionConfig): Redemption
 function getRedemptionEditingPolicyMessage(config: FundRedemptionConfig) {
   const editableSections = getEditableRedemptionSections(config);
   if (editableSections.length === 0) {
-    return "This stage is locked. Once the redemption cycle is closed, setup fields become read-only.";
+    return "This stage is locked. Once the redemption cycle is closed, redemption details become read-only.";
   }
   if (editableSections.length === 2) {
-    return "Current stage allows full editing of setup details and operating rules.";
+    return "Current stage allows full editing of redemption details and operating rules.";
   }
-  return "Current stage only allows operating-rule updates. Setup details are locked.";
+  return "Current stage only allows operating-rule updates. Core redemption details are locked.";
 }
 
 function getEditableRedemptionFieldLabels(config: FundRedemptionConfig) {
@@ -480,7 +480,7 @@ function getEditableRedemptionFieldLabels(config: FundRedemptionConfig) {
   const labels: string[] = [];
 
   if (editableSections.includes("details")) {
-    labels.push("setup identity", "description", "effective dates", "window schedule", "reference NAV");
+    labels.push("redemption identity", "description", "effective dates", "window schedule", "reference NAV");
   }
 
   if (editableSections.includes("operations")) {
@@ -773,15 +773,15 @@ function RedemptionSetupEditor({
         {canEditDetails && (
           <div className="space-y-4 rounded-lg border p-4">
             <div>
-              <h3 className="font-medium">Setup Details</h3>
+              <h3 className="font-medium">Redemption Details</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Core setup identity and the dates that define this redemption configuration.
+                Core redemption identity and the dates that define this redemption operation.
               </p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Setup name</Label>
+                <Label>Redemption name</Label>
                 <Input value={form.name} onChange={(event) => setField("name", event.target.value)} />
               </div>
               <div className="space-y-2">
@@ -824,7 +824,7 @@ function RedemptionSetupEditor({
             <div>
               <h3 className="font-medium">Operating Rules</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Rules that control how redemption stays active after setup approval.
+                Rules that control how the redemption stays active after approval.
               </p>
             </div>
 
@@ -888,7 +888,7 @@ function RedemptionSetupEditor({
 }
 
 export function FundRedemptionDetail() {
-  const { id } = useParams();
+  const { id, fundId } = useParams();
   const location = useLocation();
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [hasAppliedEditIntent, setHasAppliedEditIntent] = useState(false);
@@ -912,20 +912,26 @@ export function FundRedemptionDetail() {
     userRole,
   } = useApp();
 
-  const redemption = fundRedemptions.find((item) => item.id === id);
+  const redemption = fundRedemptions.find(
+    (item) => item.id === id && (!fundId || item.fundId === fundId),
+  );
 
   if (!redemption) {
     return (
       <div className="container mx-auto px-6 py-20 text-center">
-        <h2>Redemption Setup Not Found</h2>
+        <h2>Redemption Not Found</h2>
         <p className="text-muted-foreground mt-2">
-          The redemption setup you are looking for does not exist or has been removed.
+          The redemption operation you are looking for does not exist or has been removed.
         </p>
       </div>
     );
   }
 
   const fund = fundIssuances.find((item) => item.id === redemption.fundId);
+  const inFundContext = Boolean(fundId);
+  const redemptionsListPath = inFundContext
+    ? `/fund-issuance/${fundId}/redemptions`
+    : "/manage/fund-redemption";
   const isOpenEndFund = fund?.fundType === "Open-end";
   const requests = fundOrders.filter(
     (order) => order.fundId === redemption.fundId && order.type === "redemption",
@@ -1118,8 +1124,19 @@ export function FundRedemptionDetail() {
           Home
         </Link>
         <ChevronRight className="w-4 h-4" />
-        <Link to="/manage/fund-redemption" className="hover:text-foreground transition-colors">
-          Manage Fund Redemption
+        {inFundContext && fund ? (
+          <>
+            <Link
+              to={`/fund-issuance/${fund.id}`}
+              className="hover:text-foreground transition-colors"
+            >
+              {fund.name}
+            </Link>
+            <ChevronRight className="w-4 h-4" />
+          </>
+        ) : null}
+        <Link to={redemptionsListPath} className="hover:text-foreground transition-colors">
+          {inFundContext ? "Fund Redemptions" : "Global Redemption Queue"}
         </Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-foreground">{redemption.name}</span>
@@ -1133,6 +1150,11 @@ export function FundRedemptionDetail() {
               <StatusBadge status={redemption.status} />
               <Badge variant="outline">{redemption.redemptionMode}</Badge>
             </div>
+            {inFundContext && fund ? (
+              <p className="text-sm text-muted-foreground mt-2">
+                Redemption operation for {fund.name}
+              </p>
+            ) : null}
             <p className="text-muted-foreground mt-2 max-w-3xl">{redemption.description}</p>
           </div>
         </div>
@@ -1142,7 +1164,7 @@ export function FundRedemptionDetail() {
           title={isOpenEndFund ? "Open-end Redemption Module" : "Redemption Operations"}
         >
           {isOpenEndFund
-            ? "For open-end funds, redemption is a module under the active fund. The top progress bar tracks setup activation, while the operating state below shows the live window or daily-dealing mode."
+            ? "For open-end funds, redemption is a module under the active fund. The top progress bar tracks approval and activation, while the operating state below shows the live window or daily-dealing mode."
             : "This page tracks a one-off holder cash-out workflow, including request review, payment-list preparation, and final cash settlement."}
         </InfoAlert>
       </div>
@@ -1203,7 +1225,7 @@ export function FundRedemptionDetail() {
           )}
           {editIntentRequested && !canEditSetup && (
             <div className="mt-3 text-sm text-amber-700">
-              This setup is currently view-only, so the page opened in review mode instead of edit mode.
+              This redemption is currently view-only, so the page opened in review mode instead of edit mode.
             </div>
           )}
         </div>
@@ -1346,7 +1368,7 @@ export function FundRedemptionDetail() {
 
           {showTransferAgentLayer && (
             <TransferAgentChecklistCard
-              description="These controls focus on transfer-agent workflow readiness rather than issuer setup rules."
+              description="These controls focus on transfer-agent workflow readiness rather than issuer form fields."
               items={[...transferAgentChecklistItems]}
             />
           )}
@@ -1397,7 +1419,7 @@ export function FundRedemptionDetail() {
                     Redemption requests are processed against the official fund NAV and may be reviewed manually before they move into cash settlement.
                   </p>
                   <p>
-                    For the demo, this setup also doubles as the main place to explain redemption gates, cut-off handling, and T+1 cash settlement behavior.
+                    For the demo, this redemption also doubles as the main place to explain redemption gates, cut-off handling, and T+1 cash settlement behavior.
                   </p>
                 </CardContent>
               </Card>
@@ -1738,7 +1760,7 @@ export function FundRedemptionDetail() {
           startLabel="Start"
           completionLabel="Done"
           summary={[
-            { label: "Redemption Setup", value: redemption.name },
+            { label: "Redemption Operation", value: redemption.name },
             { label: "Linked Fund", value: redemption.fundName },
             { label: "Mode", value: redemption.redemptionMode },
             { label: "Current Status", value: redemption.status },

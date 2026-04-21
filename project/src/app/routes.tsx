@@ -56,6 +56,12 @@ export function AppRoutes() {
           <Route path="manage/fund-redemption" element={<ManageFundRedemption />} />
           <Route path="manage/fund-distribution" element={<ManageFundDistribution />} />
           <Route path="fund-issuance/:id" element={<FundIssuanceDetail />} />
+          <Route path="fund-issuance/:fundId/redemptions" element={<ManageFundRedemption />} />
+          <Route path="fund-issuance/:fundId/redemptions/create" element={<CreateFundRedemption />} />
+          <Route path="fund-issuance/:fundId/redemptions/:id" element={<FundRedemptionDetail />} />
+          <Route path="fund-issuance/:fundId/distributions" element={<ManageFundDistribution />} />
+          <Route path="fund-issuance/:fundId/distributions/create" element={<CreateFundDistribution />} />
+          <Route path="fund-issuance/:fundId/distributions/:id" element={<FundDistributionDetail />} />
           <Route path="fund-redemption/:id" element={<FundRedemptionDetail />} />
           <Route path="fund-distribution/:id" element={<FundDistributionDetail />} />
         </Route>

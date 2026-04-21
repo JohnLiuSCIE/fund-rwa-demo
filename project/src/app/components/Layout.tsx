@@ -94,10 +94,10 @@ export function Layout() {
                       <Link to="/manage/fund-issuance">Launch Queue</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link to="/manage/fund-redemption">Redemption Queue</Link>
+                      <Link to="/manage/fund-redemption">Global Redemption Queue</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link to="/manage/fund-distribution">Payout Queue</Link>
+                      <Link to="/manage/fund-distribution">Global Distribution Queue</Link>
                     </DropdownMenuItem>
                   </>
                 ) : (
@@ -106,7 +106,7 @@ export function Layout() {
                       <Link to="/marketplace/fund-redemption">Redemption Opportunities</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link to="/marketplace/fund-distribution">Payout Events</Link>
+                      <Link to="/marketplace/fund-distribution">Distribution Events</Link>
                     </DropdownMenuItem>
                   </>
                 )}

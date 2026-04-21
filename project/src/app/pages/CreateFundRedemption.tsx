@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Card, CardContent } from "../components/ui/card";
@@ -20,16 +20,23 @@ import { useApp } from "../context/AppContext";
 
 export function CreateFundRedemption() {
   const navigate = useNavigate();
+  const { fundId } = useParams();
   const { fundIssuances, addFundRedemption } = useApp();
   const [activeTab, setActiveTab] = useState("about-fund");
 
-  const openEndFunds = useMemo(
-    () => fundIssuances.filter((fund) => fund.fundType === "Open-end"),
+  const eligibleFunds = useMemo(
+    () => fundIssuances,
     [fundIssuances],
   );
+  const contextFund = eligibleFunds.find((fund) => fund.id === fundId);
+  const inFundContext = Boolean(fundId);
 
-  const [selectedFundId, setSelectedFundId] = useState(openEndFunds[0]?.id || "");
-  const [redemptionMode, setRedemptionMode] = useState<"Daily dealing" | "Window-based">("Daily dealing");
+  const [selectedFundId, setSelectedFundId] = useState(
+    contextFund?.id || (inFundContext ? "" : eligibleFunds[0]?.id || ""),
+  );
+  const [redemptionMode, setRedemptionMode] = useState<"Daily dealing" | "Window-based">(
+    contextFund?.fundType === "Closed-end" ? "Window-based" : "Daily dealing",
+  );
   const [effectiveDate, setEffectiveDate] = useState("2026-04-17T09:00");
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
@@ -41,8 +48,14 @@ export function CreateFundRedemption() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [validationSummary, setValidationSummary] = useState<string[]>([]);
 
-  const selectedFund = openEndFunds.find((fund) => fund.id === selectedFundId) || openEndFunds[0];
+  const selectedFund = eligibleFunds.find((fund) => fund.id === selectedFundId) || (inFundContext ? undefined : eligibleFunds[0]);
   const minimumNoticePeriodDays = selectedFund?.noticePeriodDays || 0;
+  const isClosedEndFund = selectedFund?.fundType === "Closed-end";
+  const displayedNav = selectedFund
+    ? selectedFund.fundType === "Open-end"
+      ? selectedFund.currentNav
+      : selectedFund.initialNav
+    : "N/A";
 
   const parseDateTime = (value: string) => {
     if (!value) return undefined;
@@ -98,8 +111,8 @@ export function CreateFundRedemption() {
     const referenceStartDate = redemptionMode === "Window-based" ? windowStartValue : effectiveDateValue;
 
     if (!selectedFund) {
-      nextErrors.selectedFund = "Please select an open-end fund.";
-      nextSummary.push("Please select an open-end fund.");
+      nextErrors.selectedFund = "Please select a fund.";
+      nextSummary.push("Please select a fund.");
     }
 
     if (!effectiveDateValue) {
@@ -176,11 +189,16 @@ export function CreateFundRedemption() {
     addFundRedemption({
       id: redemptionId,
       fundId: selectedFund.id,
-      name: `${selectedFund.name} Redemption Setup`,
+      name:
+        selectedFund.fundType === "Closed-end"
+          ? `${selectedFund.name} Redemption Event`
+          : `${selectedFund.name} Redemption Operation`,
       description:
         redemptionMode === "Daily dealing"
-          ? "Daily dealing redemption configuration for ongoing open-end operations."
-          : "Window-based redemption configuration for open-end fund operations.",
+          ? "Daily dealing redemption operation for ongoing open-end fund activity."
+          : selectedFund.fundType === "Closed-end"
+            ? "Window-based redemption event for closed-end fund liquidity operations."
+            : "Window-based redemption operation for open-end fund liquidity management.",
       status: "Draft",
       assetType: "Fund",
       fundName: selectedFund.name,
@@ -191,7 +209,7 @@ export function CreateFundRedemption() {
       windowStart: windowStart ? windowStart.replace("T", " ") + ":00" : undefined,
       windowEnd: windowEnd ? windowEnd.replace("T", " ") + ":00" : undefined,
       announcementDate: announcementDate ? announcementDate.replace("T", " ") + ":00" : undefined,
-      latestNav: selectedFund.currentNav,
+      latestNav: displayedNav,
       settlementCycle: selectedFund.settlementCycle || "T+1",
       noticePeriodDays: Number(noticePeriodDays) || 0,
       maxRedemptionQuantityPerInvestor: `${maxRedemptionQuantityPerInvestor || "0"} units`,
@@ -202,23 +220,59 @@ export function CreateFundRedemption() {
       identitySource: "authSession",
     });
 
-    toast.success("Redemption dealing setup created", {
-      description: "The open-end redemption configuration has been saved as a draft.",
+    const detailPath = inFundContext
+      ? `/fund-issuance/${selectedFund.id}/redemptions/${redemptionId}`
+      : `/fund-redemption/${redemptionId}`;
+
+    toast.success("Redemption operation created", {
+      description:
+        selectedFund.fundType === "Closed-end"
+          ? "The closed-end redemption event has been saved as a draft."
+          : "The redemption operation has been saved as a draft.",
       action: {
         label: "View Detail",
-        onClick: () => navigate(`/fund-redemption/${redemptionId}`),
+        onClick: () => navigate(detailPath),
       },
     });
 
-    navigate(`/fund-redemption/${redemptionId}`);
+    navigate(detailPath);
   };
 
   return (
     <div className="container mx-auto px-6 py-8 max-w-5xl">
+      {inFundContext && selectedFund && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
+          <Link to="/" className="hover:text-foreground transition-colors">
+            Home
+          </Link>
+          <span>/</span>
+          <Link
+            to={`/fund-issuance/${selectedFund.id}`}
+            className="hover:text-foreground transition-colors"
+          >
+            {selectedFund.name}
+          </Link>
+          <span>/</span>
+          <Link
+            to={`/fund-issuance/${selectedFund.id}/redemptions`}
+            className="hover:text-foreground transition-colors"
+          >
+            Redemptions
+          </Link>
+          <span>/</span>
+          <span className="text-foreground">Create</span>
+        </div>
+      )}
       <div className="mb-8">
-        <h1 style={{ fontFamily: "var(--font-heading)" }}>Configure Fund Redemption</h1>
+        <h1 style={{ fontFamily: "var(--font-heading)" }}>
+          {inFundContext && selectedFund
+            ? `Create Redemption For ${selectedFund.name}`
+            : "Configure Fund Redemption"}
+        </h1>
         <p className="text-muted-foreground mt-2">
-          Link redemption dealing rules to an existing open-end fund instead of hand-creating a one-off event.
+          {inFundContext && selectedFund
+            ? "Configure a redemption operation for this fund."
+            : "Link redemption rules to an existing fund instead of hand-creating a disconnected one-off process."}
         </p>
       </div>
 
@@ -234,12 +288,22 @@ export function CreateFundRedemption() {
             <CardContent className="pt-6 space-y-6">
               <div className="space-y-2">
                 <Label>Select Fund</Label>
-                <Select value={selectedFundId} onValueChange={setSelectedFundId}>
+                <Select
+                  value={selectedFundId}
+                  onValueChange={(value) => {
+                    setSelectedFundId(value);
+                    const fund = eligibleFunds.find((item) => item.id === value);
+                    if (fund?.fundType === "Closed-end") {
+                      setRedemptionMode("Window-based");
+                    }
+                  }}
+                  disabled={inFundContext}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select an open-end fund" />
+                    <SelectValue placeholder="Select a fund" />
                   </SelectTrigger>
                   <SelectContent>
-                    {openEndFunds.map((fund) => (
+                    {eligibleFunds.map((fund) => (
                       <SelectItem key={fund.id} value={fund.id}>
                         {fund.name}
                       </SelectItem>
@@ -250,21 +314,25 @@ export function CreateFundRedemption() {
 
               {selectedFund ? (
                 <div className="rounded-lg border bg-secondary/50 p-5 space-y-3 text-sm">
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Fund token</span>
-                      <span className="font-medium">{selectedFund.tokenName}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Current NAV</span>
-                      <span className="font-medium">{selectedFund.currentNav}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Dealing frequency</span>
-                      <span className="font-medium">{selectedFund.dealingFrequency || "Daily"}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Settlement cycle</span>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">Fund token</span>
+                        <span className="font-medium">{selectedFund.tokenName}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">Reference NAV</span>
+                        <span className="font-medium">{displayedNav}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">Fund type</span>
+                        <span className="font-medium">{selectedFund.fundType}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">Dealing frequency</span>
+                        <span className="font-medium">{selectedFund.dealingFrequency || "Window-based / Event-driven"}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">Settlement cycle</span>
                       <span className="font-medium">{selectedFund.settlementCycle || "T+1"}</span>
                     </div>
                     <div className="flex justify-between gap-4">
@@ -279,18 +347,25 @@ export function CreateFundRedemption() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
-                  No open-end funds are available yet. Create an open-end fund first.
+                  {inFundContext
+                    ? "This fund is not available for redemption configuration."
+                    : "No funds are available yet. Create a fund first."}
                 </div>
               )}
 
               <div className="space-y-2">
                 <Label>Redemption mode</Label>
-                <Select value={redemptionMode} onValueChange={(value) => setRedemptionMode(value as "Daily dealing" | "Window-based")}>
+                <Select
+                  value={redemptionMode}
+                  onValueChange={(value) => setRedemptionMode(value as "Daily dealing" | "Window-based")}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Daily dealing">Daily dealing</SelectItem>
+                    {!isClosedEndFund && (
+                      <SelectItem value="Daily dealing">Daily dealing</SelectItem>
+                    )}
                     <SelectItem value="Window-based">Window-based</SelectItem>
                   </SelectContent>
                 </Select>
@@ -419,7 +494,7 @@ export function CreateFundRedemption() {
                   <div>
                     <div className="font-medium">Pause redemption after listing</div>
                     <div className="text-sm text-muted-foreground mt-1">
-                      Useful for window-based setups that should remain announced until manually opened.
+                      Useful for window-based redemption events that should remain announced until manually opened.
                     </div>
                   </div>
                   <Switch checked={pauseAfterListing} onCheckedChange={setPauseAfterListing} />
@@ -503,7 +578,7 @@ export function CreateFundRedemption() {
                 </div>
                 <div className="flex justify-between gap-4">
                   <span className="text-muted-foreground">Latest NAV source</span>
-                  <span className="font-medium">{selectedFund?.currentNav || "N/A"}</span>
+                  <span className="font-medium">{displayedNav}</span>
                 </div>
                 <div className="flex justify-between gap-4">
                   <span className="text-muted-foreground">Settlement cycle</span>
@@ -520,7 +595,7 @@ export function CreateFundRedemption() {
               </div>
 
               <p className="text-sm text-muted-foreground">
-                The resulting detail page will act as a redemption operations dashboard with request lists, batch history, and redemption status controls.
+                The resulting detail page will act as this fund's redemption operations dashboard with request lists, batch history, and status controls.
               </p>
 
               <div className="flex justify-between">
@@ -528,7 +603,7 @@ export function CreateFundRedemption() {
                   Back
                 </Button>
                 <Button disabled={!selectedFund} onClick={handleCreate}>
-                  Create Redemption Setup
+                  {inFundContext ? "Create Redemption For This Fund" : "Create Redemption Event"}
                 </Button>
               </div>
             </CardContent>

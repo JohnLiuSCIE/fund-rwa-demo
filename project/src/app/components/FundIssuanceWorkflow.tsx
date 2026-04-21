@@ -1162,10 +1162,6 @@ function FundWorkflow({
               <div className="text-sm font-medium text-blue-900">
                 Current Progress: Step {currentStepIndex + 1} of {steps.length}
               </div>
-              <div className="text-xs text-blue-600 mt-0.5">
-                {steps[currentStepIndex].label} -{" "}
-                {steps[currentStepIndex].description}
-              </div>
               {currentOwner && (
                 <div
                   className={cn(
@@ -1203,9 +1199,6 @@ function FundWorkflow({
                   <div className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
                     {substepConfig.steps.length} sub-stages
                   </div>
-                  <div className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
-                    Current: {substepConfig.steps[substepConfig.currentIndex]?.label}
-                  </div>
                 </div>
               </div>
 
@@ -1238,68 +1231,31 @@ function FundWorkflow({
                 })}
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {substepConfig.steps.map((step, index) => {
-                  const isCompleted = index < substepConfig.currentIndex;
-                  const isCurrent = index === substepConfig.currentIndex;
-                  return (
-                    <div
-                      key={step.label}
-                      className={cn(
-                        "rounded-lg border p-3 transition-colors",
-                        isCompleted && "border-green-200 bg-green-50",
-                        isCurrent && "border-blue-200 bg-blue-50",
-                        !isCompleted && !isCurrent && "bg-white",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "text-sm font-medium",
-                          isCompleted && "text-green-700",
-                          isCurrent && "text-blue-700",
-                        )}
-                      >
-                        {step.label}
-                      </div>
-                      <div className="mt-1 text-sm text-muted-foreground">
-                        {step.description}
-                      </div>
-                      <div
-                        className={cn(
-                          "mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                          step.owner.toLowerCase().includes("transfer agent")
-                            ? "border-teal-200 bg-teal-50 text-teal-700"
-                            : "border-slate-200 bg-slate-50 text-slate-600",
-                        )}
-                      >
-                        {step.owner}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
               {currentSubstep && (
                 <div className="rounded-lg border border-slate-200 bg-white p-4">
-                  <div className="text-xs font-medium text-slate-700">Current Sub-stage Detail</div>
-                  <div className="mt-1 text-sm font-medium text-foreground">
-                    {currentSubstep.label}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {currentSubstep.description}
-                  </div>
-                  <div
-                    className={cn(
-                      "mt-3 inline-flex rounded-full border px-2.5 py-1 text-xs font-medium",
-                      currentSubstep.owner.toLowerCase().includes("transfer agent")
-                        ? "border-teal-200 bg-teal-50 text-teal-700"
-                        : "border-slate-200 bg-slate-50 text-slate-700",
-                    )}
-                  >
-                    Owner: {currentSubstep.owner}
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="text-xs font-medium text-slate-700">Current sub-stage</div>
+                      <div className="mt-1 text-sm font-medium text-foreground">
+                        {currentSubstep.label}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {currentSubstep.description}
+                      </div>
+                    </div>
+                    <div
+                      className={cn(
+                        "inline-flex rounded-full border px-2.5 py-1 text-xs font-medium",
+                        currentSubstep.owner.toLowerCase().includes("transfer agent")
+                          ? "border-teal-200 bg-teal-50 text-teal-700"
+                          : "border-slate-200 bg-slate-50 text-slate-700",
+                      )}
+                    >
+                      Owner: {currentSubstep.owner}
+                    </div>
                   </div>
                   {currentSubstep.artifacts && currentSubstep.artifacts.length > 0 && (
-                    <div className="mt-4">
+                    <div className="mt-4 border-t pt-4">
                       <div className="text-xs font-medium text-slate-700">
                         Data / objects approved at this sub-stage
                       </div>
