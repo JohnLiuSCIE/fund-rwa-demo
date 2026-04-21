@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCcw,
   Search,
+  Sparkles,
 } from "lucide-react";
 
 import { StatusBadge } from "../components/StatusBadge";
@@ -21,7 +22,6 @@ import {
   CardTitle,
 } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { ScrollArea } from "../components/ui/scroll-area";
 import {
   Sheet,
   SheetContent,
@@ -345,7 +345,7 @@ function getCompactSignalClass(label: string) {
   }
 }
 
-function FundActionRow({
+function FundActionCard({
   title,
   icon: Icon,
   tintClassName,
@@ -353,6 +353,7 @@ function FundActionRow({
   emptyState,
   description,
   action,
+  recommended = false,
 }: {
   title: string;
   icon: typeof Landmark;
@@ -361,24 +362,31 @@ function FundActionRow({
   emptyState: string;
   description: string;
   action: WorkspaceAction | null;
+  recommended?: boolean;
 }) {
   return (
-    <div className={cn("rounded-2xl border p-4 shadow-sm", tintClassName)}>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className={cn("rounded-2xl border p-5 shadow-sm", tintClassName)}>
+      <div className="flex h-full flex-col gap-4">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/90 shadow-sm">
             <Icon className="h-4 w-4" />
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <div className="font-medium">{title}</div>
+              {recommended && (
+                <Badge className="border-amber-200 bg-amber-50 text-amber-700">
+                  <Sparkles className="mr-1 h-3 w-3" />
+                  Recommended Next Step
+                </Badge>
+              )}
               {status ? <StatusBadge status={status} /> : <Badge variant="outline">{emptyState}</Badge>}
             </div>
             <div className="text-sm text-muted-foreground">{description}</div>
           </div>
         </div>
         {action ? (
-          <Button asChild className="shrink-0">
+          <Button asChild className="mt-auto w-full justify-between">
             <Link to={action.to}>
               {action.label}
               <ArrowRight className="h-4 w-4" />
@@ -521,6 +529,14 @@ export function FundsWorkspace() {
   const distributionAction =
     selectedFund &&
     getDistributionEntryAction(userRole, selectedFund, selectedDistribution);
+  const recommendedModule =
+    recommendedAction?.to === launchAction?.to
+      ? "launch"
+      : recommendedAction?.to === redemptionAction?.to
+        ? "redemptions"
+        : recommendedAction?.to === distributionAction?.to
+          ? "distributions"
+          : null;
 
   const handleSelectFund = (fundId: string) => {
     if (selectedFundId === fundId && isWorkspaceOpen) {
@@ -708,24 +724,34 @@ export function FundsWorkspace() {
         {selectedFund && (
           <SheetContent
             side="right"
-            className="w-[82vw] max-w-none p-0 sm:max-w-none lg:w-[80vw] xl:w-[78vw]"
+            className="w-[82vw] max-w-none overflow-hidden p-0 sm:max-w-none lg:w-[80vw] xl:w-[78vw]"
           >
-            <div className="flex h-full flex-col">
+            <div className="flex h-full min-h-0 flex-col">
               <SheetHeader className="border-b bg-gradient-to-br from-[var(--navy-50)] via-white to-[var(--gold-50)] pr-12">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">{selectedFund.fundType}</Badge>
-                  <Badge variant="outline">{selectedFund.legalStructure || "Structure Pending"}</Badge>
-                  <Badge variant={selectedFund.tradable === "Yes" ? "secondary" : "outline"}>
-                    {selectedFund.tradable === "Yes" ? "Secondary Market Enabled" : "Secondary Market Restricted"}
-                  </Badge>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{selectedFund.fundType}</Badge>
+                      <Badge variant="outline">{selectedFund.legalStructure || "Structure Pending"}</Badge>
+                      <Badge variant={selectedFund.tradable === "Yes" ? "secondary" : "outline"}>
+                        {selectedFund.tradable === "Yes" ? "Secondary Market Enabled" : "Secondary Market Restricted"}
+                      </Badge>
+                    </div>
+                    <SheetTitle style={{ fontFamily: "var(--font-heading)" }}>{selectedFund.name}</SheetTitle>
+                    <SheetDescription className="max-w-4xl leading-6">
+                      {selectedFund.description}
+                    </SheetDescription>
+                  </div>
+                  <Button asChild className="shrink-0">
+                    <Link to={fundDetailPath}>
+                      <Coins className="h-4 w-4" />
+                      Open Full Workspace
+                    </Link>
+                  </Button>
                 </div>
-                <SheetTitle style={{ fontFamily: "var(--font-heading)" }}>{selectedFund.name}</SheetTitle>
-                <SheetDescription className="max-w-4xl leading-6">
-                  {selectedFund.description}
-                </SheetDescription>
               </SheetHeader>
 
-              <ScrollArea className="flex-1">
+              <div className="min-h-0 flex-1 overflow-y-auto">
                 <div className="space-y-6 p-6">
                   <Card className="border-[var(--navy-100)] shadow-sm">
                     <CardContent className="grid gap-4 pt-6 md:grid-cols-2 xl:grid-cols-4">
@@ -750,27 +776,6 @@ export function FundsWorkspace() {
                     </CardContent>
                   </Card>
 
-                  {recommendedAction && (
-                    <Card className="border-[var(--navy-100)] shadow-sm">
-                      <CardHeader className="space-y-4">
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                          <div>
-                            <CardTitle className="text-lg">Recommended Next Step</CardTitle>
-                            <CardDescription className="mt-2 max-w-3xl leading-6">
-                              {recommendedAction.summary}
-                            </CardDescription>
-                          </div>
-                          <Button asChild>
-                            <Link to={recommendedAction.to}>
-                              {recommendedAction.label}
-                              <ArrowRight className="h-4 w-4" />
-                            </Link>
-                          </Button>
-                        </div>
-                      </CardHeader>
-                    </Card>
-                  )}
-
                   <Card className="border-[var(--navy-100)] shadow-sm">
                     <CardHeader>
                       <CardTitle className="text-lg">Fund Actions</CardTitle>
@@ -778,8 +783,8 @@ export function FundsWorkspace() {
                         Use these entry points to move from the selected fund into its main lifecycle objects.
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                      <FundActionRow
+                    <CardContent className="grid gap-4 lg:grid-cols-3">
+                      <FundActionCard
                         title="Launch"
                         icon={Landmark}
                         tintClassName="bg-[var(--navy-50)]/70"
@@ -787,9 +792,10 @@ export function FundsWorkspace() {
                         emptyState="No Launch Data"
                         description={getLaunchModuleDescription(selectedFund)}
                         action={launchAction}
+                        recommended={recommendedModule === "launch"}
                       />
 
-                      <FundActionRow
+                      <FundActionCard
                         title="Redemptions"
                         icon={RefreshCcw}
                         tintClassName="bg-[var(--gold-50)]/80"
@@ -797,9 +803,10 @@ export function FundsWorkspace() {
                         emptyState={selectedFund.fundType === "Closed-end" ? "Not Scheduled" : "Not Created"}
                         description={getRedemptionModuleDescription(selectedFund, selectedRedemption)}
                         action={redemptionAction}
+                        recommended={recommendedModule === "redemptions"}
                       />
 
-                      <FundActionRow
+                      <FundActionCard
                         title="Distributions"
                         icon={HandCoins}
                         tintClassName="bg-emerald-50"
@@ -807,6 +814,7 @@ export function FundsWorkspace() {
                         emptyState="Not Scheduled"
                         description={getDistributionModuleDescription(selectedFund, selectedDistribution)}
                         action={distributionAction}
+                        recommended={recommendedModule === "distributions"}
                       />
                     </CardContent>
                   </Card>
@@ -838,7 +846,7 @@ export function FundsWorkspace() {
                     </CardContent>
                   </Card>
                 </div>
-              </ScrollArea>
+              </div>
             </div>
           </SheetContent>
         )}
