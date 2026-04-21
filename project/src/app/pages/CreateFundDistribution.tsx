@@ -37,6 +37,9 @@ export function CreateFundDistribution() {
 
   const selectedFund =
     eligibleFunds.find((fund) => fund.id === selectedFundId) || eligibleFunds[0];
+  const isClosedEndSelected = selectedFund?.fundType === "Closed-end";
+  const eventLabel = isClosedEndSelected ? "Dividend" : "Distribution";
+  const eventLabelLower = isClosedEndSelected ? "dividend" : "distribution";
   const displayedNav = selectedFund
     ? selectedFund.fundType === "Open-end"
       ? selectedFund.currentNav
@@ -49,6 +52,7 @@ export function CreateFundDistribution() {
     if (fund) {
       setDistributionUnit(fund.assetCurrency);
       setPayoutToken(fund.assetCurrency);
+      setPayoutMode(fund.fundType === "Closed-end" ? "Direct Transfer" : "Claim");
     }
   };
 
@@ -67,10 +71,10 @@ export function CreateFundDistribution() {
       fundId: selectedFund.id,
       fundName: selectedFund.name,
       fundToken: selectedFund.tokenName,
-      name: dealName || `${selectedFund.name} Distribution`,
+      name: dealName || `${selectedFund.name} ${eventLabel}`,
       description:
         dealDescription ||
-        "Distribution request linked to an existing fund in the demo pool.",
+        `${eventLabel} request linked to an existing fund in the demo pool.`,
       status: "Draft",
       assetType: "Fund",
       tokenAddress: selectedFund.tokenAddress,
@@ -94,25 +98,27 @@ export function CreateFundDistribution() {
     };
 
     addFundDistribution(newDistribution);
-    toast.success("Fund distribution created successfully!");
+    toast.success(`Fund ${eventLabelLower} created successfully!`);
     navigate(`/fund-distribution/${newDistributionId}`);
   };
 
   return (
     <div className="container mx-auto max-w-5xl px-6 py-8">
       <div className="mb-8">
-        <h1 style={{ fontFamily: "var(--font-heading)" }}>Create Fund Distribution</h1>
+        <h1 style={{ fontFamily: "var(--font-heading)" }}>Create Fund {eventLabel}</h1>
         <p className="mt-2 text-muted-foreground">
           Select an existing fund from the demo pool, then configure the linked income
-          distribution request.
+          {isClosedEndSelected ? " dividend event." : " distribution request."}
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="about-deal">About Deal</TabsTrigger>
-          <TabsTrigger value="about-distribution">About Distribution</TabsTrigger>
-          <TabsTrigger value="rules">Rules</TabsTrigger>
+          <TabsTrigger value="about-distribution">
+            {isClosedEndSelected ? "Record & Payment" : `About ${eventLabel}`}
+          </TabsTrigger>
+          <TabsTrigger value="rules">{isClosedEndSelected ? "Review" : "Rules"}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="about-deal" className="space-y-6">
@@ -169,7 +175,7 @@ export function CreateFundDistribution() {
                 <input
                   type="text"
                   className="w-full rounded-md border px-3 py-2"
-                  placeholder="Q1 2026 Distribution"
+                  placeholder={`Q1 2026 ${eventLabel}`}
                   value={dealName}
                   onChange={(e) => setDealName(e.target.value)}
                 />
@@ -180,7 +186,7 @@ export function CreateFundDistribution() {
                 <textarea
                   className="w-full rounded-md border px-3 py-2"
                   rows={3}
-                  placeholder="Describe this distribution"
+                  placeholder={`Describe this ${eventLabelLower}`}
                   value={dealDescription}
                   onChange={(e) => setDealDescription(e.target.value)}
                 />
@@ -189,7 +195,7 @@ export function CreateFundDistribution() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="mb-2 block text-sm font-medium">
-                    * Distribution rate type
+                    * {isClosedEndSelected ? "Dividend method" : "Distribution rate type"}
                   </label>
                   <select
                     className="w-full rounded-md border px-3 py-2"
@@ -197,13 +203,13 @@ export function CreateFundDistribution() {
                     onChange={(e) => setDistributionRateType(e.target.value)}
                   >
                     <option>Fixed Rate</option>
-                    <option>Fixed Amount Per Share</option>
+                    <option>Per Unit</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="mb-2 block text-sm font-medium">
-                    * Distribution rate
+                    * {isClosedEndSelected ? "Dividend amount" : "Distribution rate"}
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -235,7 +241,7 @@ export function CreateFundDistribution() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="mb-2 block text-sm font-medium">
-                    * Distribution record date
+                    * {eventLabel} record date
                   </label>
                   <input
                     type="datetime-local"
@@ -250,7 +256,7 @@ export function CreateFundDistribution() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium">
-                    * Distribution payment date
+                    * {eventLabel} payment date
                   </label>
                   <input
                     type="datetime-local"
@@ -262,7 +268,9 @@ export function CreateFundDistribution() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium">* Distribution unit</label>
+                <label className="mb-2 block text-sm font-medium">
+                  * {isClosedEndSelected ? "Dividend currency" : "Distribution unit"}
+                </label>
                 <select
                   className="w-full rounded-md border px-3 py-2"
                   value={distributionUnit}
@@ -289,7 +297,7 @@ export function CreateFundDistribution() {
                   <p className="mt-1 text-xs text-muted-foreground">
                     {payoutMode === "Direct Transfer"
                       ? "System pushes payout to holders automatically."
-                      : "Holders claim payout on-chain after distribution opens."}
+                      : `Holders claim payout on-chain after ${eventLabelLower} opens.`}
                   </p>
                 </div>
 
@@ -319,7 +327,7 @@ export function CreateFundDistribution() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {payoutMode === "Direct Transfer"
                     ? "Gas is paid by the fund operator during batch transfer."
-                    : "Gas is paid by each investor when claiming distribution."}
+                    : `Gas is paid by each investor when claiming ${eventLabelLower}.`}
                 </p>
               </div>
 
@@ -373,23 +381,42 @@ export function CreateFundDistribution() {
         <TabsContent value="rules" className="space-y-6">
           <Card>
             <CardContent className="space-y-4 pt-6">
-              <div>
-                <label className="mb-2 block text-sm font-medium">
-                  Investor rules (Optional)
-                </label>
-                <p className="mb-4 text-sm text-muted-foreground">
-                  Add specific rules for distribution eligibility.
-                </p>
-                <Button variant="outline" size="sm">
-                  + Add Rule
-                </Button>
-              </div>
+              {isClosedEndSelected ? (
+                <div className="space-y-4 rounded-lg border bg-secondary/30 p-4">
+                  <div>
+                    <div className="text-sm font-medium">Eligibility Logic</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      All holders on the record date are eligible for this dividend. No
+                      additional investor rules are required for the event setup.
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium">Recipient List</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      The recipient list will be generated from the linked fund holder
+                      register after the record date is locked.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-2 block text-sm font-medium">
+                    Investor rules (Optional)
+                  </label>
+                  <p className="mb-4 text-sm text-muted-foreground">
+                    Add specific rules for distribution eligibility.
+                  </p>
+                  <Button variant="outline" size="sm">
+                    + Add Rule
+                  </Button>
+                </div>
+              )}
 
               <div className="flex justify-between pt-4">
                 <Button variant="outline" onClick={() => setActiveTab("about-distribution")}>
                   Back
                 </Button>
-                <Button onClick={handleCreate}>Create</Button>
+                <Button onClick={handleCreate}>Create {eventLabel}</Button>
               </div>
             </CardContent>
           </Card>

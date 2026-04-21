@@ -17,8 +17,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { CheckCircle2, ChevronRight, CircleDashed, Copy, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
-import { EmptyState } from "../components/EmptyState";
-import { Users } from "lucide-react";
 import { FundDistributionWorkflow } from "../components/FundIssuanceWorkflow";
 import {
   SubmitDistributionApprovalModal,
@@ -295,10 +293,12 @@ function OpenEndDistributionContextCard({
 
 function DistributionSetupEditor({
   distribution,
+  eventLabel,
   onSave,
   onCancel,
 }: {
   distribution: FundDistribution;
+  eventLabel: string;
   onSave: (updates: Partial<FundDistribution>) => void;
   onCancel: () => void;
 }) {
@@ -331,7 +331,7 @@ function DistributionSetupEditor({
     }
 
     if (!form.distributionRate.trim()) {
-      toast.error("Distribution rate is required.");
+      toast.error(`${eventLabel} rate is required.`);
       return;
     }
 
@@ -373,14 +373,15 @@ function DistributionSetupEditor({
         {canEditDetails && (
           <div className="space-y-4 rounded-lg border p-4">
             <div>
-              <h3 className="font-medium">Distribution Details</h3>
+              <h3 className="font-medium">{eventLabel} Details</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Core identity, description, and record-date configuration for the distribution setup.
+                Core identity, description, and record-date configuration for the {eventLabel.toLowerCase()}
+                {" "}setup.
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label>Distribution name</Label>
+              <Label>{eventLabel} name</Label>
               <Input value={form.name} onChange={(event) => setField("name", event.target.value)} />
             </div>
 
@@ -431,13 +432,13 @@ function DistributionSetupEditor({
             </div>
 
             <div className="space-y-2">
-              <Label>Payout source account</Label>
-              <Input value={form.payoutAccount} onChange={(event) => setField("payoutAccount", event.target.value)} />
-            </div>
+                <Label>Payout source account</Label>
+                <Input value={form.payoutAccount} onChange={(event) => setField("payoutAccount", event.target.value)} />
+              </div>
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label>Distribution rate type</Label>
+                <Label>{eventLabel} rate type</Label>
                 <Select value={form.distributionRateType} onValueChange={(value) => setField("distributionRateType", value)}>
                   <SelectTrigger>
                     <SelectValue />
@@ -449,11 +450,11 @@ function DistributionSetupEditor({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Distribution rate</Label>
+                <Label>{eventLabel} rate</Label>
                 <Input value={form.distributionRate} onChange={(event) => setField("distributionRate", event.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>Distribution unit</Label>
+                <Label>{eventLabel} unit</Label>
                 <Input value={form.distributionUnit} onChange={(event) => setField("distributionUnit", event.target.value)} />
               </div>
             </div>
@@ -527,6 +528,10 @@ export function FundDistributionDetail() {
   }, [distribution.status]);
 
   const isOpenEndDistribution = linkedFund?.fundType === "Open-end";
+  const isClosedEndDividend = linkedFund?.fundType === "Closed-end";
+  const eventLabel = isClosedEndDividend ? "Dividend" : "Distribution";
+  const eventLabelLower = eventLabel.toLowerCase();
+  const eventLabelPlural = isClosedEndDividend ? "Dividends" : "Distributions";
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -600,7 +605,7 @@ export function FundDistributionDetail() {
             title={permission.reason}
             onClick={() => setShowSubmitModal(true)}
           >
-            Submit For Approval
+            Submit {eventLabel} For Approval
           </Button>
         );
       case "Pending Approval":
@@ -611,10 +616,10 @@ export function FundDistributionDetail() {
             onClick={() => {
               setCurrentStatus("Pending Listing");
               updateDistributionStatus(id || "", "Pending Listing", "approve");
-              toast.success("Distribution approved and queued for listing");
+              toast.success(`${eventLabel} approved and queued for listing`);
             }}
           >
-            Approve Listing
+            {isClosedEndDividend ? `Approve ${eventLabel}` : "Approve Listing"}
           </Button>
         );
       case "Pending Listing":
@@ -624,7 +629,7 @@ export function FundDistributionDetail() {
             title={permission.reason}
             onClick={() => setShowListingModal(true)}
           >
-            Listing
+            {isClosedEndDividend ? "Prepare Record Date" : "Listing"}
           </Button>
         );
       case "Upcoming":
@@ -654,7 +659,11 @@ export function FundDistributionDetail() {
             title={permission.reason}
             onClick={() => setShowOpenDistributionModal(true)}
           >
-            {isClaimMode ? "Open For Claim" : "Start Auto Distribution"}
+            {isClosedEndDividend
+              ? "Open Dividend"
+              : isClaimMode
+                ? "Open For Claim"
+                : "Start Auto Distribution"}
           </Button>
         );
       case "Open For Distribution":
@@ -665,7 +674,7 @@ export function FundDistributionDetail() {
             onClick={() => {
               setCurrentStatus("Done");
               updateDistributionStatus(id || "", "Done", "update");
-              toast.success("Distribution marked complete");
+              toast.success(`${eventLabel} marked complete`);
             }}
           >
             Mark Complete
@@ -688,7 +697,7 @@ export function FundDistributionDetail() {
           to={userRole === "issuer" ? "/manage/fund-distribution" : "/marketplace/fund-distribution"}
           className="hover:text-foreground transition-colors"
         >
-          {userRole === "issuer" ? "Manage Fund Distribution" : "Marketplace Fund Distribution"}
+          {userRole === "issuer" ? "Manage Payout Events" : "Fund Payout Events"}
         </Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-foreground">{distribution.name}</span>
@@ -713,6 +722,7 @@ export function FundDistributionDetail() {
           currentStatus={currentStatus}
           actionSlot={renderActionButton()}
           workflowModel={isOpenEndDistribution ? "open-end" : "default"}
+          distributionLabel={eventLabel}
         />
       </div>
 
@@ -756,12 +766,13 @@ export function FundDistributionDetail() {
         <div className="mb-8">
           <DistributionSetupEditor
             distribution={{ ...distribution, status: currentStatus }}
+            eventLabel={eventLabel}
             onCancel={() => setIsInlineEditing(false)}
             onSave={(updates) => {
               const updated = updateFundDistribution(distribution.id, updates, "update");
               if (!updated) return;
               setIsInlineEditing(false);
-              toast.success("Allowed distribution fields updated");
+              toast.success(`Allowed ${eventLabelLower} fields updated`);
             }}
           />
         </div>
@@ -840,7 +851,7 @@ export function FundDistributionDetail() {
 
               <div>
                 <div className="text-sm text-muted-foreground mb-1">
-                  Distribution Record Date
+                  {eventLabel} Record Date
                 </div>
                 <div className="font-medium">
                   {distribution.recordDate || "–"}
@@ -849,7 +860,7 @@ export function FundDistributionDetail() {
 
               <div>
                 <div className="text-sm text-muted-foreground mb-1">
-                  Distribution Payment Date
+                  {eventLabel} Payment Date
                 </div>
                 <div className="font-medium">
                   {distribution.paymentDate || "–"}
@@ -858,7 +869,7 @@ export function FundDistributionDetail() {
 
               <div>
                 <div className="text-sm text-muted-foreground mb-1">
-                  Distribution Rate
+                  {eventLabel} Rate
                 </div>
                 <div className="font-medium">
                   {distribution.distributionRate
@@ -869,14 +880,14 @@ export function FundDistributionDetail() {
 
               <div>
                 <div className="text-sm text-muted-foreground mb-1">
-                  Distribution actual days in period
+                  {eventLabel} actual days in period
                 </div>
                 <div className="font-medium">{distribution.actualDaysInPeriod || "–"}</div>
               </div>
 
               <div>
                 <div className="text-sm text-muted-foreground mb-1">
-                  Distribution actual days in year
+                  {eventLabel} actual days in year
                 </div>
                 <div className="font-medium">{distribution.actualDaysInYear || "–"}</div>
               </div>
@@ -911,7 +922,7 @@ export function FundDistributionDetail() {
 
           <Card className="mt-6">
             <CardHeader>
-              <CardTitle>Distribution Checklist</CardTitle>
+              <CardTitle>{eventLabel} Checklist</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {controlChecks.map((check) => {
@@ -942,14 +953,16 @@ export function FundDistributionDetail() {
           <Tabs defaultValue="overview" className="space-y-6">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="recipients">Recipients</TabsTrigger>
-              <TabsTrigger value="distribution">Distribution</TabsTrigger>
+              <TabsTrigger value="recipients">
+                {isClosedEndDividend ? "Recipient List" : "Recipients"}
+              </TabsTrigger>
+              <TabsTrigger value="payout">Payout</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Distribution Overview</CardTitle>
+                  <CardTitle>{eventLabel} Overview</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className="text-muted-foreground">
@@ -957,14 +970,15 @@ export function FundDistributionDetail() {
                   </p>
                   <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-lg">
                     <div className="text-sm font-medium text-blue-900 mb-2">
-                      Distribution Process
+                      {eventLabel} Process
                     </div>
                     <div className="text-xs text-blue-600">
-                      Income distribution to fund holders based on their shareholding
-                      at the record date.{" "}
+                      {isClosedEndDividend
+                        ? "Cash dividend is paid to holders recorded on the record date."
+                        : "Income distribution is paid to fund holders based on their shareholding at the record date."}{" "}
                       {distribution.payoutMode === "Direct Transfer"
-                        ? "After opening, the system starts fund transfer automatically."
-                        : "After opening, investors can claim payout on-chain."}
+                        ? `After opening, the system starts ${eventLabelLower} transfer automatically.`
+                        : `After opening, investors can claim ${eventLabelLower} payout on-chain.`}
                     </div>
                   </div>
                 </CardContent>
@@ -972,7 +986,7 @@ export function FundDistributionDetail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Manager Controls</CardTitle>
+                  <CardTitle>{isClosedEndDividend ? "Dividend Controls" : "Manager Controls"}</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2 text-sm">
                   <div className="rounded-lg border p-4">
@@ -1005,7 +1019,9 @@ export function FundDistributionDetail() {
               <div className="grid gap-4 md:grid-cols-3">
                 <Card>
                   <CardContent className="pt-6">
-                    <div className="text-sm text-muted-foreground mb-1">Eligible Recipients</div>
+                    <div className="text-sm text-muted-foreground mb-1">
+                      {isClosedEndDividend ? "Eligible Dividend Recipients" : "Eligible Recipients"}
+                    </div>
                     <div className="text-2xl font-semibold">{recipientPreview.totalRecipients}</div>
                   </CardContent>
                 </Card>
@@ -1019,7 +1035,9 @@ export function FundDistributionDetail() {
                 </Card>
                 <Card>
                   <CardContent className="pt-6">
-                    <div className="text-sm text-muted-foreground mb-1">Estimated Payout</div>
+                    <div className="text-sm text-muted-foreground mb-1">
+                      Estimated {eventLabel} Payout
+                    </div>
                     <div className="text-2xl font-semibold">
                       {recipientPreview.totalEstimatedPayout.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </div>
@@ -1032,7 +1050,7 @@ export function FundDistributionDetail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Recipient Preview</CardTitle>
+                  <CardTitle>{isClosedEndDividend ? "Dividend Recipient List" : "Recipient Preview"}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -1107,41 +1125,98 @@ export function FundDistributionDetail() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="distribution" className="space-y-6">
-              {/* Distribution Summary */}
+            <TabsContent value="payout" className="space-y-6">
               <div className="grid md:grid-cols-2 gap-4">
                 <Card>
                   <CardContent className="pt-6">
                     <div className="text-sm text-muted-foreground mb-1">
-                      Total Amount
+                      Total {eventLabel} Amount
                     </div>
-                    <div className="text-2xl font-semibold">0</div>
-                    <div className="text-sm text-muted-foreground">HKD</div>
+                    <div className="text-2xl font-semibold">
+                      {recipientPreview.totalEstimatedPayout.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {distribution.payoutToken || distribution.distributionUnit || linkedFund?.assetCurrency || "Unit"}
+                    </div>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardContent className="pt-6">
                     <div className="text-sm text-muted-foreground mb-1">
-                      Accepted Amount
+                      {isClosedEndDividend ? "Recipient Count" : "Ready for Payout"}
                     </div>
-                    <div className="text-2xl font-semibold">0</div>
-                    <div className="text-sm text-muted-foreground">HKD</div>
+                    <div className="text-2xl font-semibold">
+                      {isClosedEndDividend
+                        ? recipientPreview.totalRecipients
+                        : recipientPreview.rows.filter(() => currentStatus === "Open For Distribution" || currentStatus === "Done").length}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {isClosedEndDividend ? eventLabelPlural : "recipients"}
+                    </div>
                   </CardContent>
                 </Card>
               </div>
 
-              {/* Distribution List */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Distribution List</CardTitle>
+                  <CardTitle>{eventLabel} Payout List</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <EmptyState
-                    icon={Users}
-                    title="No Distributions Yet"
-                    description="Distribution records will appear here after the record of ownership is completed."
-                  />
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Recipient</TableHead>
+                        <TableHead>Destination</TableHead>
+                        <TableHead>Eligible Units</TableHead>
+                        <TableHead>Payout Amount</TableHead>
+                        <TableHead>Payout Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recipientPreview.rows.map((recipient) => {
+                        const payoutStatus =
+                          currentStatus === "Done"
+                            ? "Paid"
+                            : currentStatus === "Open For Distribution"
+                              ? "Ready"
+                              : currentStatus === "Put On Chain"
+                                ? "Preparing"
+                                : "Pending";
+
+                        return (
+                          <TableRow key={`${recipient.investorId}-payout`}>
+                            <TableCell>
+                              <div className="font-medium">{recipient.investorName}</div>
+                              <div className="text-xs text-muted-foreground">{recipient.category}</div>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {distribution.payoutMode === "Direct Transfer"
+                                ? distribution.payoutAccount || "Settlement account pending"
+                                : recipient.investorWallet}
+                            </TableCell>
+                            <TableCell>
+                              {recipient.eligibleUnits.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell>
+                              {recipient.estimatedPayout.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
+                              {distribution.payoutToken || distribution.distributionUnit || linkedFund?.assetCurrency || ""}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{payoutStatus}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {recipientPreview.rows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
+                            No payout recipients are available yet.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -1153,24 +1228,27 @@ export function FundDistributionDetail() {
       <SubmitDistributionApprovalModal
         open={showSubmitModal}
         onOpenChange={setShowSubmitModal}
+        eventLabel={eventLabel}
         onSuccess={() => {
           setCurrentStatus("Pending Approval");
           updateDistributionStatus(id || "", "Pending Approval", "submit");
-          toast.success(`Action recorded by ${userRole}`);
+          toast.success(`${eventLabel} action recorded by ${userRole}`);
         }}
       />
       <ListingDistributionModal
         open={showListingModal}
         onOpenChange={setShowListingModal}
+        eventLabel={eventLabel}
         onSuccess={() => {
           setCurrentStatus("Upcoming");
           updateDistributionStatus(id || "", "Upcoming", "list");
-          toast.success(`Listing action recorded by ${userRole}`);
+          toast.success(`${eventLabel} listing action recorded by ${userRole}`);
         }}
       />
       <PendingAllocationDistributionModal
         open={showPendingAllocationModal}
         onOpenChange={setShowPendingAllocationModal}
+        eventLabel={eventLabel}
         onSuccess={() => {
           setCurrentStatus("Pending Allocation");
           updateDistributionStatus(id || "", "Pending Allocation", "open");
@@ -1179,6 +1257,7 @@ export function FundDistributionDetail() {
       <AllocationCompletedDistributionModal
         open={showAllocationCompletedModal}
         onOpenChange={setShowAllocationCompletedModal}
+        eventLabel={eventLabel}
         onSuccess={() => {
           setCurrentStatus("Put On Chain");
           updateDistributionStatus(id || "", "Put On Chain", "put_on_chain");
@@ -1187,13 +1266,16 @@ export function FundDistributionDetail() {
       <OpenForDistributionModal
         open={showOpenDistributionModal}
         onOpenChange={setShowOpenDistributionModal}
+        eventLabel={eventLabel}
         onSuccess={() => {
           setCurrentStatus("Open For Distribution");
           updateDistributionStatus(id || "", "Open For Distribution", "open");
           toast.success(
-            isClaimMode
-              ? "Distribution is open for claim by investors"
-              : "Distribution opened and system payout is in progress",
+            isClosedEndDividend
+              ? "Dividend opened and payout is ready for investors"
+              : isClaimMode
+                ? "Distribution is open for claim by investors"
+                : "Distribution opened and system payout is in progress",
           );
         }}
       />

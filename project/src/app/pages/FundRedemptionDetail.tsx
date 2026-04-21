@@ -365,6 +365,58 @@ function fromDateTimeLocal(value: string) {
   return value ? `${value.replace("T", " ")}:00` : undefined;
 }
 
+function parseLeadingNumber(value?: string) {
+  if (!value) return 0;
+  const normalized = value.replace(/,/g, "");
+  const match = normalized.match(/[\d.]+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function getPaymentStatusLabel(status: FundOrder["status"]) {
+  switch (status) {
+    case "Completed":
+      return "Paid";
+    case "Pending Cash Settlement":
+      return "Ready";
+    case "Rejected":
+      return "Failed";
+    default:
+      return "Pending";
+  }
+}
+
+function buildRedemptionPaymentRows(requests: FundOrder[]) {
+  return requests.map((request) => {
+    const acceptedUnits = request.confirmedSharesOrCash
+      ? request.requestQuantity
+      : request.requestQuantity;
+    const grossAmount = request.confirmedSharesOrCash || request.estimatedSharesOrCash;
+    const pricePerUnitValue =
+      parseLeadingNumber(grossAmount) / Math.max(parseLeadingNumber(request.requestQuantity), 1);
+    const pricePerUnitCurrency =
+      request.confirmedNav?.split(" ").slice(-1)[0] ||
+      request.estimatedNav.split(" ").slice(-1)[0] ||
+      "";
+
+    return {
+      id: request.id,
+      investorName: request.investorName,
+      destinationAccount: request.investorWallet,
+      unitsAccepted: acceptedUnits,
+      pricePerUnit: `${pricePerUnitValue.toFixed(4)} ${pricePerUnitCurrency}`.trim(),
+      grossAmount,
+      netAmount: grossAmount,
+      paymentStatus: getPaymentStatusLabel(request.status),
+      paymentReference:
+        request.status === "Completed"
+          ? `PAY-${request.id.toUpperCase()}`
+          : request.status === "Pending Cash Settlement"
+            ? `READY-${request.id.toUpperCase()}`
+            : "—",
+    };
+  });
+}
+
 function getRedemptionPermissionAction(label: string) {
   const normalized = label.trim().toLowerCase();
   if (normalized.includes("submit")) return "submit";
@@ -858,6 +910,7 @@ export function FundRedemptionDetail() {
   const requests = fundOrders.filter(
     (order) => order.fundId === redemption.fundId && order.type === "redemption",
   );
+  const paymentRows = buildRedemptionPaymentRows(requests);
   const batches = fundBatches.filter(
     (batch) => batch.fundId === redemption.fundId && batch.type === "redemption",
   );
@@ -926,7 +979,7 @@ export function FundRedemptionDetail() {
         >
           {isOpenEndFund
             ? "For open-end funds, redemption is a module under the active fund. The top progress bar tracks setup activation, while the operating state below shows the live window or daily-dealing mode."
-            : "This page tracks the redemption workflow from setup through operation, including request review, batch history, and liquidity window control."}
+            : "This page tracks a one-off holder cash-out workflow, including request review, payment-list preparation, and final cash settlement."}
         </InfoAlert>
       </div>
 
@@ -1110,9 +1163,10 @@ export function FundRedemptionDetail() {
 
         <div className="lg:col-span-2">
           <Tabs defaultValue="overview" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="requests">Requests</TabsTrigger>
+              <TabsTrigger value="payment-list">Payment List</TabsTrigger>
               <TabsTrigger value="batches">Batch History</TabsTrigger>
             </TabsList>
 
@@ -1256,6 +1310,85 @@ export function FundRedemptionDetail() {
                   })}
                 </TableBody>
               </Table>
+            </TabsContent>
+
+            <TabsContent value="payment-list" className="space-y-6">
+              <div className="grid md:grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Payment Rows</div>
+                    <div className="text-2xl font-semibold">{paymentRows.length}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Ready / Paid</div>
+                    <div className="text-2xl font-semibold">
+                      {paymentRows.filter((row) => row.paymentStatus === "Ready" || row.paymentStatus === "Paid").length}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-muted-foreground mb-1">Total Gross Amount</div>
+                    <div className="text-2xl font-semibold">
+                      {paymentRows
+                        .reduce((sum, row) => sum + parseLeadingNumber(row.grossAmount), 0)
+                        .toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {requests[0]?.estimatedSharesOrCash.split(" ").slice(-1)[0] || ""}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Redemption Payment List</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Investor</TableHead>
+                        <TableHead>Destination Account</TableHead>
+                        <TableHead>Units Accepted</TableHead>
+                        <TableHead>Price / Unit</TableHead>
+                        <TableHead>Gross Amount</TableHead>
+                        <TableHead>Net Amount</TableHead>
+                        <TableHead>Payment Status</TableHead>
+                        <TableHead>Reference</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paymentRows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="font-medium">{row.investorName}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {row.destinationAccount}
+                          </TableCell>
+                          <TableCell>{row.unitsAccepted}</TableCell>
+                          <TableCell>{row.pricePerUnit}</TableCell>
+                          <TableCell>{row.grossAmount}</TableCell>
+                          <TableCell>{row.netAmount}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{row.paymentStatus}</Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{row.paymentReference}</TableCell>
+                        </TableRow>
+                      ))}
+                      {paymentRows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                            No payment rows have been generated yet.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="batches">

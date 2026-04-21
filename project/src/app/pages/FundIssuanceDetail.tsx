@@ -2445,6 +2445,36 @@ export function FundIssuanceDetail() {
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Offering type</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.offeringType || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Legal structure</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.legalStructure || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Distribution channel</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.fundDistributionChannel || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Listed fund subtype</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.listedFundSubtype || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
+                          <div className="text-muted-foreground">Asset / strategy category</div>
+                          <div className="mt-1 font-medium">
+                            {fundData.assetStrategyCategory || "N/A"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border p-4">
                           <div className="text-muted-foreground">Fund manager</div>
                           <div className="mt-1 font-medium">{fundData.fundManager}</div>
                         </div>

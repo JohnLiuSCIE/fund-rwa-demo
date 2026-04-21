@@ -164,12 +164,12 @@ export const FUND_DISTRIBUTION_STEPS: WorkflowStep[] = [
   {
     id: "step-1",
     label: "Draft",
-    description: "Create draft",
+    description: "Create event draft",
   },
   {
     id: "step-2",
     label: "Approval",
-    description: "Submit for approval",
+    description: "Submit event for approval",
   },
   {
     id: "step-3",
@@ -189,12 +189,12 @@ export const FUND_DISTRIBUTION_STEPS: WorkflowStep[] = [
   {
     id: "step-6",
     label: "Open",
-    description: "Open for distribution",
+    description: "Open payout",
   },
   {
     id: "step-7",
     label: "Completed",
-    description: "Distribution done",
+    description: "Payout done",
   },
 ];
 
@@ -258,12 +258,14 @@ interface FundWorkflowProps {
   fundType?: IssuanceFundType;
   actionSlot?: ReactNode;
   workflowModel?: WorkflowModel;
+  distributionLabel?: "Distribution" | "Dividend";
 }
 
 function getWorkflowConfig(
   type: WorkflowType,
   fundType: IssuanceFundType,
   workflowModel: WorkflowModel,
+  distributionLabel: "Distribution" | "Dividend",
 ) {
   switch (type) {
     case "redemption":
@@ -293,8 +295,8 @@ function getWorkflowConfig(
       return {
         steps: FUND_DISTRIBUTION_STEPS,
         statusToStepMap: STATUS_TO_DISTRIBUTION_STEP,
-        title: "Fund Distribution Workflow",
-        description: "Track the distribution process from creation to completion",
+        title: `Fund ${distributionLabel} Workflow`,
+        description: `Track the ${distributionLabel.toLowerCase()} process from creation to completion`,
       };
     case "issuance":
     default:
@@ -313,6 +315,7 @@ interface FundIssuanceWorkflowProps {
   fundType?: IssuanceFundType;
   actionSlot?: ReactNode;
   workflowModel?: WorkflowModel;
+  distributionLabel?: "Distribution" | "Dividend";
 }
 
 function getIssuanceStepStageCounts(fundType: IssuanceFundType) {
@@ -738,6 +741,7 @@ export function FundDistributionWorkflow({
   variant = "full",
   actionSlot,
   workflowModel = "default",
+  distributionLabel = "Distribution",
 }: FundIssuanceWorkflowProps) {
   return (
     <FundWorkflow
@@ -746,6 +750,7 @@ export function FundDistributionWorkflow({
       type="distribution"
       actionSlot={actionSlot}
       workflowModel={workflowModel}
+      distributionLabel={distributionLabel}
     />
   );
 }
@@ -757,8 +762,9 @@ function FundWorkflow({
   fundType = "Closed-end",
   actionSlot,
   workflowModel = "default",
+  distributionLabel = "Distribution",
 }: FundWorkflowProps) {
-  const config = getWorkflowConfig(type, fundType, workflowModel);
+  const config = getWorkflowConfig(type, fundType, workflowModel, distributionLabel);
   const steps = config.steps;
   const substepConfig = getWorkflowSubsteps(type, fundType, workflowModel, currentStatus);
   const issuanceStepStageCounts =
