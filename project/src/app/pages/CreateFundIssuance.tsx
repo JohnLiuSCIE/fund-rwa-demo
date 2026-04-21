@@ -103,6 +103,28 @@ const ASSET_STRATEGY_OPTIONS = [
   "Private Equity / VC / Private Credit",
 ] as const;
 
+const SUBSCRIPTION_PAYMENT_METHOD_OPTIONS = [
+  "Fiat",
+  "Stablecoin",
+  "Tokenized Deposit",
+] as const;
+
+const SUBSCRIPTION_PAYMENT_RAIL_OPTIONS = [
+  "Off-chain Bank Transfer",
+  "On-chain Wallet Transfer",
+] as const;
+
+const SUBSCRIPTION_SETTLEMENT_ACCOUNT_TYPES = [
+  "Bank Account",
+  "Wallet",
+] as const;
+
+const CASH_CONFIRMATION_OWNER_OPTIONS = [
+  "Issuer",
+  "Transfer Agent",
+  "Operations",
+] as const;
+
 export function CreateFundIssuance() {
   const navigate = useNavigate();
   const { addFundIssuance } = useApp();
@@ -157,6 +179,22 @@ export function CreateFundIssuance() {
   const [dealingCutoffTime, setDealingCutoffTime] = useState("16:00");
   const [navValuationTime, setNavValuationTime] = useState("18:00");
   const [settlementCycle, setSettlementCycle] = useState("T+1");
+  const [subscriptionPaymentMethod, setSubscriptionPaymentMethod] =
+    useState<(typeof SUBSCRIPTION_PAYMENT_METHOD_OPTIONS)[number]>("Fiat");
+  const [subscriptionPaymentRail, setSubscriptionPaymentRail] =
+    useState<(typeof SUBSCRIPTION_PAYMENT_RAIL_OPTIONS)[number]>("Off-chain Bank Transfer");
+  const [subscriptionSettlementAccountType, setSubscriptionSettlementAccountType] =
+    useState<(typeof SUBSCRIPTION_SETTLEMENT_ACCOUNT_TYPES)[number]>("Bank Account");
+  const [subscriptionCashCurrency, setSubscriptionCashCurrency] = useState("HKD");
+  const [receivingBankName, setReceivingBankName] = useState("");
+  const [receivingBankAccountName, setReceivingBankAccountName] = useState("");
+  const [receivingBankAccountNumberMasked, setReceivingBankAccountNumberMasked] = useState("");
+  const [receivingBankSwiftCode, setReceivingBankSwiftCode] = useState("");
+  const [subscriptionCollectionWallet, setSubscriptionCollectionWallet] = useState("");
+  const [paymentReferenceRule, setPaymentReferenceRule] = useState("");
+  const [paymentProofRequired, setPaymentProofRequired] = useState(true);
+  const [cashConfirmationOwner, setCashConfirmationOwner] =
+    useState<(typeof CASH_CONFIRMATION_OWNER_OPTIONS)[number]>("Issuer");
   const [subscriptionStatusAfterLaunch, setSubscriptionStatusAfterLaunch] =
     useState(true);
   const [redemptionStatusAfterLaunch, setRedemptionStatusAfterLaunch] =
@@ -175,6 +213,7 @@ export function CreateFundIssuance() {
 
   const openEndMode = fundType === "open-end";
   const listedChannelSelected = distributionChannel === "Listed fund";
+  const bankTransferFunding = subscriptionPaymentRail === "Off-chain Bank Transfer";
 
   const addReference = () => {
     setReferences((prev) => [...prev, { type: "file", value: "" }]);
@@ -315,6 +354,24 @@ export function CreateFundIssuance() {
       subscriptionLotSize: Number(subscriptionLotSize) || 1,
       subscriptionMinQuantity: Number(subscriptionMinQuantity) || 1,
       subscriptionMaxQuantity: Number(subscriptionMaxQuantity) || 1000,
+      subscriptionPaymentMethod,
+      subscriptionPaymentRail,
+      subscriptionCashCurrency,
+      subscriptionSettlementAccountType,
+      receivingBankName: bankTransferFunding ? receivingBankName || undefined : undefined,
+      receivingBankAccountName: bankTransferFunding
+        ? receivingBankAccountName || undefined
+        : undefined,
+      receivingBankAccountNumberMasked: bankTransferFunding
+        ? receivingBankAccountNumberMasked || undefined
+        : undefined,
+      receivingBankSwiftCode: bankTransferFunding ? receivingBankSwiftCode || undefined : undefined,
+      subscriptionCollectionWallet: !bankTransferFunding
+        ? subscriptionCollectionWallet || undefined
+        : undefined,
+      paymentReferenceRule: paymentReferenceRule || undefined,
+      paymentProofRequired,
+      cashConfirmationOwner,
       dealingFrequency: openEndMode
         ? dealingFrequency.charAt(0).toUpperCase() + dealingFrequency.slice(1)
         : undefined,
@@ -950,6 +1007,205 @@ export function CreateFundIssuance() {
                     <Calendar mode="single" selected={subscriptionEndDate} onSelect={setSubscriptionEndDate} initialFocus />
                   </PopoverContent>
                 </Popover>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[var(--navy-100)] bg-[var(--navy-50)] p-4">
+              <h3 className="font-medium" style={{ fontFamily: "var(--font-heading)" }}>
+                Subscription Funding
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Configure how investors fund subscriptions before units are booked into the holder register.
+              </p>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Subscription payment method</Label>
+                <Select
+                  value={subscriptionPaymentMethod}
+                  onValueChange={(value) => {
+                    const nextValue =
+                      value as (typeof SUBSCRIPTION_PAYMENT_METHOD_OPTIONS)[number];
+                    setSubscriptionPaymentMethod(nextValue);
+                    if (nextValue === "Fiat") {
+                      setSubscriptionPaymentRail("Off-chain Bank Transfer");
+                      setSubscriptionSettlementAccountType("Bank Account");
+                    } else {
+                      setSubscriptionPaymentRail("On-chain Wallet Transfer");
+                      setSubscriptionSettlementAccountType("Wallet");
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUBSCRIPTION_PAYMENT_METHOD_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Payment rail</Label>
+                <Select
+                  value={subscriptionPaymentRail}
+                  onValueChange={(value) => {
+                    const nextValue = value as (typeof SUBSCRIPTION_PAYMENT_RAIL_OPTIONS)[number];
+                    setSubscriptionPaymentRail(nextValue);
+                    setSubscriptionSettlementAccountType(
+                      nextValue === "Off-chain Bank Transfer" ? "Bank Account" : "Wallet",
+                    );
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUBSCRIPTION_PAYMENT_RAIL_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Subscription cash currency</Label>
+                <Select value={subscriptionCashCurrency} onValueChange={setSubscriptionCashCurrency}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="HKD">HKD</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="USDC">USDC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Settlement account type</Label>
+                <Select
+                  value={subscriptionSettlementAccountType}
+                  onValueChange={(value) =>
+                    setSubscriptionSettlementAccountType(
+                      value as (typeof SUBSCRIPTION_SETTLEMENT_ACCOUNT_TYPES)[number],
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUBSCRIPTION_SETTLEMENT_ACCOUNT_TYPES.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Cash confirmation owner</Label>
+                <Select
+                  value={cashConfirmationOwner}
+                  onValueChange={(value) =>
+                    setCashConfirmationOwner(
+                      value as (typeof CASH_CONFIRMATION_OWNER_OPTIONS)[number],
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CASH_CONFIRMATION_OWNER_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {bankTransferFunding ? (
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Receiving bank name</Label>
+                  <Input
+                    value={receivingBankName}
+                    onChange={(event) => setReceivingBankName(event.target.value)}
+                    placeholder="Bank of China (Hong Kong)"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Receiving account name</Label>
+                  <Input
+                    value={receivingBankAccountName}
+                    onChange={(event) => setReceivingBankAccountName(event.target.value)}
+                    placeholder="Issuer client monies account"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Receiving account number / masked</Label>
+                  <Input
+                    value={receivingBankAccountNumberMasked}
+                    onChange={(event) => setReceivingBankAccountNumberMasked(event.target.value)}
+                    placeholder="012-888-456789-001"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>SWIFT / bank code</Label>
+                  <Input
+                    value={receivingBankSwiftCode}
+                    onChange={(event) => setReceivingBankSwiftCode(event.target.value)}
+                    placeholder="BKCHHKHHXXX"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Subscription collection wallet</Label>
+                <Input
+                  value={subscriptionCollectionWallet}
+                  onChange={(event) => setSubscriptionCollectionWallet(event.target.value)}
+                  placeholder="0xCOLLECT-ADDRESS"
+                />
+              </div>
+            )}
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Payment reference rule</Label>
+                <Textarea
+                  value={paymentReferenceRule}
+                  onChange={(event) => setPaymentReferenceRule(event.target.value)}
+                  rows={3}
+                  placeholder="e.g. Use investor name plus order ID in remittance note"
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <div className="font-medium">Payment proof required</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Require investors to upload a remittance slip or proof before cash confirmation.
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">No</span>
+                  <Switch checked={paymentProofRequired} onCheckedChange={setPaymentProofRequired} />
+                  <span className="text-sm text-muted-foreground">Yes</span>
+                </div>
               </div>
             </div>
 

@@ -27,6 +27,7 @@ interface SubscribeModalProps {
   onSuccess?: (payload: {
     amount: number;
     estimatedUnits: number;
+    paymentReference?: string;
   }) => void;
 }
 
@@ -196,8 +197,15 @@ export function SubscribeModal({
 }: SubscribeModalProps) {
   const [step, setStep] = useState(0);
   const [amount, setAmount] = useState("");
-  const steps = ["Order", "Sign", "Broadcast", "Completed"];
+  const [paymentReference, setPaymentReference] = useState("");
   const isOpenEnd = fundData.fundType === "Open-end";
+  const isBankTransferFunding =
+    fundData.subscriptionPaymentRail === "Off-chain Bank Transfer" ||
+    fundData.subscriptionPaymentMethod === "Fiat";
+  const paymentCurrency = fundData.subscriptionCashCurrency || fundData.navCurrency;
+  const steps = isBankTransferFunding
+    ? ["Order", "Payment", "Cash Review", "Completed"]
+    : ["Order", "Sign", "Broadcast", "Completed"];
 
   const amountValue = Number(amount) || 0;
   const estimatedUnits = useMemo(() => {
@@ -208,6 +216,15 @@ export function SubscribeModal({
   const reset = () => {
     setStep(0);
     setAmount("");
+    setPaymentReference("");
+  };
+
+  const buildPaymentReference = () => {
+    const prefix = (fundData.tokenSymbol || fundData.name || "FUND")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 6) || "FUND";
+    return `${prefix}-${Date.now().toString().slice(-8)}`;
   };
 
   const handleSubmit = () => {
@@ -224,14 +241,29 @@ export function SubscribeModal({
       return;
     }
 
+    if (isBankTransferFunding) {
+      setPaymentReference(buildPaymentReference());
+      setStep(1);
+      return;
+    }
+
     setStep(1);
     setTimeout(() => setStep(2), 1200);
     setTimeout(() => setStep(3), 2400);
   };
 
+  const handlePaymentInstructionComplete = () => {
+    setStep(2);
+    setTimeout(() => setStep(3), 1600);
+  };
+
   const handleComplete = () => {
     toast.success("Subscription order submitted");
-    onSuccess?.({ amount: amountValue, estimatedUnits });
+    onSuccess?.({
+      amount: amountValue,
+      estimatedUnits,
+      paymentReference: paymentReference || undefined,
+    });
     onOpenChange(false);
     reset();
   };
@@ -306,10 +338,10 @@ export function SubscribeModal({
                     max={fundData.maxSubscriptionAmountValue}
                     value={amount}
                     onChange={(event) => setAmount(event.target.value)}
-                    placeholder={`Enter amount in ${fundData.navCurrency}`}
+                    placeholder={`Enter amount in ${paymentCurrency}`}
                   />
                   <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">
-                    {fundData.navCurrency}
+                    {paymentCurrency}
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -331,10 +363,47 @@ export function SubscribeModal({
               </div>
             </div>
 
+            <div className="rounded-lg border border-dashed p-4 text-sm">
+              <div className="font-medium">Subscription funding route</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div>
+                  <div className="text-muted-foreground">Payment method</div>
+                  <div className="font-medium">
+                    {fundData.subscriptionPaymentMethod || "Stablecoin"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Payment rail</div>
+                  <div className="font-medium">
+                    {fundData.subscriptionPaymentRail || "On-chain Wallet Transfer"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Cash confirmation owner</div>
+                  <div className="font-medium">
+                    {fundData.cashConfirmationOwner || "Operations"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Payment proof</div>
+                  <div className="font-medium">
+                    {fundData.paymentProofRequired ? "Required" : "Optional"}
+                  </div>
+                </div>
+              </div>
+              {fundData.paymentReferenceRule && (
+                <p className="mt-3 text-muted-foreground">
+                  Reference rule: {fundData.paymentReferenceRule}
+                </p>
+              )}
+            </div>
+
             <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-              {isOpenEnd
-                ? `This order will be queued for the next dealing batch. Confirmation happens after NAV valuation, and settlement follows on ${fundData.settlementCycle || "T+1"}.`
-                : "This subscription request will enter the closed-end issuance queue. The issuer will review subscriptions, run allocation, and then complete issuance."}
+              {isBankTransferFunding
+                ? `This order will be submitted first, then the issuer-side cash leg must be confirmed before the transfer agent can book units into the holder register.`
+                : isOpenEnd
+                  ? `This order will be queued for the next dealing batch. Confirmation happens after NAV valuation, and settlement follows on ${fundData.settlementCycle || "T+1"}.`
+                  : "This subscription request will enter the closed-end issuance queue. The issuer will review subscriptions, run allocation, and then complete issuance."}
             </div>
 
             <div className="flex justify-end gap-2">
@@ -347,15 +416,65 @@ export function SubscribeModal({
         )}
 
         {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          isBankTransferFunding ? (
+            <div className="space-y-6">
+              <div className="rounded-lg border bg-secondary p-4 text-sm">
+                <div className="mb-3 font-medium">Payment Instructions</div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="text-muted-foreground">Receiving bank</div>
+                    <div className="font-medium">{fundData.receivingBankName || "Issuer bank account"}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Account name</div>
+                    <div className="font-medium">
+                      {fundData.receivingBankAccountName || "Issuer subscription collection account"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Account number</div>
+                    <div className="font-medium">
+                      {fundData.receivingBankAccountNumberMasked || "To be provided by issuer"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">SWIFT / bank code</div>
+                    <div className="font-medium">
+                      {fundData.receivingBankSwiftCode || "To be provided by issuer"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Amount to remit</div>
+                    <div className="font-medium">
+                      {formatNumber(amountValue, 2)} {paymentCurrency}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Payment reference</div>
+                    <div className="font-medium">{paymentReference}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+                {fundData.paymentProofRequired
+                  ? "Upload or provide remittance proof to the issuer after the transfer. Cash confirmation will not complete until the issuer-side review is done."
+                  : "After the transfer is sent, the issuer-side cash review will confirm receipt before the transfer agent books units."}
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={handlePaymentInstructionComplete}>I Have Sent Payment</Button>
+              </div>
             </div>
-            <h3>Sign Subscription Order</h3>
-            <p className="text-sm text-muted-foreground">
-              Please approve the subscription request in your wallet.
-            </p>
-          </div>
+          ) : (
+            <div className="space-y-4 text-center py-8">
+              <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+              <h3>Sign Subscription Order</h3>
+              <p className="text-sm text-muted-foreground">
+                Please approve the subscription request in your wallet.
+              </p>
+            </div>
+          )
         )}
 
         {step === 2 && (
@@ -363,11 +482,13 @@ export function SubscribeModal({
             <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
               <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
-            <h3>Broadcasting Order</h3>
+            <h3>{isBankTransferFunding ? "Cash Review In Progress" : "Broadcasting Order"}</h3>
             <p className="text-sm text-muted-foreground">
-              {isOpenEnd
-                ? "Your order is being recorded for the next open-end dealing batch."
-                : "Your order is being recorded for the current closed-end subscription round."}
+              {isBankTransferFunding
+                ? `${fundData.cashConfirmationOwner || "Issuer"} is reviewing the incoming cash leg. The transfer agent will book units only after funds are confirmed.`
+                : isOpenEnd
+                  ? "Your order is being recorded for the next open-end dealing batch."
+                  : "Your order is being recorded for the current closed-end subscription round."}
             </p>
           </div>
         )}
@@ -379,21 +500,29 @@ export function SubscribeModal({
             </div>
             <h3>Order submitted</h3>
             <p className="text-sm text-muted-foreground">
-              {isOpenEnd
-                ? "Your subscription request is pending NAV confirmation and will be processed at the next dealing cut-off."
-                : "Your subscription request has entered the closed-end issuance workflow and is waiting for issuer review and allocation."}
+              {isBankTransferFunding
+                ? `Your subscription is now waiting for ${fundData.cashConfirmationOwner || "issuer"} cash confirmation and transfer-agent unit booking.`
+                : isOpenEnd
+                  ? "Your subscription request is pending NAV confirmation and will be processed at the next dealing cut-off."
+                  : "Your subscription request has entered the closed-end issuance workflow and is waiting for issuer review and allocation."}
             </p>
             <div className="bg-secondary p-3 rounded-lg text-sm">
               <div className="flex justify-between mb-1">
                 <span className="text-muted-foreground">Requested amount:</span>
                 <span className="font-medium">
-                  {formatNumber(amountValue, 2)} {fundData.navCurrency}
+                  {formatNumber(amountValue, 2)} {paymentCurrency}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Estimated shares:</span>
                 <span className="font-medium">{formatNumber(estimatedUnits, 4)} units</span>
               </div>
+              {paymentReference && (
+                <div className="mt-2 flex justify-between">
+                  <span className="text-muted-foreground">Payment reference:</span>
+                  <span className="font-medium">{paymentReference}</span>
+                </div>
+              )}
             </div>
             <div className="flex justify-center">
               <Button onClick={handleComplete}>Done</Button>

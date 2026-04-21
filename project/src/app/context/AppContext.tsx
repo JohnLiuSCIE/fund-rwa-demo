@@ -75,6 +75,11 @@ interface AppContextType {
   ) => boolean;
   fundOrders: FundOrder[];
   addFundOrder: (order: FundOrder, action?: PermissionAction | string) => boolean;
+  updateFundOrder: (
+    id: string,
+    updates: Partial<FundOrder>,
+    action?: PermissionAction | string,
+  ) => boolean;
   updateFundOrderStatus: (id: string, status: FundOrder["status"], action?: PermissionAction | string) => boolean;
   fundBatches: FundBatch[];
   addFundBatch: (batch: FundBatch) => boolean;
@@ -374,6 +379,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const updateFundOrder = (
+    id: string,
+    updates: Partial<FundOrder>,
+    action: PermissionAction | string = "update",
+  ) => {
+    if (!ensureIdentitySource("authSession")) return false;
+    if (!ensurePermission(action, "order")) return false;
+    setFundOrders((prev) =>
+      prev.map((order) =>
+        order.id === id
+          ? {
+              ...order,
+              ...updates,
+              lastAction: action,
+              lastActorRole: authSession.role!,
+              lastActionAt: new Date().toISOString(),
+              identitySource: "authSession",
+            }
+          : order,
+      ),
+    );
+    return true;
+  };
+
   const updateFundOrderStatus = (id: string, status: FundOrder["status"], action: PermissionAction | string = "update") => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "order")) return false;
@@ -474,6 +503,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updateRedemptionStatus,
         fundOrders,
         addFundOrder,
+        updateFundOrder,
         updateFundOrderStatus,
         fundBatches,
         addFundBatch,

@@ -112,6 +112,35 @@ export function StatusBadge({ status }: StatusBadgeProps) {
         color: "bg-violet-100 text-violet-800 border-violet-200",
         label: "Pending Cash Settlement",
       },
+      "Pending Instruction": {
+        color: "bg-slate-100 text-slate-800 border-slate-200",
+        label: "Pending Instruction",
+      },
+      "Awaiting Payment": {
+        color: "bg-amber-100 text-amber-800 border-amber-200",
+        label: "Awaiting Payment",
+        pulse: true,
+      },
+      "Payment Proof Uploaded": {
+        color: "bg-blue-100 text-blue-800 border-blue-200",
+        label: "Payment Proof Uploaded",
+      },
+      "Funds Received": {
+        color: "bg-sky-100 text-sky-800 border-sky-200",
+        label: "Funds Received",
+      },
+      "Funds Cleared": {
+        color: "bg-emerald-100 text-emerald-800 border-emerald-200",
+        label: "Funds Cleared",
+      },
+      Failed: {
+        color: "bg-red-100 text-red-800 border-red-200",
+        label: "Failed",
+      },
+      "Not Applicable": {
+        color: "bg-gray-100 text-gray-700 border-gray-200",
+        label: "N/A",
+      },
       Confirmed: {
         color: "bg-emerald-100 text-emerald-800 border-emerald-200",
         label: "Confirmed",

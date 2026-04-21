@@ -134,6 +134,18 @@ export interface FundIssuance {
   dealingCutoffTime?: string;
   navValuationTime?: string;
   settlementCycle?: string;
+  subscriptionPaymentMethod?: "Fiat" | "Stablecoin" | "Tokenized Deposit";
+  subscriptionPaymentRail?: "Off-chain Bank Transfer" | "On-chain Wallet Transfer";
+  subscriptionCashCurrency?: string;
+  subscriptionSettlementAccountType?: "Bank Account" | "Wallet";
+  receivingBankName?: string;
+  receivingBankAccountName?: string;
+  receivingBankAccountNumberMasked?: string;
+  receivingBankSwiftCode?: string;
+  subscriptionCollectionWallet?: string;
+  paymentReferenceRule?: string;
+  paymentProofRequired?: boolean;
+  cashConfirmationOwner?: "Issuer" | "Transfer Agent" | "Operations";
   subscriptionStatus?: "Open" | "Paused";
   redemptionStatus?: "Open" | "Paused";
   redemptionMode?: "Daily dealing" | "Window-based";
@@ -179,6 +191,23 @@ export interface FundOrder {
   confirmTime?: string;
   settlementTime?: string;
   status: OrderStatus;
+  paymentMethod?: "Fiat" | "Stablecoin" | "Tokenized Deposit";
+  paymentStatus?:
+    | "Pending Instruction"
+    | "Awaiting Payment"
+    | "Payment Proof Uploaded"
+    | "Funds Received"
+    | "Funds Cleared"
+    | "Failed"
+    | "Not Applicable";
+  paymentReference?: string;
+  payerAccountName?: string;
+  payerBankAccountMasked?: string;
+  paymentProofName?: string;
+  cashReceivedAt?: string;
+  cashConfirmedBy?: string;
+  cashConfirmedAt?: string;
+  unitBookingStatus?: "Pending" | "Ready To Book" | "Booked" | "Settled";
   batchId?: string;
   note?: string;
   lastAction?: string;
@@ -306,6 +335,14 @@ export const initialFunds: FundIssuance[] = [
     dealingCutoffTime: "16:00 HKT",
     navValuationTime: "18:00 HKT",
     settlementCycle: "T+1",
+    subscriptionPaymentMethod: "Tokenized Deposit",
+    subscriptionPaymentRail: "On-chain Wallet Transfer",
+    subscriptionCashCurrency: "HKD",
+    subscriptionSettlementAccountType: "Wallet",
+    subscriptionCollectionWallet: "0xCOLLECT-HKD-001",
+    paymentReferenceRule: "Include dealing batch date in transfer note",
+    paymentProofRequired: false,
+    cashConfirmationOwner: "Operations",
     subscriptionStatus: "Open",
     redemptionStatus: "Open",
     redemptionMode: "Daily dealing",
@@ -407,6 +444,14 @@ export const initialFunds: FundIssuance[] = [
     dealingCutoffTime: "15:00 UTC",
     navValuationTime: "17:30 UTC",
     settlementCycle: "T+1",
+    subscriptionPaymentMethod: "Stablecoin",
+    subscriptionPaymentRail: "On-chain Wallet Transfer",
+    subscriptionCashCurrency: "USDC",
+    subscriptionSettlementAccountType: "Wallet",
+    subscriptionCollectionWallet: "0xCOLLECT-USDC-002",
+    paymentReferenceRule: "Use wallet transfer hash as payment reference",
+    paymentProofRequired: false,
+    cashConfirmationOwner: "Operations",
     subscriptionStatus: "Paused",
     redemptionStatus: "Open",
     redemptionMode: "Daily dealing",
@@ -570,6 +615,17 @@ export const initialFunds: FundIssuance[] = [
     subscriptionLotSize: 100,
     subscriptionMinQuantity: 1,
     subscriptionMaxQuantity: 100,
+    subscriptionPaymentMethod: "Fiat",
+    subscriptionPaymentRail: "Off-chain Bank Transfer",
+    subscriptionCashCurrency: "HKD",
+    subscriptionSettlementAccountType: "Bank Account",
+    receivingBankName: "Bank of China (Hong Kong)",
+    receivingBankAccountName: "Premium Real Estate Capital Client Monies",
+    receivingBankAccountNumberMasked: "012-888-456789-001",
+    receivingBankSwiftCode: "BKCHHKHHXXX",
+    paymentReferenceRule: "Use investor name plus subscription order ID in bank remittance note",
+    paymentProofRequired: true,
+    cashConfirmationOwner: "Issuer",
     allocationRule: "Pro-rata",
     transferAgentOps: {
       transferAgentName: "Harbor Registry Services",
@@ -614,6 +670,10 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "243,997.66 units",
     submitTime: "2026-04-16 11:18:00",
     status: "Pending NAV",
+    paymentMethod: "Tokenized Deposit",
+    paymentStatus: "Funds Cleared",
+    paymentReference: "TX-OPEN-HKD-001",
+    unitBookingStatus: "Ready To Book",
     batchId: "batch-sub-001",
     note: "Will be processed at next daily cut-off",
   },
@@ -634,6 +694,13 @@ export const initialFundOrders: FundOrder[] = [
     confirmTime: "2026-04-15 18:10:00",
     settlementTime: "2026-04-16 10:05:00",
     status: "Confirmed",
+    paymentMethod: "Tokenized Deposit",
+    paymentStatus: "Funds Cleared",
+    paymentReference: "TX-OPEN-HKD-002",
+    cashReceivedAt: "2026-04-15 13:27:00",
+    cashConfirmedBy: "Operations",
+    cashConfirmedAt: "2026-04-15 13:30:00",
+    unitBookingStatus: "Booked",
     batchId: "batch-sub-000",
   },
   {
@@ -649,6 +716,10 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "1,171,189.54 units",
     submitTime: "2026-04-16 14:05:00",
     status: "Submitted",
+    paymentMethod: "Tokenized Deposit",
+    paymentStatus: "Funds Cleared",
+    paymentReference: "TX-OPEN-HKD-003",
+    unitBookingStatus: "Pending",
     batchId: "batch-sub-001",
   },
   {
@@ -715,6 +786,13 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "42,105.26 units",
     submitTime: "2026-04-18 10:15:00",
     status: "Pending Review",
+    paymentMethod: "Fiat",
+    paymentStatus: "Payment Proof Uploaded",
+    paymentReference: "REA-FO-20260418-001",
+    payerAccountName: "Harbor Family Office",
+    payerBankAccountMasked: "012-221-****889",
+    paymentProofName: "harbor-family-office-slip.pdf",
+    unitBookingStatus: "Pending",
     note: "Professional investor onboarding complete, pending issuer review.",
   },
   {
@@ -730,6 +808,11 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "52,631.58 units",
     submitTime: "2026-04-18 11:40:00",
     status: "Submitted",
+    paymentMethod: "Fiat",
+    paymentStatus: "Awaiting Payment",
+    paymentReference: "REA-IF-20260418-002",
+    payerAccountName: "Granite Institutional Fund",
+    unitBookingStatus: "Pending",
     note: "Waiting for subscription review before allocation book closes.",
   },
   {
@@ -745,6 +828,15 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "47,368.42 units",
     submitTime: "2026-04-18 14:05:00",
     status: "Pending Review",
+    paymentMethod: "Fiat",
+    paymentStatus: "Funds Cleared",
+    paymentReference: "REA-SPC-20260418-003",
+    payerAccountName: "Summit Qualified Investors SPC",
+    payerBankAccountMasked: "388-110-****552",
+    cashReceivedAt: "2026-04-18 16:42:00",
+    cashConfirmedBy: "Issuer Treasury Ops",
+    cashConfirmedAt: "2026-04-18 17:05:00",
+    unitBookingStatus: "Ready To Book",
     note: "Oversubscription expected if accepted in full.",
   },
   {

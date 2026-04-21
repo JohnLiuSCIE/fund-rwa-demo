@@ -261,6 +261,13 @@ function parseLeadingNumber(value: string) {
   return match ? Number(match[0]) : 0;
 }
 
+function isFiatSubscriptionFunding(fundData: FundIssuance) {
+  return (
+    fundData.subscriptionPaymentMethod === "Fiat" ||
+    fundData.subscriptionPaymentRail === "Off-chain Bank Transfer"
+  );
+}
+
 function getInvestorCategory(order: FundOrder) {
   if (order.investorName.toLowerCase().includes("family office")) return "Family Office";
   if (order.investorName.toLowerCase().includes("institutional")) return "Institutional";
@@ -381,6 +388,38 @@ function includesKeyword(value: string | undefined, keyword: string) {
 }
 
 function getOrderTaCheckpoint(order: FundOrder) {
+  const awaitingCashConfirmation =
+    order.type === "subscription" &&
+    order.paymentMethod === "Fiat" &&
+    !!order.paymentStatus &&
+    !["Funds Cleared", "Not Applicable"].includes(order.paymentStatus);
+
+  if (awaitingCashConfirmation) {
+    return {
+      label: "Waiting for cash confirmation",
+      detail:
+        order.paymentStatus === "Payment Proof Uploaded"
+          ? "Issuer-side remittance proof has been uploaded. Transfer Agent cannot book units until cash is confirmed."
+          : "Investor order exists, but transfer-agent booking is blocked until the issuer confirms the incoming cash leg.",
+      registerEffect: "No register change until funds clear",
+    };
+  }
+
+  if (
+    order.type === "subscription" &&
+    order.paymentMethod === "Fiat" &&
+    order.paymentStatus === "Funds Cleared" &&
+    order.unitBookingStatus !== "Booked" &&
+    order.unitBookingStatus !== "Settled"
+  ) {
+    return {
+      label: "Cash cleared, TA booking pending",
+      detail:
+        "Issuer-side cash confirmation is complete. Transfer Agent is preparing the unit-booking delta for the holder register.",
+      registerEffect: "Ready for booking",
+    };
+  }
+
   switch (order.status) {
     case "Submitted":
       return {
@@ -393,12 +432,20 @@ function getOrderTaCheckpoint(order: FundOrder) {
       };
     case "Pending Review":
       return {
-        label: "TA validating eligibility",
+        label:
+          order.type === "subscription" && order.paymentStatus === "Funds Cleared"
+            ? "TA validating booking package"
+            : "TA validating eligibility",
         detail:
           order.type === "subscription"
-            ? "Transfer Agent is checking investor eligibility, wallet mapping, and onboarding evidence."
+            ? order.paymentStatus === "Funds Cleared"
+              ? "Transfer Agent is checking the cleared-cash package, investor eligibility, and unit-booking readiness."
+              : "Transfer Agent is checking investor eligibility, wallet mapping, and onboarding evidence."
             : "Transfer Agent is checking holder balance and redemption eligibility.",
-        registerEffect: "Pending approval",
+        registerEffect:
+          order.type === "subscription" && order.paymentStatus === "Funds Cleared"
+            ? "Cash cleared, booking package under review"
+            : "Pending approval",
       };
     case "Pending NAV":
       return {
@@ -426,7 +473,10 @@ function getOrderTaCheckpoint(order: FundOrder) {
     case "Confirmed":
       return {
         label: "Register updated",
-        detail: "Transfer Agent approved the ledger delta and posted the holder-register update.",
+        detail:
+          order.type === "subscription" && order.paymentMethod === "Fiat"
+            ? "Transfer Agent approved the cleared-cash package, posted the holder-register update, and booked units."
+            : "Transfer Agent approved the ledger delta and posted the holder-register update.",
         registerEffect:
           order.type === "subscription"
             ? "Units added to holder register"
@@ -523,6 +573,7 @@ function buildIssuanceApprovalObjects(
   allocationPreview: ReturnType<typeof buildAllocationPreview>,
 ) {
   const taOps = fundData.transferAgentOps;
+  const fundingRoute = `${fundData.subscriptionPaymentMethod || "Stablecoin"} via ${fundData.subscriptionPaymentRail || "On-chain Wallet Transfer"}`;
 
   if (fundData.fundType === "Open-end") {
     return [
@@ -530,6 +581,11 @@ function buildIssuanceApprovalObjects(
         label: "Investor onboarding pack",
         status: taOps?.investorOnboardingStatus || "Pending",
         detail: "Investor KYC, wallet binding, and eligibility checks for launch and recurring dealing.",
+      },
+      {
+        label: "Subscription funding route",
+        status: fundingRoute,
+        detail: `${fundData.cashConfirmationOwner || "Operations"} confirms incoming cash before transfer-agent booking. ${totalOrderCount} order item(s) currently sit in the operating queue.`,
       },
       {
         label: "Daily dealing batch",
@@ -556,6 +612,11 @@ function buildIssuanceApprovalObjects(
       label: "Investor onboarding pack",
       status: taOps?.investorOnboardingStatus || "Pending",
       detail: "Professional investor checks and wallet eligibility used before allocation.",
+    },
+    {
+      label: "Subscription funding route",
+      status: fundingRoute,
+      detail: `${fundData.cashConfirmationOwner || "Issuer"} confirms subscription cash before the transfer agent freezes the issuance book.`,
     },
     {
       label: "Subscription order book",
@@ -631,11 +692,17 @@ function buildIssuanceLedgerRows(
 
   return orders.map((order) => {
     const checkpoint = getOrderTaCheckpoint(order);
+    const isFiatSubscription = order.type === "subscription" && order.paymentMethod === "Fiat";
     return {
       key: order.id,
       investorName: order.investorName,
       investorWallet: order.investorWallet,
-      sourceObject: order.type === "subscription" ? "Subscription batch" : "Redemption batch",
+      sourceObject:
+        order.type === "subscription"
+          ? isFiatSubscription && order.paymentStatus !== "Funds Cleared"
+            ? "Cash receipt review"
+            : "Subscription batch"
+          : "Redemption batch",
       units:
         order.type === "subscription"
           ? order.confirmedSharesOrCash || order.estimatedSharesOrCash
@@ -767,6 +834,87 @@ function OpenEndDealingCycleCard({ fundData }: { fundData: FundIssuance }) {
               {fundData.orderConfirmationMethod || "Configured in operations"}
             </div>
           </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SubscriptionFundingCard({ fundData }: { fundData: FundIssuance }) {
+  const bankTransferFunding = isFiatSubscriptionFunding(fundData);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Subscription Funding</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Separate the incoming cash leg from the unit-booking leg so issuer cash approval and
+          transfer-agent ledger approval are both visible in the demo.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg border p-4">
+            <div className="text-muted-foreground">Payment method</div>
+            <div className="mt-1 font-medium">
+              {fundData.subscriptionPaymentMethod || "Stablecoin"}
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-muted-foreground">Payment rail</div>
+            <div className="mt-1 font-medium">
+              {fundData.subscriptionPaymentRail || "On-chain Wallet Transfer"}
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-muted-foreground">Cash currency</div>
+            <div className="mt-1 font-medium">
+              {fundData.subscriptionCashCurrency || fundData.navCurrency}
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-muted-foreground">Cash confirmation owner</div>
+            <div className="mt-1 font-medium">
+              {fundData.cashConfirmationOwner || "Operations"}
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-muted-foreground">Settlement account type</div>
+            <div className="mt-1 font-medium">
+              {fundData.subscriptionSettlementAccountType || "Wallet"}
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-muted-foreground">Payment proof rule</div>
+            <div className="mt-1 font-medium">
+              {fundData.paymentProofRequired ? "Required before cash sign-off" : "Optional"}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border bg-secondary/20 p-4">
+          <div className="text-muted-foreground">
+            {bankTransferFunding ? "Issuer receiving account" : "Subscription collection wallet"}
+          </div>
+          <div className="mt-1 font-medium">
+            {bankTransferFunding
+              ? [
+                  fundData.receivingBankName,
+                  fundData.receivingBankAccountName,
+                  fundData.receivingBankAccountNumberMasked,
+                ]
+                  .filter(Boolean)
+                  .join(" / ") || "To be provided by issuer"
+              : fundData.subscriptionCollectionWallet || "To be provided by issuer"}
+          </div>
+          {fundData.receivingBankSwiftCode && bankTransferFunding && (
+            <div className="mt-1 text-muted-foreground">SWIFT / bank code: {fundData.receivingBankSwiftCode}</div>
+          )}
+          {fundData.paymentReferenceRule && (
+            <div className="mt-2 text-muted-foreground">
+              Payment reference rule: {fundData.paymentReferenceRule}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -1234,27 +1382,119 @@ function FundSetupEditor({
   );
 }
 
-function getNextOrderAction(order: FundOrder) {
+type OrderAction = {
+  label: string;
+  nextStatus: FundOrder["status"];
+  message?: string;
+  updates?: Partial<FundOrder>;
+};
+
+function getNextOrderAction(
+  order: FundOrder,
+  fundData: FundIssuance,
+): OrderAction | null {
+  const manualConfirmation = fundData.orderConfirmationMethod === "Issuer review then confirm";
+  const fiatSubscription =
+    order.type === "subscription" &&
+    (order.paymentMethod === "Fiat" ||
+      (!order.paymentMethod && isFiatSubscriptionFunding(fundData)));
+
+  if (
+    fiatSubscription &&
+    order.paymentStatus &&
+    ["Pending Instruction", "Awaiting Payment", "Payment Proof Uploaded", "Funds Received"].includes(
+      order.paymentStatus,
+    )
+  ) {
+    return {
+      label: "Confirm Funds Received",
+      nextStatus:
+        fundData.fundType === "Open-end"
+          ? (manualConfirmation ? "Pending Review" : "Pending NAV")
+          : ("Pending Review" as const),
+      message: "Incoming subscription cash confirmed",
+      updates: {
+        paymentStatus: "Funds Cleared" as const,
+        cashReceivedAt: order.cashReceivedAt || nowString(),
+        cashConfirmedAt: nowString(),
+        cashConfirmedBy: `${fundData.cashConfirmationOwner || "Issuer"} Desk`,
+        unitBookingStatus: "Ready To Book" as const,
+      },
+    };
+  }
+
   switch (order.status) {
     case "Submitted":
-      return { label: "Queue for NAV", nextStatus: "Pending NAV" as const };
+      return {
+        label: "Queue for NAV",
+        nextStatus: "Pending NAV" as const,
+        message: "Order moved into the pricing queue",
+      };
     case "Pending Review":
-      return { label: "Approve", nextStatus: "Pending NAV" as const };
+      return {
+        label:
+          fiatSubscription && order.paymentStatus === "Funds Cleared"
+            ? "Approve For Booking"
+            : "Approve",
+        nextStatus: "Pending NAV" as const,
+        message: "Order approved for the next booking stage",
+      };
     case "Pending NAV":
       return {
         label:
           order.type === "subscription"
-            ? "Confirm shares"
+            ? fiatSubscription
+              ? "Approve TA Booking"
+              : "Confirm shares"
             : "Move to cash settle",
         nextStatus:
           order.type === "subscription"
             ? ("Confirmed" as const)
             : ("Pending Cash Settlement" as const),
+        message:
+          order.type === "subscription"
+            ? fiatSubscription
+              ? "Transfer-agent booking approved"
+              : "Subscription units confirmed"
+            : "Redemption moved into cash settlement",
+        updates:
+          order.type === "subscription"
+            ? {
+                confirmedNav: order.confirmedNav || fundData.currentNav,
+                confirmedSharesOrCash:
+                  order.confirmedSharesOrCash || order.estimatedSharesOrCash,
+                confirmTime: nowString(),
+                unitBookingStatus: "Booked" as const,
+              }
+            : {
+                confirmTime: nowString(),
+              },
       };
     case "Pending Cash Settlement":
-      return { label: "Settle cash", nextStatus: "Completed" as const };
+      return {
+        label: "Settle cash",
+        nextStatus: "Completed" as const,
+        message: "Cash settlement completed",
+        updates: {
+          settlementTime: nowString(),
+          unitBookingStatus:
+            order.type === "subscription" ? ("Settled" as const) : order.unitBookingStatus,
+        },
+      };
     case "Pending Confirmation":
-      return { label: "Confirm", nextStatus: "Confirmed" as const };
+      return {
+        label: "Confirm",
+        nextStatus: "Confirmed" as const,
+        message: "Order confirmed",
+        updates: {
+          confirmedNav: order.confirmedNav || fundData.currentNav,
+          confirmedSharesOrCash:
+            order.confirmedSharesOrCash || order.estimatedSharesOrCash,
+          confirmTime: nowString(),
+          unitBookingStatus:
+            order.type === "subscription" ? ("Booked" as const) : order.unitBookingStatus,
+        },
+      };
     default:
       return null;
   }
@@ -1749,6 +1989,7 @@ function getFundAction(fund: FundIssuance) {
 
 function renderOrderTable(
   orders: FundOrder[],
+  fundData: FundIssuance,
   isMarketplaceView: boolean,
   onAdvance: (order: FundOrder) => void,
   canAdvanceOrder: boolean,
@@ -1762,6 +2003,7 @@ function renderOrderTable(
           <TableHead>Investor</TableHead>
           <TableHead>Request</TableHead>
           <TableHead>Estimated</TableHead>
+          <TableHead>Payment</TableHead>
           <TableHead>Confirmed</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>TA Checkpoint</TableHead>
@@ -1771,7 +2013,7 @@ function renderOrderTable(
       </TableHeader>
       <TableBody>
         {orders.map((order) => {
-          const nextAction = getNextOrderAction(order);
+          const nextAction = getNextOrderAction(order, fundData);
           const taCheckpoint = getOrderTaCheckpoint(order);
           return (
             <TableRow key={order.id}>
@@ -1787,7 +2029,33 @@ function renderOrderTable(
                 <div className="text-xs text-muted-foreground">{order.requestQuantity}</div>
               </TableCell>
               <TableCell>{order.estimatedSharesOrCash}</TableCell>
-              <TableCell>{order.confirmedSharesOrCash || "Pending"}</TableCell>
+              <TableCell>
+                {order.type === "subscription" ? (
+                  <div className="space-y-1">
+                    <StatusBadge status={order.paymentStatus || "Pending Instruction"} />
+                    <div className="text-xs text-muted-foreground">
+                      {order.paymentMethod ||
+                        fundData.subscriptionPaymentMethod ||
+                        "Subscription funding pending"}
+                    </div>
+                    {order.paymentReference && (
+                      <div className="max-w-[220px] truncate text-xs text-muted-foreground">
+                        Ref: {order.paymentReference}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell>
+                <div>{order.confirmedSharesOrCash || "Pending"}</div>
+                {order.unitBookingStatus && (
+                  <div className="text-xs text-muted-foreground">
+                    Booking: {order.unitBookingStatus}
+                  </div>
+                )}
+              </TableCell>
               <TableCell>
                 <StatusBadge status={order.status} />
               </TableCell>
@@ -1823,7 +2091,7 @@ function renderOrderTable(
         {orders.length === 0 && (
           <TableRow>
             <TableCell
-              colSpan={isMarketplaceView ? 8 : 9}
+              colSpan={isMarketplaceView ? 9 : 10}
               className="py-12 text-center text-muted-foreground"
             >
               No orders yet.
@@ -1852,7 +2120,7 @@ export function FundIssuanceDetail() {
     fundIssuances,
     fundOrders,
     addFundOrder,
-    updateFundOrderStatus,
+    updateFundOrder,
     updateFundIssuance,
     updateFundStatus,
     getPermissionResult,
@@ -1883,6 +2151,7 @@ export function FundIssuanceDetail() {
   }
 
   const isOpenEnd = fundData.fundType === "Open-end";
+  const subscriptionFundingIsFiat = isFiatSubscriptionFunding(fundData);
   const persistedReferences = fundData.references ?? [];
   const persistedInvestorRules = fundData.investorRules ?? [];
   const subscriptionOrders = visibleOrders.filter((order) => order.type === "subscription");
@@ -1929,6 +2198,15 @@ export function FundIssuanceDetail() {
           value: issuanceTaOps?.investorOnboardingStatus || "Pending onboarding review",
         },
         {
+          label: "Funding route",
+          value:
+            `${fundData.subscriptionPaymentMethod || "Stablecoin"} via ${fundData.subscriptionPaymentRail || "On-chain Wallet Transfer"}`,
+        },
+        {
+          label: "Cash confirmation owner",
+          value: fundData.cashConfirmationOwner || "Operations",
+        },
+        {
           label: "Order book status",
           value: issuanceTaOps?.orderBookStatus || "Waiting for dealing batch lock",
         },
@@ -1958,6 +2236,15 @@ export function FundIssuanceDetail() {
         {
           label: "Investor onboarding",
           value: issuanceTaOps?.investorOnboardingStatus || "Pending onboarding review",
+        },
+        {
+          label: "Funding route",
+          value:
+            `${fundData.subscriptionPaymentMethod || "Fiat"} via ${fundData.subscriptionPaymentRail || "Off-chain Bank Transfer"}`,
+        },
+        {
+          label: "Cash confirmation owner",
+          value: fundData.cashConfirmationOwner || "Issuer",
         },
         {
           label: "Order book status",
@@ -2124,24 +2411,31 @@ export function FundIssuanceDetail() {
   };
 
   const handleOrderAdvance = (order: FundOrder) => {
-    const nextAction = getNextOrderAction(order);
+    const nextAction = getNextOrderAction(order, fundData);
     if (!nextAction) return;
-    const updated = updateFundOrderStatus(
+    const updated = updateFundOrder(
       order.id,
-      nextAction.nextStatus,
-      nextAction.label.toLowerCase(),
+      {
+        status: nextAction.nextStatus,
+        ...(nextAction.updates || {}),
+      },
+      "update",
     );
     if (!updated) return;
-    toast.success(`${order.id} moved to ${nextAction.nextStatus}`);
+    toast.success(nextAction.message || `${order.id} moved to ${nextAction.nextStatus}`);
   };
 
   const handleSubscribeSuccess = ({
     amount,
     estimatedUnits,
+    paymentReference,
   }: {
     amount: number;
     estimatedUnits: number;
+    paymentReference?: string;
   }) => {
+    const fundingMethod = fundData.subscriptionPaymentMethod || "Stablecoin";
+    const awaitingFiatConfirmation = subscriptionFundingIsFiat;
     const added = addFundOrder({
       id: `sub-${Date.now()}`,
       fundId: fundData.id,
@@ -2149,20 +2443,40 @@ export function FundIssuanceDetail() {
       investorName: currentInvestor.name,
       investorWallet: currentInvestor.wallet,
       type: "subscription",
-      requestAmount: `${formatNumber(amount, 2)} ${fundData.navCurrency}`,
+      requestAmount: `${formatNumber(amount, 2)} ${fundData.subscriptionCashCurrency || fundData.navCurrency}`,
       requestQuantity: `${formatNumber(estimatedUnits, 4)} units`,
       estimatedNav: fundData.currentNav,
       estimatedSharesOrCash: `${formatNumber(estimatedUnits, 4)} units`,
       submitTime: nowString(),
-      status: !isOpenEnd
-        ? "Pending Review"
-        : fundData.orderConfirmationMethod === "Issuer review then confirm"
+      status: awaitingFiatConfirmation
+        ? "Submitted"
+        : !isOpenEnd
           ? "Pending Review"
-          : "Pending NAV",
+          : fundData.orderConfirmationMethod === "Issuer review then confirm"
+            ? "Pending Review"
+            : "Pending NAV",
+      paymentMethod: fundingMethod,
+      paymentStatus: awaitingFiatConfirmation ? (
+        fundData.paymentProofRequired ? "Payment Proof Uploaded" : "Awaiting Payment"
+      ) : "Funds Cleared",
+      paymentReference:
+        awaitingFiatConfirmation
+          ? paymentReference
+          : paymentReference || `${(fundData.tokenSymbol || "FUND").slice(0, 6).toUpperCase()}-${Date.now().toString().slice(-8)}`,
+      payerAccountName: awaitingFiatConfirmation ? currentInvestor.name : undefined,
+      paymentProofName: awaitingFiatConfirmation && fundData.paymentProofRequired
+        ? "Investor remittance slip"
+        : undefined,
+      cashReceivedAt: awaitingFiatConfirmation ? undefined : nowString(),
+      cashConfirmedBy: awaitingFiatConfirmation ? undefined : `${fundData.cashConfirmationOwner || "Operations"} Desk`,
+      cashConfirmedAt: awaitingFiatConfirmation ? undefined : nowString(),
+      unitBookingStatus: awaitingFiatConfirmation ? "Pending" : "Ready To Book",
       note:
-        fundData.fundType === "Open-end"
-          ? "Created from marketplace subscription modal"
-          : "Created from marketplace closed-end subscription modal",
+        awaitingFiatConfirmation
+          ? `Created from marketplace ${fundData.fundType === "Open-end" ? "open-end" : "closed-end"} subscription modal. Waiting for ${fundData.cashConfirmationOwner || "issuer"} cash confirmation before TA booking.`
+          : fundData.fundType === "Open-end"
+            ? "Created from marketplace subscription modal"
+            : "Created from marketplace closed-end subscription modal",
       identitySource: "authSession",
     });
     if (!added) return;
@@ -2764,6 +3078,8 @@ export function FundIssuanceDetail() {
                     )}
                   </CardContent>
                 </Card>
+
+                <SubscriptionFundingCard fundData={fundData} />
               </TabsContent>
 
               <TabsContent value="dealing" className="space-y-6">
@@ -2922,6 +3238,7 @@ export function FundIssuanceDetail() {
                   <TabsContent value="subscription">
                     {renderOrderTable(
                       subscriptionOrders,
+                      fundData,
                       isMarketplaceView,
                       handleOrderAdvance,
                       manageOrderPermission.allowed,
@@ -2931,6 +3248,7 @@ export function FundIssuanceDetail() {
                   <TabsContent value="redemption">
                     {renderOrderTable(
                       redemptionOrders,
+                      fundData,
                       isMarketplaceView,
                       handleOrderAdvance,
                       manageOrderPermission.allowed,
@@ -2938,7 +3256,10 @@ export function FundIssuanceDetail() {
                     )}
                   </TabsContent>
                   <TabsContent value="buyers">
-                    {renderBuyerTable(subscriptionOrders, fundData.navCurrency)}
+                    {renderBuyerTable(
+                      subscriptionOrders,
+                      fundData.subscriptionCashCurrency || fundData.navCurrency,
+                    )}
                   </TabsContent>
                 </Tabs>
               </TabsContent>
@@ -3037,6 +3358,9 @@ export function FundIssuanceDetail() {
                     This fund is still in its closed-end subscription stage. Investors can
                     place subscription requests during the current issuance window, and the
                     issuer will continue with allocation afterward.
+                    {subscriptionFundingIsFiat
+                      ? ` The cash leg must be confirmed by ${fundData.cashConfirmationOwner || "the issuer"} before the transfer agent books any units.`
+                      : ""}
                   </InfoAlert>
                 )}
               </TabsContent>
@@ -3180,6 +3504,8 @@ export function FundIssuanceDetail() {
                       </div>
                     </CardContent>
                   </Card>
+
+                  <SubscriptionFundingCard fundData={fundData} />
                 </div>
               </TabsContent>
 
@@ -3312,6 +3638,7 @@ export function FundIssuanceDetail() {
                   <TabsContent value="orders">
                     {renderOrderTable(
                       subscriptionOrders,
+                      fundData,
                       isMarketplaceView,
                       handleOrderAdvance,
                       manageOrderPermission.allowed,
@@ -3320,7 +3647,10 @@ export function FundIssuanceDetail() {
                   </TabsContent>
 
                   <TabsContent value="buyers">
-                    {renderBuyerTable(subscriptionOrders, fundData.navCurrency)}
+                    {renderBuyerTable(
+                      subscriptionOrders,
+                      fundData.subscriptionCashCurrency || fundData.navCurrency,
+                    )}
                   </TabsContent>
 
                   <TabsContent value="allocation" className="space-y-6">
