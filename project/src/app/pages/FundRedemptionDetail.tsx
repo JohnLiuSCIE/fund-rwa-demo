@@ -9,6 +9,7 @@ import {
   Send,
   ShieldCheck,
   TriangleAlert,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -110,10 +111,52 @@ function buildRedemptionActionFlow({
   ];
 }
 
-function getRedemptionAction(config: FundRedemptionConfig) {
+type RedemptionActionConfig = {
+  label: string;
+  nextStatus: FundRedemptionConfig["status"];
+  message: string;
+  icon: LucideIcon;
+  variant: "default" | "outline";
+  modalTitle: string;
+  modalDescription: string;
+  modalSteps: ReturnType<typeof buildRedemptionActionFlow>;
+};
+
+function getCloseRedemptionAction(config: FundRedemptionConfig): RedemptionActionConfig {
+  const isWindowBased = config.redemptionMode === "Window-based";
+  const closeLabel = isWindowBased ? "Close Window" : "Close Current Cycle";
+  const closeTarget = isWindowBased ? "redemption window" : "current redemption dealing cycle";
+
+  return {
+    label: closeLabel,
+    nextStatus: "Window Closed",
+    message: isWindowBased
+      ? "Redemption window closed"
+      : "Current redemption dealing cycle closed",
+    icon: CheckCircle2,
+    variant: "default",
+    modalTitle: closeLabel,
+    modalDescription: `Verify issuer identity before closing the ${closeTarget} and advancing to close-out handling.`,
+    modalSteps: buildRedemptionActionFlow({
+      reviewTitle: "Review Close-out Request",
+      reviewDescription: `Confirm the ${closeTarget} should stop accepting new requests and move into the next close-out step.`,
+      identityDescription:
+        "Issuer identity and close-out authority are being verified.",
+      actionLabel: "Close",
+      actionTitle: closeLabel,
+      actionDescription: `The ${closeTarget} close-out request is being processed.`,
+      successTitle: isWindowBased ? "Window closed" : "Cycle closed",
+      successDescription: isWindowBased
+        ? "The redemption window has been closed and the workflow advanced to close-out."
+        : "The current redemption dealing cycle has been closed and the workflow advanced to close-out.",
+    }),
+  };
+}
+
+function getRedemptionActions(config: FundRedemptionConfig): RedemptionActionConfig[] {
   switch (config.status) {
     case "Draft":
-      return {
+      return [{
         label: "Submit for Approval",
         nextStatus: "Pending Approval" as const,
         message: "Redemption setup submitted for approval",
@@ -136,9 +179,9 @@ function getRedemptionAction(config: FundRedemptionConfig) {
           successDescription:
             "The redemption setup is now waiting for approval review.",
         }),
-      };
+      }];
     case "Pending Approval":
-      return {
+      return [{
         label: "Activate Setup",
         nextStatus: config.pauseRedemptionAfterListing ? "Announced" as const : "Active" as const,
         message: "Redemption setup activated",
@@ -161,9 +204,9 @@ function getRedemptionAction(config: FundRedemptionConfig) {
           successDescription:
             "The redemption setup has moved into its next operating stage.",
         }),
-      };
+      }];
     case "Announced":
-      return {
+      return [{
         label: "Open Window",
         nextStatus: "Window Open" as const,
         message: "Redemption window opened",
@@ -186,63 +229,72 @@ function getRedemptionAction(config: FundRedemptionConfig) {
           successDescription:
             "The redemption window is now open for investors.",
         }),
-      };
+      }];
     case "Active":
     case "Window Open":
-      return {
-        label: "Pause",
-        nextStatus: "Paused" as const,
-        message: "Redemption processing paused",
-        icon: PauseCircle,
-        variant: "outline" as const,
-        modalTitle: "Pause Redemption Processing",
-        modalDescription:
-          "Verify issuer identity before pausing redemption processing.",
-        modalSteps: buildRedemptionActionFlow({
-          reviewTitle: "Review Pause Request",
-          reviewDescription:
-            "Confirm the redemption process should be paused at this stage.",
-          identityDescription:
-            "Issuer identity and redemption control authority are being verified.",
-          actionLabel: "Pause",
-          actionTitle: "Pause Redemption",
-          actionDescription:
-            "The pause request is being recorded in the redemption workflow.",
-          successTitle: "Redemption paused",
-          successDescription:
-            "Redemption processing has been paused successfully.",
-        }),
-      };
+      return [
+        {
+          label: "Pause",
+          nextStatus: "Paused" as const,
+          message: "Redemption processing paused",
+          icon: PauseCircle,
+          variant: "outline" as const,
+          modalTitle: "Pause Redemption Processing",
+          modalDescription:
+            "Verify issuer identity before pausing redemption processing.",
+          modalSteps: buildRedemptionActionFlow({
+            reviewTitle: "Review Pause Request",
+            reviewDescription:
+              "Confirm the redemption process should be paused at this stage.",
+            identityDescription:
+              "Issuer identity and redemption control authority are being verified.",
+            actionLabel: "Pause",
+            actionTitle: "Pause Redemption",
+            actionDescription:
+              "The pause request is being recorded in the redemption workflow.",
+            successTitle: "Redemption paused",
+            successDescription:
+              "Redemption processing has been paused successfully.",
+          }),
+        },
+        getCloseRedemptionAction(config),
+      ];
     case "Paused":
-      return {
-        label: "Resume",
-        nextStatus:
-          config.redemptionMode === "Window-based"
-            ? ("Window Open" as const)
-            : ("Active" as const),
-        message: "Redemption processing resumed",
-        icon: PlayCircle,
-        variant: "default" as const,
-        modalTitle: "Resume Redemption Processing",
-        modalDescription:
-          "Verify issuer identity before resuming redemption processing.",
-        modalSteps: buildRedemptionActionFlow({
-          reviewTitle: "Review Resume Request",
-          reviewDescription:
-            "Confirm the redemption setup is ready to resume processing.",
-          identityDescription:
-            "Issuer identity and redemption restart authority are being verified.",
-          actionLabel: "Resume",
-          actionTitle: "Resume Redemption",
-          actionDescription:
-            "The resume request is being processed for the redemption workflow.",
-          successTitle: "Redemption resumed",
-          successDescription:
-            "Redemption processing has resumed successfully.",
-        }),
-      };
+      return [
+        {
+          label: "Resume",
+          nextStatus:
+            config.redemptionMode === "Window-based"
+              ? ("Window Open" as const)
+              : ("Active" as const),
+          message: "Redemption processing resumed",
+          icon: PlayCircle,
+          variant: "default" as const,
+          modalTitle: "Resume Redemption Processing",
+          modalDescription:
+            "Verify issuer identity before resuming redemption processing.",
+          modalSteps: buildRedemptionActionFlow({
+            reviewTitle: "Review Resume Request",
+            reviewDescription:
+              "Confirm the redemption setup is ready to resume processing.",
+            identityDescription:
+              "Issuer identity and redemption restart authority are being verified.",
+            actionLabel: "Resume",
+            actionTitle: "Resume Redemption",
+            actionDescription:
+              "The resume request is being processed for the redemption workflow.",
+            successTitle: "Redemption resumed",
+            successDescription:
+              "Redemption processing has resumed successfully.",
+          }),
+        },
+        {
+          ...getCloseRedemptionAction(config),
+          variant: "outline",
+        },
+      ];
     default:
-      return null;
+      return [];
   }
 }
 
@@ -444,6 +496,7 @@ function getRedemptionPermissionAction(label: string) {
   if (normalized.includes("open")) return "open";
   if (normalized.includes("resume")) return "open";
   if (normalized.includes("pause")) return "pause";
+  if (normalized.includes("close")) return "manage";
   return "manage";
 }
 
@@ -571,7 +624,12 @@ function OpenEndRedemptionOperatingCard({
   redemption: FundRedemptionConfig;
 }) {
   if (redemption.redemptionMode === "Daily dealing") {
-    const operatingState = redemption.status === "Paused" ? "Paused" : "Live";
+    const operatingState =
+      redemption.status === "Paused"
+        ? "Paused"
+        : redemption.status === "Window Closed"
+          ? "Cycle Closed"
+          : "Live";
     return (
       <Card>
         <CardHeader>
@@ -893,9 +951,7 @@ export function FundRedemptionDetail() {
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [hasAppliedEditIntent, setHasAppliedEditIntent] = useState(false);
   const [actionModalOpen, setActionModalOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<
-    ReturnType<typeof getRedemptionAction> | null
-  >(null);
+  const [pendingAction, setPendingAction] = useState<RedemptionActionConfig | null>(null);
   const [requestActionModalOpen, setRequestActionModalOpen] = useState(false);
   const [pendingRequestAction, setPendingRequestAction] = useState<
     (ReturnType<typeof getRedemptionRequestActionConfig> & { orderId: string }) | null
@@ -935,10 +991,7 @@ export function FundRedemptionDetail() {
   const batches = fundBatches.filter(
     (batch) => batch.fundId === redemption.fundId && batch.type === "redemption",
   );
-  const setupAction = getRedemptionAction(redemption);
-  const setupActionPermission = setupAction
-    ? getPermissionResult(getRedemptionPermissionAction(setupAction.label), "redemption")
-    : { allowed: true as const };
+  const setupActions = getRedemptionActions(redemption);
   const updatePermission = getPermissionResult("update", "redemption");
   const editableSections = getEditableRedemptionSections(redemption);
   const canEditSetup = userRole === "issuer" && updatePermission.allowed && editableSections.length > 0;
@@ -1152,19 +1205,30 @@ export function FundRedemptionDetail() {
           currentStatus={redemption.status}
           workflowModel={isOpenEndFund ? "open-end" : "default"}
           actionSlot={
-            setupAction ? (
-              <Button
-                variant={setupAction.variant}
-                disabled={!setupActionPermission.allowed}
-                title={setupActionPermission.reason}
-                onClick={() => {
-                  setPendingAction(setupAction);
-                  setActionModalOpen(true);
-                }}
-              >
-                <setupAction.icon className="mr-2 h-4 w-4" />
-                {setupAction.label}
-              </Button>
+            setupActions.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {setupActions.map((action) => {
+                  const permission = getPermissionResult(
+                    getRedemptionPermissionAction(action.label),
+                    "redemption",
+                  );
+                  return (
+                    <Button
+                      key={action.label}
+                      variant={action.variant}
+                      disabled={!permission.allowed}
+                      title={permission.reason}
+                      onClick={() => {
+                        setPendingAction(action);
+                        setActionModalOpen(true);
+                      }}
+                    >
+                      <action.icon className="mr-2 h-4 w-4" />
+                      {action.label}
+                    </Button>
+                  );
+                })}
+              </div>
             ) : undefined
           }
         />

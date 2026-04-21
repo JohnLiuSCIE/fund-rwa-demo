@@ -678,10 +678,10 @@ function getOpenEndRedemptionSubsteps(currentStatus?: string) {
     case "Announced":
     case "Window Open":
     case "Paused":
-    case "Window Closed":
       return {
         title: "Step 3 Breakdown",
-        description: "Once active, the module runs daily-dealing or window-based redemption operations.",
+        description:
+          "Once active, the module runs daily-dealing or window-based redemption operations and can then be closed into a completed cycle.",
         steps: [
           stage("3.1 Activate", "Enable redemption module", "Issuer", [
             "Module activation log",
@@ -692,8 +692,34 @@ function getOpenEndRedemptionSubsteps(currentStatus?: string) {
             "Holdings validation",
             "Register update file",
           ]),
+          stage("3.3 Close-out", "Close the current redemption cycle", "Transfer Agent / System", [
+            "Window close record",
+            "Cycle completion confirmation",
+          ]),
         ],
         currentIndex: 1,
+      };
+    case "Window Closed":
+      return {
+        title: "Step 3 Breakdown",
+        description:
+          "The current redemption cycle has been closed and handed off to close-out handling.",
+        steps: [
+          stage("3.1 Activate", "Enable redemption module", "Issuer", [
+            "Module activation log",
+            "Operating calendar",
+          ]),
+          stage("3.2 Operate", "Run windows or daily dealing controls", "Transfer Agent / System", [
+            "Redemption batch file",
+            "Holdings validation",
+            "Register update file",
+          ]),
+          stage("3.3 Close-out", "Close the current redemption cycle", "Transfer Agent / System", [
+            "Window close record",
+            "Cycle completion confirmation",
+          ]),
+        ],
+        currentIndex: 2,
       };
     default:
       return null;

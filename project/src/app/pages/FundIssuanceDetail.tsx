@@ -45,7 +45,6 @@ import { FundIssuanceWorkflow } from "../components/FundIssuanceWorkflow";
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
-  WorkflowResponsibilityCard,
 } from "../components/TransferAgentPanels";
 import { RedeemModal, SubscribeModal } from "../components/modals/InvestorModals";
 import { OperationActionModal } from "../components/modals/OperationActionModal";
@@ -507,66 +506,6 @@ function getOrderTaCheckpoint(order: FundOrder) {
   }
 }
 
-function getIssuanceResponsibilityItems(fundData: FundIssuance) {
-  if (fundData.fundType === "Open-end") {
-    return [
-      {
-        label: "1. Prepare Launch",
-        owner: "Issuer / Approver",
-        description: "Approve fund terms, launch controls, and dealing policy before opening the initial window.",
-      },
-      {
-        label: "2. Collect Initial Orders",
-        owner: "Investor / Transfer Agent",
-        description: "Receive initial subscriptions and validate investor onboarding before the first register booking.",
-      },
-      {
-        label: "3. Confirm Launch Register",
-        owner: "Transfer Agent",
-        description: "Approve the first holder-register baseline before the fund enters daily dealing.",
-      },
-      {
-        label: "4. Run Daily Dealing",
-        owner: "Transfer Agent / System",
-        description: "Process subscription and redemption batches, official NAV, and settlement instructions.",
-      },
-      {
-        label: "5. Post Register Delta",
-        owner: "Transfer Agent",
-        description: "Post unit ledger changes and reconcile investor cash and fund units after each batch.",
-      },
-    ];
-  }
-
-  return [
-    {
-      label: "1. Draft And List Fund",
-      owner: "Issuer / Approver",
-      description: "Approve issuance terms, listing readiness, and investor rule pack before subscriptions open.",
-    },
-    {
-      label: "2. Collect Subscriptions",
-      owner: "Investor / Issuer",
-      description: "Open the subscription window and collect investor orders during the offering period.",
-    },
-    {
-      label: "3. Validate Book",
-      owner: "Transfer Agent",
-      description: "Review investor onboarding, freeze the subscription book, and approve the allocation workbook.",
-    },
-    {
-      label: "4. Approve Mint File",
-      owner: "Transfer Agent / System",
-      description: "Approve the final holder list and push the minted allocation file into execution.",
-    },
-    {
-      label: "5. Publish Register Baseline",
-      owner: "Transfer Agent",
-      description: "Confirm the initial holder register and hand the active ledger over to post-issuance operations.",
-    },
-  ];
-}
-
 function buildIssuanceApprovalObjects(
   fundData: FundIssuance,
   totalOrderCount: number,
@@ -772,69 +711,85 @@ function OpenEndDealingCycleCard({ fundData }: { fundData: FundIssuance }) {
           ? "Pending activation"
           : "Pre-live";
 
+  const settlementCycle = fundData.settlementCycle || "T+1";
+  const timelineSteps = [
+    {
+      relativeTime: "T",
+      title: "Order Window",
+      detail: "Investors submit subscription and redemption orders into the current dealing batch.",
+      meta: `Subscription ${fundData.subscriptionStatus || "Open"} / Redemption ${fundData.redemptionStatus || "Open"}`,
+    },
+    {
+      relativeTime: "T",
+      title: "Cut-off And Batch Lock",
+      detail: "The dealing batch closes and the transfer agent locks the orders that made the cut-off.",
+      meta: fundData.dealingCutoffTime || "Configured cut-off time",
+    },
+    {
+      relativeTime: "T",
+      title: "NAV Confirmation",
+      detail: "Official pricing is struck for the batch and the unit-booking instruction becomes final.",
+      meta: fundData.navValuationTime || "At valuation time",
+    },
+    {
+      relativeTime: settlementCycle,
+      title: "Cash And Unit Settlement",
+      detail: "Cash is settled and the holder register is updated for booked subscriptions and redemptions.",
+      meta: fundData.orderConfirmationMethod || settlementCycle,
+    },
+  ];
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Recurring Dealing Cycle</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Once the fund enters active dealing, subscriptions and redemptions repeat through this
-          operating cycle. These checkpoints are recurring operations, not extra fund lifecycle
-          steps.
+          Once the fund enters active dealing, the same dealing-day cycle repeats. This view uses
+          relative time markers so the demo reads as an operating rhythm, not a one-off dated event.
         </p>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <CardContent className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-4">
           <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Operating State</div>
+            <div className="text-sm text-muted-foreground">Operating state</div>
             <div className="mt-1 font-medium">{operatingState}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Fund lifecycle stays at Active Dealing while cycles repeat.
-            </div>
           </div>
           <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Cut-off</div>
-            <div className="mt-1 font-medium">
-              {fundData.nextCutoffTime || fundData.dealingCutoffTime || "Configured in dealing rules"}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Orders received before cut-off join the current batch.
-            </div>
+            <div className="text-sm text-muted-foreground">Dealing frequency</div>
+            <div className="mt-1 font-medium">{fundData.dealingFrequency || "Daily"}</div>
           </div>
           <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">NAV Confirmation</div>
-            <div className="mt-1 font-medium">
-              {fundData.nextConfirmationDate || fundData.navValuationTime || "At valuation time"}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Official pricing finalizes subscription and redemption quantities.
-            </div>
+            <div className="text-sm text-muted-foreground">Settlement convention</div>
+            <div className="mt-1 font-medium">{settlementCycle}</div>
           </div>
           <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Settlement</div>
+            <div className="text-sm text-muted-foreground">Booking model</div>
             <div className="mt-1 font-medium">
-              {fundData.nextSettlementTime || fundData.settlementCycle || "Per settlement cycle"}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Cash and units are booked after confirmation.
+              {fundData.orderConfirmationMethod || "Auto at cut-off"}
             </div>
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Subscription Module</div>
-            <div className="mt-1 font-medium">{fundData.subscriptionStatus || "N/A"}</div>
-          </div>
-          <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Redemption Module</div>
-            <div className="mt-1 font-medium">{fundData.redemptionStatus || "N/A"}</div>
-          </div>
-          <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Order Confirmation</div>
-            <div className="mt-1 font-medium">
-              {fundData.orderConfirmationMethod || "Configured in operations"}
+        <div className="space-y-0">
+          {timelineSteps.map((step, index) => (
+            <div key={`${step.relativeTime}-${step.title}`} className="relative flex gap-4 pb-6 last:pb-0">
+              <div className="flex w-16 shrink-0 flex-col items-center">
+                <div className="rounded-full border border-[var(--navy-200)] bg-[var(--navy-50)] px-3 py-1 text-xs font-semibold text-[var(--navy-700)]">
+                  {step.relativeTime}
+                </div>
+                {index < timelineSteps.length - 1 && (
+                  <div className="mt-2 h-full w-px bg-border" />
+                )}
+              </div>
+              <div className="flex-1 rounded-lg border p-4">
+                <div className="font-medium">{step.title}</div>
+                <div className="mt-1 text-sm text-muted-foreground">{step.detail}</div>
+                <div className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {step.meta}
+                </div>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
       </CardContent>
     </Card>
@@ -2173,7 +2128,6 @@ export function FundIssuanceDetail() {
       ),
   ).length;
   const issuanceTaOps = fundData.transferAgentOps;
-  const issuanceResponsibilityItems = getIssuanceResponsibilityItems(fundData);
   const ledgerOrders = isMarketplaceView ? visibleOrders : allFundOrders;
   const issuanceLedgerRows = buildIssuanceLedgerRows(ledgerOrders, fundData, allocationPreview);
   const issuanceApprovalObjects = buildIssuanceApprovalObjects(
@@ -2653,24 +2607,6 @@ export function FundIssuanceDetail() {
         />
       </div>
 
-      <div className="mb-8">
-        <WorkflowResponsibilityCard
-          title={isOpenEnd ? "Open-end Lifecycle Responsibility Map" : "Closed-end Lifecycle Responsibility Map"}
-          description={
-            isOpenEnd
-              ? "The transfer agent is now explicit in launch booking, daily dealing batches, and holder-register updates."
-              : "The transfer agent is now explicit in investor validation, allocation approval, mint-file sign-off, and holder-register publication."
-          }
-          items={issuanceResponsibilityItems}
-        />
-      </div>
-
-      {isOpenEnd && (
-        <div className="mb-8">
-          <OpenEndDealingCycleCard fundData={fundData} />
-        </div>
-      )}
-
       {!isMarketplaceView && (
         <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -2985,6 +2921,8 @@ export function FundIssuanceDetail() {
                     </div>
                   </CardContent>
                 </Card>
+
+                <OpenEndDealingCycleCard fundData={fundData} />
 
                 <Card>
                   <CardHeader>
