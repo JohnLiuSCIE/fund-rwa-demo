@@ -67,6 +67,16 @@ export interface TransferAgentOperations {
   lastTransferAgentAction?: string;
 }
 
+export interface FundIssuanceTransferAgentOps extends TransferAgentOperations {
+  investorOnboardingStatus?: string;
+  orderBookStatus?: string;
+  allocationBookStatus?: string;
+  registerVersion?: string;
+  ledgerApprovalStatus?: string;
+  ledgerApprovedAt?: string;
+  mintInstructionStatus?: string;
+}
+
 export interface FundIssuance {
   id: string;
   name: string;
@@ -144,6 +154,7 @@ export interface FundIssuance {
   allocationRule?: string;
   references?: FundReference[];
   investorRules?: InvestorRule[];
+  transferAgentOps?: FundIssuanceTransferAgentOps;
   navHistory: NavRecord[];
   lastAction?: string;
   lastActorRole?: ActorRole;
@@ -312,6 +323,19 @@ export const initialFunds: FundIssuance[] = [
     pendingRedemptionOrders: 3,
     totalSubscribedAmount: "8,460,000 HKD",
     totalRedeemedAmount: "1,240,000 HKD",
+    transferAgentOps: {
+      transferAgentName: "WeBank Transfer Agent Desk",
+      transferAgentStatus: "Daily Register Maintenance",
+      holderRegisterDate: "2026-04-16 18:20:00",
+      registerVersion: "REG-DLF-20260416-018",
+      investorOnboardingStatus: "Confirmed",
+      orderBookStatus: "Daily batch locked",
+      ledgerApprovalStatus: "Posted after NAV confirmation",
+      ledgerApprovedAt: "2026-04-16 18:22:00",
+      mintInstructionStatus: "Not applicable for daily dealing",
+      lastTransferAgentAction:
+        "Booked confirmed subscriptions and earmarked redemption units after the cut-off batch.",
+    },
     navHistory: [
       {
         id: "nav-dlf-1",
@@ -400,6 +424,19 @@ export const initialFunds: FundIssuance[] = [
     pendingRedemptionOrders: 2,
     totalSubscribedAmount: "5,200,000 USDC",
     totalRedeemedAmount: "980,000 USDC",
+    transferAgentOps: {
+      transferAgentName: "WeBank Transfer Agent Desk",
+      transferAgentStatus: "Paused With Register Servicing",
+      holderRegisterDate: "2026-04-16 17:40:00",
+      registerVersion: "REG-ITP-20260416-011",
+      investorOnboardingStatus: "Issuer review required",
+      orderBookStatus: "Redemption-only servicing",
+      ledgerApprovalStatus: "Posted after manual confirmation",
+      ledgerApprovedAt: "2026-04-16 17:45:00",
+      mintInstructionStatus: "Subscription minting paused",
+      lastTransferAgentAction:
+        "Continued redemption servicing while keeping the subscription register closed for new units.",
+    },
     navHistory: [
       {
         id: "nav-itp-1",
@@ -534,6 +571,19 @@ export const initialFunds: FundIssuance[] = [
     subscriptionMinQuantity: 1,
     subscriptionMaxQuantity: 100,
     allocationRule: "Pro-rata",
+    transferAgentOps: {
+      transferAgentName: "Harbor Registry Services",
+      transferAgentStatus: "Subscription Book Monitoring",
+      holderRegisterDate: "2026-04-18 16:30:00",
+      registerVersion: "PRE-ISS-REA-001",
+      investorOnboardingStatus: "KYC / eligibility reviewed",
+      orderBookStatus: "Live subscription book",
+      allocationBookStatus: "Pending close and calculation",
+      ledgerApprovalStatus: "Pre-issuance register draft prepared",
+      mintInstructionStatus: "Pending final allocation",
+      lastTransferAgentAction:
+        "Validated investor eligibility and prepared the pre-allocation holder register draft.",
+    },
     investorRules: [
       {
         ruleType: "investor-type",
