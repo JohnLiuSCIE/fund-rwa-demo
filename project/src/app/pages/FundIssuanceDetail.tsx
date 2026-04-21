@@ -435,13 +435,13 @@ function getOrderTaCheckpoint(order: FundOrder) {
         label:
           order.type === "subscription" && order.paymentStatus === "Funds Cleared"
             ? "TA validating booking package"
-            : "TA validating eligibility",
+            : "TA validating redemption request",
         detail:
           order.type === "subscription"
             ? order.paymentStatus === "Funds Cleared"
               ? "Transfer Agent is checking the cleared-cash package, investor eligibility, and unit-booking readiness."
               : "Transfer Agent is checking investor eligibility, wallet mapping, and onboarding evidence."
-            : "Transfer Agent is checking holder balance and redemption eligibility.",
+            : "Transfer Agent is checking holder balance, dealing cut-off, and redemption limits.",
         registerEffect:
           order.type === "subscription" && order.paymentStatus === "Funds Cleared"
             ? "Cash cleared, booking package under review"
@@ -580,7 +580,8 @@ function buildIssuanceApprovalObjects(
       {
         label: "Investor onboarding pack",
         status: taOps?.investorOnboardingStatus || "Pending",
-        detail: "Investor KYC, wallet binding, and eligibility checks for launch and recurring dealing.",
+        detail:
+          "Investor KYC, wallet binding, and subscription eligibility checks used before launch and follow-on subscriptions.",
       },
       {
         label: "Subscription funding route",
