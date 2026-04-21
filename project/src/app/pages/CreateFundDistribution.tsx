@@ -408,7 +408,6 @@ export function CreateFundDistribution() {
                   </div>
                 </div>
               </div>
-
               <div className="flex justify-between pt-4">
                 <Button variant="outline" onClick={() => setActiveTab("about-deal")}>
                   Back
@@ -440,22 +439,24 @@ export function CreateFundDistribution() {
                   </div>
                 </div>
               ) : (
-                <div>
-                  <div className="text-sm font-medium">Recipient Determination</div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {isClosedEndSelected
-                      ? "All holders on the record date are eligible for this dividend. No additional investor admission checks are required at the event stage."
-                      : "Distribution recipients are determined from the linked fund holder register on the record date. No investor admission threshold is configured at the distribution stage."}
-                  </p>
+                <div className="space-y-4 rounded-lg border bg-secondary/30 p-4">
+                  <div>
+                    <div className="text-sm font-medium">Recipient Determination</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {isClosedEndSelected
+                        ? "All holders on the record date are eligible for this dividend. No additional investor admission checks are required at the event stage."
+                        : "Distribution recipients are determined from the linked fund holder register on the record date. No investor admission threshold is configured at the distribution stage."}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium">Recipient List</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      The recipient list will be generated from the linked fund holder
+                      register after the record date is locked.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-sm font-medium">Recipient List</div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    The recipient list will be generated from the linked fund holder
-                    register after the record date is locked.
-                  </p>
-                </div>
-              </div>
+              )}
 
               <div className="flex justify-between pt-4">
                 <Button variant="outline" onClick={() => setActiveTab("about-distribution")}>

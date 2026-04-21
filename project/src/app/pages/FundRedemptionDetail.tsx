@@ -181,7 +181,7 @@ function getRedemptionActions(config: FundRedemptionConfig): RedemptionActionCon
         }),
       }];
     case "Pending Approval":
-      return {
+      return [{
         label: "Activate Redemption",
         nextStatus: config.pauseRedemptionAfterListing ? "Announced" as const : "Active" as const,
         message: "Redemption operation activated",
