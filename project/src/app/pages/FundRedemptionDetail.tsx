@@ -488,7 +488,7 @@ function getEditableRedemptionFieldLabels(config: FundRedemptionConfig) {
       "settlement cycle",
       "cut-off time",
       "notice period",
-      "investor redemption gate",
+      "per-investor redemption limit",
       "manual approval control",
     );
   }
@@ -540,7 +540,7 @@ function buildRedemptionControlChecks(
           : "Daily dealing does not require a separate window",
     },
     {
-      label: "Investor gate and manual review are defined",
+      label: "Per-investor limit and manual review are defined",
       ok: Boolean(redemption.maxRedemptionQuantityPerInvestor),
       detail: `${redemption.maxRedemptionQuantityPerInvestor} / manual approval ${redemption.manualApprovalRequired ? "on" : "off"}`,
     },
@@ -595,7 +595,7 @@ function OpenEndRedemptionOperatingCard({
             <div className="mt-1 font-medium">{redemption.settlementCycle}</div>
           </div>
           <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Liquidity Gate</div>
+            <div className="text-sm text-muted-foreground">Per-investor Limit</div>
             <div className="mt-1 font-medium">
               {redemption.maxRedemptionQuantityPerInvestor}
             </div>
@@ -1397,7 +1397,7 @@ export function FundRedemptionDetail() {
                     Redemption requests are processed against the official fund NAV and may be reviewed manually before they move into cash settlement.
                   </p>
                   <p>
-                    For the demo, this setup also doubles as the main place to explain redemption gates, cut-off handling, and T+1 cash settlement behavior.
+                    For the demo, this setup also doubles as the main place to explain redemption limits, cut-off handling, and T+1 cash settlement behavior.
                   </p>
                 </CardContent>
               </Card>
@@ -1416,7 +1416,7 @@ export function FundRedemptionDetail() {
                     </div>
                   </div>
                   <div className="rounded-lg border p-4">
-                    <div className="text-muted-foreground">Investor Gate</div>
+                    <div className="text-muted-foreground">Per-investor Limit</div>
                     <div className="mt-1 font-medium">{redemption.maxRedemptionQuantityPerInvestor}</div>
                   </div>
                   <div className="rounded-lg border p-4">

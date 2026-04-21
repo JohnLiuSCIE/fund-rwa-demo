@@ -118,7 +118,7 @@ export function CreateFundDistribution() {
           <TabsTrigger value="about-distribution">
             {isClosedEndSelected ? "Record & Payment" : `About ${eventLabel}`}
           </TabsTrigger>
-          <TabsTrigger value="rules">{isClosedEndSelected ? "Review" : "Rules"}</TabsTrigger>
+          <TabsTrigger value="rules">Review</TabsTrigger>
         </TabsList>
 
         <TabsContent value="about-deal" className="space-y-6">
@@ -381,36 +381,23 @@ export function CreateFundDistribution() {
         <TabsContent value="rules" className="space-y-6">
           <Card>
             <CardContent className="space-y-4 pt-6">
-              {isClosedEndSelected ? (
-                <div className="space-y-4 rounded-lg border bg-secondary/30 p-4">
-                  <div>
-                    <div className="text-sm font-medium">Eligibility Logic</div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      All holders on the record date are eligible for this dividend. No
-                      additional investor rules are required for the event setup.
-                    </p>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">Recipient List</div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      The recipient list will be generated from the linked fund holder
-                      register after the record date is locked.
-                    </p>
-                  </div>
-                </div>
-              ) : (
+              <div className="space-y-4 rounded-lg border bg-secondary/30 p-4">
                 <div>
-                  <label className="mb-2 block text-sm font-medium">
-                    Investor rules (Optional)
-                  </label>
-                  <p className="mb-4 text-sm text-muted-foreground">
-                    Add specific rules for distribution eligibility.
+                  <div className="text-sm font-medium">Recipient Determination</div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {isClosedEndSelected
+                      ? "All holders on the record date are eligible for this dividend. No additional investor admission checks are required at the event stage."
+                      : "Distribution recipients are determined from the linked fund holder register on the record date. No investor admission threshold is configured at the distribution stage."}
                   </p>
-                  <Button variant="outline" size="sm">
-                    + Add Rule
-                  </Button>
                 </div>
-              )}
+                <div>
+                  <div className="text-sm font-medium">Recipient List</div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    The recipient list will be generated from the linked fund holder
+                    register after the record date is locked.
+                  </p>
+                </div>
+              </div>
 
               <div className="flex justify-between pt-4">
                 <Button variant="outline" onClick={() => setActiveTab("about-distribution")}>
