@@ -12,6 +12,7 @@ import {
   Send,
   ShieldCheck,
   Wallet,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,9 +51,16 @@ import { FundIssuanceWorkflow } from "../components/FundIssuanceWorkflow";
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
+  WorkflowResponsibilityCard,
 } from "../components/TransferAgentPanels";
 import { RedeemModal, SubscribeModal } from "../components/modals/InvestorModals";
-import { OperationActionModal } from "../components/modals/OperationActionModal";
+import {
+  OperationActionModal,
+  type ActionModalDetailGroup,
+  type ActionModalImpactBadge,
+  type ActionModalStep,
+  type ActionModalSummaryItem,
+} from "../components/modals/OperationActionModal";
 import { useApp } from "../context/AppContext";
 import {
   FundDistribution,
@@ -71,6 +79,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { cn } from "../components/ui/utils";
 
 function formatNumber(value: number, digits = 2) {
   return new Intl.NumberFormat("en-US", {
@@ -1232,6 +1241,387 @@ function buildIssuanceLedgerRows(
   });
 }
 
+type IssuanceActionImpactType = "internal" | "ta" | "onchain" | "hybrid";
+type IssuanceActionPreviewKey =
+  | "submit-open-end"
+  | "approve-open-end"
+  | "open-initial-subscription"
+  | "activate-daily-dealing"
+  | "pause-daily-dealing"
+  | "resume-daily-dealing"
+  | "submit-closed-end"
+  | "approve-closed-end"
+  | "list-closed-end"
+  | "open-closed-end-subscription"
+  | "close-book"
+  | "calculate-allocation"
+  | "allocate-on-chain"
+  | "mark-allocation-completed"
+  | "complete-issuance"
+  | "activate-closed-end-fund";
+
+interface IssuanceActionContext {
+  allocationPreview: ReturnType<typeof buildAllocationPreview>;
+  issuanceApprovalObjects: ReturnType<typeof buildIssuanceApprovalObjects>;
+  issuanceLedgerRows: ReturnType<typeof buildIssuanceLedgerRows>;
+  allFundOrders: FundOrder[];
+}
+
+interface IssuanceActionBaseConfig {
+  previewKey: IssuanceActionPreviewKey;
+  label: string;
+  nextStatus: string;
+  message: string;
+  icon: LucideIcon;
+  variant: "default" | "outline";
+  modalTitle: string;
+  modalDescription: string;
+  reviewTitle: string;
+  reviewDescription: string;
+  identityDescription: string;
+  operationLabel?: string;
+  operationTitle?: string;
+  operationDescription?: string;
+  operationKind?: "identity" | "ta" | "onchain";
+  taNotificationTitle?: string;
+  taNotificationDescription?: string;
+  taConfirmationTitle?: string;
+  taConfirmationDescription?: string;
+  onChainTitle?: string;
+  onChainDescription?: string;
+  successTitle: string;
+  successDescription: string;
+  impactType: IssuanceActionImpactType;
+  requiresTa: boolean;
+  requiresOnChain: boolean;
+  nextStepHint: string;
+  affectedObjects: string[];
+}
+
+interface IssuanceActionConfig extends IssuanceActionBaseConfig {
+  modalSteps: ActionModalStep[];
+  previewSummary: ActionModalSummaryItem[];
+  previewDetails: ActionModalDetailGroup[];
+  impactBadges: ActionModalImpactBadge[];
+}
+
+function formatAddressPreview(value?: string) {
+  if (!value) return "Pending";
+  if (value.length <= 14) return value;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function formatDateRange(start?: string, end?: string) {
+  if (!start && !end) return "Pending";
+  if (!start) return `Until ${end}`;
+  if (!end) return `${start} onward`;
+  return `${start} to ${end}`;
+}
+
+function formatCollectionDestination(fundData: FundIssuance) {
+  if (fundData.subscriptionSettlementAccountType === "Wallet") {
+    return fundData.subscriptionCollectionWallet || "Pending wallet";
+  }
+
+  if (fundData.receivingBankName || fundData.receivingBankAccountNumberMasked) {
+    return `${fundData.receivingBankName || "Bank account"} ${fundData.receivingBankAccountNumberMasked || ""}`.trim();
+  }
+
+  return fundData.subscriptionCollectionWallet || "Pending settlement destination";
+}
+
+function buildActionImpactBadges(action: IssuanceActionBaseConfig): ActionModalImpactBadge[] {
+  const badges: ActionModalImpactBadge[] = [{ label: "Identity Required", kind: "identity" }];
+
+  if (action.requiresTa) {
+    badges.push({ label: "Notify TA", kind: "ta" });
+  }
+
+  if (action.requiresOnChain) {
+    badges.push({ label: "On-chain Update", kind: "onchain" });
+  }
+
+  return badges;
+}
+
+function buildIssuanceModalSteps(action: IssuanceActionBaseConfig): ActionModalStep[] {
+  const steps: ActionModalStep[] = [
+    {
+      label: "Review",
+      title: action.reviewTitle,
+      description: action.reviewDescription,
+      state: "review",
+      kind: "review",
+    },
+    {
+      label: "Identity",
+      title: "Verify Identity",
+      description: action.identityDescription,
+      state: "loading",
+      kind: "identity",
+    },
+  ];
+
+  if (action.operationTitle && action.operationDescription) {
+    steps.push({
+      label: action.operationLabel || "Process",
+      title: action.operationTitle,
+      description: action.operationDescription,
+      state: "loading",
+      kind: action.operationKind || "identity",
+    });
+  }
+
+  if (action.requiresTa) {
+    steps.push({
+      label: "TA Intake",
+      title: action.taNotificationTitle || "Notify Transfer Agent",
+      description:
+        action.taNotificationDescription ||
+        "The transfer-agent operating package is being submitted for review.",
+      state: "loading",
+      kind: "ta",
+    });
+    steps.push({
+      label: "TA Confirm",
+      title: action.taConfirmationTitle || "Transfer Agent Confirmation",
+      description:
+        action.taConfirmationDescription ||
+        "Transfer Agent confirmation has been received for this workflow action.",
+      state: "loading",
+      kind: "ta",
+    });
+  }
+
+  if (action.requiresOnChain) {
+    steps.push({
+      label: "On-chain",
+      title: action.onChainTitle || "Execute On-chain Update",
+      description:
+        action.onChainDescription ||
+        "The workflow state is being updated on chain with the approved instruction.",
+      state: "loading",
+      kind: "onchain",
+    });
+  }
+
+  steps.push({
+    label: "Completed",
+    title: action.successTitle,
+    description: action.successDescription,
+    state: "success",
+    kind: "success",
+  });
+
+  return steps;
+}
+
+function buildIssuanceActionPreview(
+  action: IssuanceActionBaseConfig,
+  fundData: FundIssuance,
+  context: IssuanceActionContext,
+) {
+  const subscriptionOrders = context.allFundOrders.filter(
+    (order) => order.type === "subscription" && order.status !== "Rejected",
+  );
+  const allocationRows = [...context.allocationPreview.rows].sort(
+    (left, right) => right.allocatedUnits - left.allocatedUnits,
+  );
+  const topAllocationRows = allocationRows.slice(0, 3);
+  const previewDetails: ActionModalDetailGroup[] = [];
+  let previewSummary: ActionModalSummaryItem[] = [];
+
+  switch (action.previewKey) {
+    case "submit-open-end":
+      previewSummary = [
+        { label: "Fund", value: fundData.name },
+        { label: "Launch Window", value: formatDateRange(fundData.subscriptionStartDate, fundData.subscriptionEndDate) },
+        { label: "Dealing Cycle", value: fundData.dealingFrequency || "Daily" },
+        { label: "Token", value: fundData.tokenSymbol || fundData.tokenName },
+      ];
+      break;
+    case "approve-open-end":
+      previewSummary = [
+        { label: "Current Stage", value: fundData.status },
+        { label: "Next Stage", value: action.nextStatus },
+        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
+        { label: "Investor Onboarding", value: fundData.transferAgentOps?.investorOnboardingStatus || "Pending onboarding review" },
+      ];
+      break;
+    case "open-initial-subscription":
+      previewSummary = [
+        { label: "Subscription Window", value: formatDateRange(fundData.subscriptionStartDate, fundData.subscriptionEndDate) },
+        { label: "Funding Route", value: `${fundData.subscriptionPaymentMethod || "Stablecoin"} via ${fundData.subscriptionPaymentRail || "On-chain Wallet Transfer"}` },
+        { label: "Collection Route", value: formatCollectionDestination(fundData) },
+        { label: "Transfer Agent", value: fundData.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+      ];
+      break;
+    case "activate-daily-dealing":
+    case "pause-daily-dealing":
+    case "resume-daily-dealing":
+      previewSummary = [
+        { label: "Dealing Status", value: fundData.subscriptionStatus || "Open" },
+        { label: "Redemption Status", value: fundData.redemptionStatus || "Open" },
+        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
+        { label: "Last TA Action", value: fundData.transferAgentOps?.lastTransferAgentAction || "Awaiting TA operational note" },
+      ];
+      break;
+    case "submit-closed-end":
+      previewSummary = [
+        { label: "Fund", value: fundData.name },
+        { label: "Token", value: fundData.tokenSymbol || fundData.tokenName },
+        { label: "Subscription Window", value: formatDateRange(fundData.subscriptionStartDate, fundData.subscriptionEndDate) },
+        { label: "Target Size", value: formatAmount(fundData.targetFundSizeValue, fundData.navCurrency) },
+        { label: "Funding Route", value: `${fundData.subscriptionPaymentMethod || "Fiat"} via ${fundData.subscriptionPaymentRail || "Off-chain Bank Transfer"}` },
+      ];
+      break;
+    case "approve-closed-end":
+      previewSummary = [
+        { label: "Current Stage", value: fundData.status },
+        { label: "Next Stage", value: action.nextStatus },
+        { label: "Investor Rules", value: `${fundData.investorRules?.length || 0} eligibility rule(s)` },
+        { label: "Transfer Agent", value: fundData.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+      ];
+      break;
+    case "list-closed-end":
+      previewSummary = [
+        { label: "Fund", value: fundData.name },
+        { label: "Token / Address", value: `${fundData.tokenSymbol || fundData.tokenName} / ${formatAddressPreview(fundData.tokenAddress)}` },
+        { label: "Subscription Opens", value: fundData.subscriptionStartDate || "Pending date" },
+        { label: "Notice Period", value: `${fundData.noticePeriodDays ?? 7} day(s)` },
+        { label: "Transfer Agent", value: fundData.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+      ];
+      previewDetails.push({
+        title: "Listing Package",
+        kind: "ta",
+        items: [
+          `Offering summary ready for ${fundData.name}.`,
+          `Token contract ${formatAddressPreview(fundData.tokenAddress)} will be referenced in the listing notice.`,
+          `Subscription opens on ${fundData.subscriptionStartDate || "the configured launch date"}.`,
+        ],
+      });
+      break;
+    case "open-closed-end-subscription":
+      previewSummary = [
+        { label: "Subscription Window", value: formatDateRange(fundData.subscriptionStartDate, fundData.subscriptionEndDate) },
+        { label: "Eligibility Rules", value: `${fundData.investorRules?.length || 0} configured rule(s)` },
+        { label: "Funding Route", value: `${fundData.subscriptionPaymentMethod || "Fiat"} via ${fundData.subscriptionPaymentRail || "Off-chain Bank Transfer"}` },
+        { label: "Collection Route", value: formatCollectionDestination(fundData) },
+        { label: "Transfer Agent", value: fundData.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+      ];
+      break;
+    case "close-book":
+      previewSummary = [
+        { label: "Accepted Orders", value: `${subscriptionOrders.length} subscription order(s)` },
+        { label: "Requested Book", value: formatAmount(context.allocationPreview.totalRequestedAmount, fundData.navCurrency) },
+        { label: "Cash Confirmation", value: fundData.cashConfirmationOwner || "Issuer" },
+        { label: "Order Book Status", value: fundData.transferAgentOps?.orderBookStatus || "Subscription book pending" },
+        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pre-issuance register pending" },
+      ];
+      break;
+    case "calculate-allocation":
+      previewSummary = [
+        { label: "Allocation Rule", value: fundData.allocationRule || "Pro-rata" },
+        { label: "Target Fund Size", value: formatAmount(fundData.targetFundSizeValue, fundData.navCurrency) },
+        { label: "Projected Allocation", value: formatAmount(context.allocationPreview.totalAllocatedAmount, fundData.navCurrency) },
+        { label: "Investors Affected", value: `${context.allocationPreview.rows.length} investor(s)` },
+        { label: "Allocation Workbook", value: fundData.transferAgentOps?.allocationBookStatus || "Pending calculation" },
+      ];
+      break;
+    case "allocate-on-chain":
+      previewSummary = [
+        { label: "Investors Affected", value: `${context.allocationPreview.rows.length} investor(s)` },
+        { label: "Allocated Units", value: `${formatNumber(context.allocationPreview.rows.reduce((sum, row) => sum + row.allocatedUnits, 0), 2)} units` },
+        { label: "Allocated Amount", value: formatAmount(context.allocationPreview.totalAllocatedAmount, fundData.navCurrency) },
+        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pre-issuance register pending" },
+        { label: "Mint Instruction", value: fundData.transferAgentOps?.mintInstructionStatus || "Pending final allocation" },
+      ];
+      previewDetails.push({
+        title: "Allocation Preview",
+        kind: "onchain",
+        items:
+          topAllocationRows.length > 0
+            ? topAllocationRows.map(
+                (row) => `${row.investorName} - ${formatNumber(row.allocatedUnits, 2)} units`,
+              )
+            : ["No investor allocation rows generated yet."],
+      });
+      previewDetails.push({
+        title: "TA Approved Objects",
+        kind: "ta",
+        items:
+          context.issuanceApprovalObjects.length > 0
+            ? context.issuanceApprovalObjects.slice(0, 3).map(
+                (item) => `${item.label}: ${item.status}`,
+              )
+            : ["No approved TA objects are available yet."],
+      });
+      break;
+    case "mark-allocation-completed":
+      previewSummary = [
+        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
+        { label: "Holder Register Date", value: fundData.transferAgentOps?.holderRegisterDate || "Awaiting TA confirmation" },
+        { label: "Ledger Rows", value: `${context.issuanceLedgerRows.length}` },
+        { label: "Ledger Approval", value: fundData.transferAgentOps?.ledgerApprovalStatus || "Pending register sign-off" },
+        { label: "Last TA Posting", value: fundData.transferAgentOps?.lastTransferAgentAction || "Awaiting TA confirmation" },
+      ];
+      previewDetails.push({
+        title: "Register Queue",
+        kind: "ta",
+        items:
+          context.issuanceLedgerRows.length > 0
+            ? context.issuanceLedgerRows.slice(0, 3).map(
+                (row) => `${row.investorName} - ${row.units} (${row.registerEffect})`,
+              )
+            : ["No transfer-agent holder-register rows are available yet."],
+      });
+      break;
+    case "complete-issuance":
+      previewSummary = [
+        { label: "Ledger Approval", value: fundData.transferAgentOps?.ledgerApprovalStatus || "Pending register sign-off" },
+        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
+        { label: "Initial Register Rows", value: `${context.issuanceLedgerRows.length}` },
+        { label: "Last TA Action", value: fundData.transferAgentOps?.lastTransferAgentAction || "Awaiting TA close-out note" },
+      ];
+      break;
+    case "activate-closed-end-fund":
+      previewSummary = [
+        { label: "Fund Status", value: fundData.status },
+        { label: "Next Status", value: action.nextStatus },
+        { label: "Token Address", value: formatAddressPreview(fundData.tokenAddress) },
+        { label: "Tradable", value: fundData.tradable || "Pending" },
+        { label: "Register Baseline", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
+      ];
+      break;
+    default:
+      previewSummary = [
+        { label: "Fund", value: fundData.name },
+        { label: "Current Status", value: fundData.status },
+        { label: "Next Status", value: action.nextStatus },
+        { label: "Transfer Agent", value: fundData.transferAgentOps?.transferAgentName || "Pending" },
+      ];
+      break;
+  }
+
+  return { previewSummary, previewDetails };
+}
+
+function finalizeIssuanceAction(
+  action: IssuanceActionBaseConfig,
+  fundData: FundIssuance,
+  context: IssuanceActionContext,
+): IssuanceActionConfig {
+  const preview = buildIssuanceActionPreview(action, fundData, context);
+
+  return {
+    ...action,
+    impactBadges: buildActionImpactBadges(action),
+    modalSteps: buildIssuanceModalSteps(action),
+    previewSummary: preview.previewSummary,
+    previewDetails: preview.previewDetails,
+  };
+}
+
 function renderBuyerTable(
   orders: FundOrder[],
   currency: string,
@@ -2034,76 +2424,15 @@ function getNextOrderAction(
   }
 }
 
-function buildActionFlow({
-  reviewTitle,
-  reviewDescription,
-  identityDescription,
-  actionLabel,
-  actionTitle,
-  actionDescription,
-  executionLabel,
-  executionTitle,
-  executionDescription,
-  successTitle,
-  successDescription,
-}: {
-  reviewTitle: string;
-  reviewDescription: string;
-  identityDescription: string;
-  actionLabel: string;
-  actionTitle: string;
-  actionDescription: string;
-  executionLabel?: string;
-  executionTitle?: string;
-  executionDescription?: string;
-  successTitle: string;
-  successDescription: string;
-}) {
-  const steps = [
-    {
-      label: "Review",
-      title: reviewTitle,
-      description: reviewDescription,
-      state: "review" as const,
-    },
-    {
-      label: "Identity",
-      title: "Verify Identity",
-      description: identityDescription,
-      state: "loading" as const,
-    },
-    {
-      label: actionLabel,
-      title: actionTitle,
-      description: actionDescription,
-      state: "loading" as const,
-    },
-  ];
-
-  if (executionLabel && executionTitle && executionDescription) {
-    steps.push({
-      label: executionLabel,
-      title: executionTitle,
-      description: executionDescription,
-      state: "loading" as const,
-    });
-  }
-
-  steps.push({
-    label: "Completed",
-    title: successTitle,
-    description: successDescription,
-    state: "success" as const,
-  });
-
-  return steps;
-}
-
-function getFundAction(fund: FundIssuance) {
+function getFundAction(
+  fund: FundIssuance,
+  context: IssuanceActionContext,
+): IssuanceActionConfig | null {
   if (fund.fundType === "Open-end") {
     switch (fund.status) {
       case "Draft":
-        return {
+        return finalizeIssuanceAction({
+          previewKey: "submit-open-end",
           label: "Submit for Approval",
           nextStatus: "Pending Approval",
           message: "Open-end fund draft submitted for approval",
@@ -2112,23 +2441,28 @@ function getFundAction(fund: FundIssuance) {
           modalTitle: "Submit Open-end Fund For Approval",
           modalDescription:
             "Review the open-end fund draft, verify issuer identity, and submit the issuance request for approval.",
-          modalSteps: buildActionFlow({
-            reviewTitle: "Review Draft Submission",
-            reviewDescription:
-              "Confirm the open-end fund draft, dealing rules, and launch configuration before submission.",
-            identityDescription:
-              "Issuer identity, compliance permissions, and wallet authority are being verified.",
-            actionLabel: "Submit",
-            actionTitle: "Submit Approval Request",
-            actionDescription:
-              "The approval request is being recorded in the fund issuance workflow.",
-            successTitle: "Open-end fund submitted",
-            successDescription:
-              "The open-end fund draft is now waiting for approval review.",
-          }),
-        };
+          reviewTitle: "Review Draft Submission",
+          reviewDescription:
+            "Confirm the open-end fund draft, dealing rules, and launch configuration before submission.",
+          identityDescription:
+            "Issuer identity, compliance permissions, and wallet authority are being verified.",
+          operationLabel: "Submit",
+          operationTitle: "Submit Approval Request",
+          operationDescription:
+            "The approval request is being recorded in the fund issuance workflow.",
+          operationKind: "identity",
+          successTitle: "Open-end fund submitted",
+          successDescription:
+            "The open-end fund draft is now waiting for approval review.",
+          impactType: "internal",
+          requiresTa: false,
+          requiresOnChain: false,
+          nextStepHint: "This action will submit the draft into the internal approval workflow only.",
+          affectedObjects: ["Fund setup", "Launch checklist", "Dealing rule pack"],
+        }, fund, context);
       case "Pending Approval":
-        return {
+        return finalizeIssuanceAction({
+          previewKey: "approve-open-end",
           label: "Approve Launch",
           nextStatus: "Upcoming Launch",
           message: "Approval completed. Fund is queued for launch",
@@ -2137,23 +2471,28 @@ function getFundAction(fund: FundIssuance) {
           modalTitle: "Approve Open-end Launch",
           modalDescription:
             "Verify the approver identity and release the fund into the launch preparation stage.",
-          modalSteps: buildActionFlow({
-            reviewTitle: "Review Approval Decision",
-            reviewDescription:
-              "Confirm the fund is ready to move from approval review into launch preparation.",
-            identityDescription:
-              "Approver identity and issuer authorization are being verified.",
-            actionLabel: "Approve",
-            actionTitle: "Approve Launch",
-            actionDescription:
-              "The approval signature is being recorded for the fund launch decision.",
-            successTitle: "Launch approved",
-            successDescription:
-              "The fund has moved into the upcoming launch stage.",
-          }),
-        };
+          reviewTitle: "Review Approval Decision",
+          reviewDescription:
+            "Confirm the fund is ready to move from approval review into launch preparation.",
+          identityDescription:
+            "Approver identity and issuer authorization are being verified.",
+          operationLabel: "Approve",
+          operationTitle: "Approve Launch",
+          operationDescription:
+            "The approval signature is being recorded for the fund launch decision.",
+          operationKind: "identity",
+          successTitle: "Launch approved",
+          successDescription:
+            "The fund has moved into the upcoming launch stage.",
+          impactType: "internal",
+          requiresTa: false,
+          requiresOnChain: false,
+          nextStepHint: "This action completes the internal approval gate and queues the launch stage.",
+          affectedObjects: ["Launch approval memo", "Operating calendar", "Investor access rules"],
+        }, fund, context);
       case "Upcoming Launch":
-        return {
+        return finalizeIssuanceAction({
+          previewKey: "open-initial-subscription",
           label: "Open Initial Subscription",
           nextStatus: "Initial Subscription",
           message: "Initial subscription window is now open",
@@ -2162,23 +2501,32 @@ function getFundAction(fund: FundIssuance) {
           modalTitle: "Open Initial Subscription",
           modalDescription:
             "Verify issuer identity and activate the initial subscription window for the open-end fund.",
-          modalSteps: buildActionFlow({
-            reviewTitle: "Review Subscription Opening",
-            reviewDescription:
-              "Confirm the launch window, subscription terms, and investor access before opening.",
-            identityDescription:
-              "Issuer identity and subscription-opening authority are being verified.",
-            actionLabel: "Sign",
-            actionTitle: "Sign Opening Request",
-            actionDescription:
-              "The initial subscription opening request is being signed and submitted.",
-            successTitle: "Initial subscription opened",
-            successDescription:
-              "Investors can now enter the initial subscription stage.",
-          }),
-        };
+          reviewTitle: "Review Subscription Opening",
+          reviewDescription:
+            "Confirm the launch window, subscription terms, and investor access before opening.",
+          identityDescription:
+            "Issuer identity and subscription-opening authority are being verified.",
+          taNotificationTitle: "Notify Transfer Agent",
+          taNotificationDescription:
+            "The launch package, onboarding controls, and settlement route are being sent to the transfer agent.",
+          taConfirmationTitle: "Transfer Agent Confirmation",
+          taConfirmationDescription:
+            "Transfer Agent confirmation has been received for the initial subscription opening package.",
+          onChainTitle: "Execute On-chain Update",
+          onChainDescription:
+            "The initial subscription window is being activated on chain for eligible investors.",
+          successTitle: "Initial subscription opened",
+          successDescription:
+            "Investors can now enter the initial subscription stage.",
+          impactType: "hybrid",
+          requiresTa: true,
+          requiresOnChain: true,
+          nextStepHint: "This action will notify TA and update the fund's subscription state on chain.",
+          affectedObjects: ["Launch window", "Investor onboarding pack", "Subscription access rule", "Settlement route"],
+        }, fund, context);
       case "Initial Subscription":
-        return {
+        return finalizeIssuanceAction({
+          previewKey: "activate-daily-dealing",
           label: "Activate Daily Dealing",
           nextStatus: "Active Dealing",
           message: "Fund moved into active daily dealing mode",
@@ -2187,23 +2535,32 @@ function getFundAction(fund: FundIssuance) {
           modalTitle: "Activate Daily Dealing",
           modalDescription:
             "Verify issuer identity and activate ongoing daily dealing for the open-end fund.",
-          modalSteps: buildActionFlow({
-            reviewTitle: "Review Daily Dealing Activation",
-            reviewDescription:
-              "Check the launch readiness, NAV cycle, and settlement settings before activation.",
-            identityDescription:
-              "Issuer identity and dealing activation authority are being verified.",
-            actionLabel: "Activate",
-            actionTitle: "Activate Daily Dealing",
-            actionDescription:
-              "The fund is being switched into daily dealing mode.",
-            successTitle: "Daily dealing activated",
-            successDescription:
-              "The open-end fund is now in active dealing mode.",
-          }),
-        };
+          reviewTitle: "Review Daily Dealing Activation",
+          reviewDescription:
+            "Check the launch readiness, NAV cycle, and settlement settings before activation.",
+          identityDescription:
+            "Issuer identity and dealing activation authority are being verified.",
+          taNotificationTitle: "Notify Transfer Agent",
+          taNotificationDescription:
+            "The daily dealing cut-off and register-servicing package are being handed over to the transfer agent.",
+          taConfirmationTitle: "Transfer Agent Confirmation",
+          taConfirmationDescription:
+            "Transfer Agent confirmation has been received for the active dealing operating package.",
+          onChainTitle: "Execute On-chain Update",
+          onChainDescription:
+            "The fund is being switched into daily dealing mode on chain.",
+          successTitle: "Daily dealing activated",
+          successDescription:
+            "The open-end fund is now in active dealing mode.",
+          impactType: "hybrid",
+          requiresTa: true,
+          requiresOnChain: true,
+          nextStepHint: "This action will hand over the operating package to TA and activate daily dealing on chain.",
+          affectedObjects: ["Daily dealing controls", "NAV cycle", "Settlement calendar", "Register servicing pack"],
+        }, fund, context);
       case "Active Dealing":
-        return {
+        return finalizeIssuanceAction({
+          previewKey: "pause-daily-dealing",
           label: "Pause Dealing",
           nextStatus: "Paused",
           message: "Daily dealing paused",
@@ -2212,23 +2569,26 @@ function getFundAction(fund: FundIssuance) {
           modalTitle: "Pause Daily Dealing",
           modalDescription:
             "Verify issuer identity before pausing open-end dealing operations.",
-          modalSteps: buildActionFlow({
-            reviewTitle: "Review Pause Request",
-            reviewDescription:
-              "Confirm the dealing pause reason and operating impact before proceeding.",
-            identityDescription:
-              "Issuer identity and dealing control authority are being verified.",
-            actionLabel: "Pause",
-            actionTitle: "Pause Dealing",
-            actionDescription:
-              "The daily dealing pause request is being recorded.",
-            successTitle: "Daily dealing paused",
-            successDescription:
-              "The open-end fund has been paused successfully.",
-          }),
-        };
+          reviewTitle: "Review Pause Request",
+          reviewDescription:
+            "Confirm the dealing pause reason and operating impact before proceeding.",
+          identityDescription:
+            "Issuer identity and dealing control authority are being verified.",
+          onChainTitle: "Execute On-chain Update",
+          onChainDescription:
+            "The daily dealing state is being paused on chain.",
+          successTitle: "Daily dealing paused",
+          successDescription:
+            "The open-end fund has been paused successfully.",
+          impactType: "onchain",
+          requiresTa: false,
+          requiresOnChain: true,
+          nextStepHint: "This action will pause the live dealing state on chain.",
+          affectedObjects: ["Dealing state", "Subscription gate", "Redemption gate"],
+        }, fund, context);
       case "Paused":
-        return {
+        return finalizeIssuanceAction({
+          previewKey: "resume-daily-dealing",
           label: "Resume Dealing",
           nextStatus: "Active Dealing",
           message: "Daily dealing resumed",
@@ -2237,21 +2597,23 @@ function getFundAction(fund: FundIssuance) {
           modalTitle: "Resume Daily Dealing",
           modalDescription:
             "Verify issuer identity before resuming open-end dealing operations.",
-          modalSteps: buildActionFlow({
-            reviewTitle: "Review Resume Request",
-            reviewDescription:
-              "Confirm the fund is ready to resume daily dealing for investors.",
-            identityDescription:
-              "Issuer identity and dealing restart authority are being verified.",
-            actionLabel: "Resume",
-            actionTitle: "Resume Dealing",
-            actionDescription:
-              "The daily dealing restart request is being processed.",
-            successTitle: "Daily dealing resumed",
-            successDescription:
-              "The open-end fund has resumed daily dealing.",
-          }),
-        };
+          reviewTitle: "Review Resume Request",
+          reviewDescription:
+            "Confirm the fund is ready to resume daily dealing for investors.",
+          identityDescription:
+            "Issuer identity and dealing restart authority are being verified.",
+          onChainTitle: "Execute On-chain Update",
+          onChainDescription:
+            "The daily dealing state is being resumed on chain.",
+          successTitle: "Daily dealing resumed",
+          successDescription:
+            "The open-end fund has resumed daily dealing.",
+          impactType: "onchain",
+          requiresTa: false,
+          requiresOnChain: true,
+          nextStepHint: "This action will restore the live dealing state on chain.",
+          affectedObjects: ["Dealing state", "Subscription gate", "Redemption gate"],
+        }, fund, context);
       default:
         return null;
     }
@@ -2259,7 +2621,8 @@ function getFundAction(fund: FundIssuance) {
 
   switch (fund.status) {
     case "Draft":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "submit-closed-end",
         label: "Submit for Approval",
         nextStatus: "Pending Approval",
         message: "Closed-end fund draft submitted for approval",
@@ -2268,23 +2631,28 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Submit Closed-end Fund For Approval",
         modalDescription:
           "Review the closed-end issuance draft, verify issuer identity, and submit it for approval.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Draft Submission",
-          reviewDescription:
-            "Check the issuance terms, subscription window, and supporting setup before submission.",
-          identityDescription:
-            "Issuer identity, compliance permissions, and wallet authority are being verified.",
-          actionLabel: "Submit",
-          actionTitle: "Submit Approval Request",
-          actionDescription:
-            "The closed-end fund approval request is being submitted.",
-          successTitle: "Closed-end fund submitted",
-          successDescription:
-            "The fund draft is now waiting for approval review.",
-        }),
-      };
+        reviewTitle: "Review Draft Submission",
+        reviewDescription:
+          "Check the issuance terms, subscription window, and supporting setup before submission.",
+        identityDescription:
+          "Issuer identity, compliance permissions, and wallet authority are being verified.",
+        operationLabel: "Submit",
+        operationTitle: "Submit Approval Request",
+        operationDescription:
+          "The closed-end fund approval request is being submitted.",
+        operationKind: "identity",
+        successTitle: "Closed-end fund submitted",
+        successDescription:
+          "The fund draft is now waiting for approval review.",
+        impactType: "internal",
+        requiresTa: false,
+        requiresOnChain: false,
+        nextStepHint: "This action will submit the issuance draft into the internal approval queue only.",
+        affectedObjects: ["Issuance term sheet", "Subscription window setup", "Investor rule pack"],
+      }, fund, context);
     case "Pending Approval":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "approve-closed-end",
         label: "Approve Listing",
         nextStatus: "Pending Listing",
         message: "Approval completed. Ready for listing",
@@ -2293,23 +2661,28 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Approve Closed-end Listing",
         modalDescription:
           "Verify approver identity and move the closed-end fund into listing preparation.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Listing Approval",
-          reviewDescription:
-            "Confirm the closed-end fund is ready to proceed to listing.",
-          identityDescription:
-            "Approver identity and listing authority are being verified.",
-          actionLabel: "Approve",
-          actionTitle: "Approve Listing",
-          actionDescription:
-            "The approval signature for listing is being recorded.",
-          successTitle: "Listing approved",
-          successDescription:
-            "The fund is now ready for listing actions.",
-        }),
-      };
+        reviewTitle: "Review Listing Approval",
+        reviewDescription:
+          "Confirm the closed-end fund is ready to proceed to listing.",
+        identityDescription:
+          "Approver identity and listing authority are being verified.",
+        operationLabel: "Approve",
+        operationTitle: "Approve Listing",
+        operationDescription:
+          "The approval signature for listing is being recorded.",
+        operationKind: "identity",
+        successTitle: "Listing approved",
+        successDescription:
+          "The fund is now ready for listing actions.",
+        impactType: "internal",
+        requiresTa: false,
+        requiresOnChain: false,
+        nextStepHint: "This action completes internal approval and unlocks the listing package.",
+        affectedObjects: ["Listing readiness checklist", "Approval memo", "Offering summary"],
+      }, fund, context);
     case "Pending Listing":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "list-closed-end",
         label: "List Fund",
         nextStatus: "Upcoming",
         message: "Fund listing has been prepared",
@@ -2318,27 +2691,32 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "List Closed-end Fund",
         modalDescription:
           "Verify issuer identity and complete the listing actions for the closed-end fund.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Listing Request",
-          reviewDescription:
-            "Confirm the fund should move from pending listing into the upcoming subscription stage.",
-          identityDescription:
-            "Issuer identity and listing authority are being verified.",
-          actionLabel: "Sign",
-          actionTitle: "Sign Listing Request",
-          actionDescription:
-            "The wallet signature for fund listing is being recorded.",
-          executionLabel: "List",
-          executionTitle: "Execute Listing",
-          executionDescription:
-            "The listing request is being posted to the issuance workflow.",
-          successTitle: "Fund listed",
-          successDescription:
-            "The closed-end fund is now in the upcoming stage.",
-        }),
-      };
+        reviewTitle: "Review Listing Request",
+        reviewDescription:
+          "Confirm the fund should move from pending listing into the upcoming subscription stage.",
+        identityDescription:
+          "Issuer identity and listing authority are being verified.",
+        taNotificationTitle: "Notify Transfer Agent",
+        taNotificationDescription:
+          "The listing notice, offering summary, and transfer-agent servicing package are being delivered to TA.",
+        taConfirmationTitle: "Transfer Agent Confirmation",
+        taConfirmationDescription:
+          "Transfer Agent confirmation has been received for the pre-subscription listing package.",
+        onChainTitle: "Execute On-chain Listing",
+        onChainDescription:
+          "The listing notice is being published on chain for the upcoming subscription period.",
+        successTitle: "Fund listed",
+        successDescription:
+          "The closed-end fund is now in the upcoming stage.",
+        impactType: "hybrid",
+        requiresTa: true,
+        requiresOnChain: true,
+        nextStepHint: "This action will notify TA and publish the listing notice on chain.",
+        affectedObjects: ["Listing notice", "Offering summary", "Transfer-agent servicing package", "Token contract reference"],
+      }, fund, context);
     case "Upcoming":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "open-closed-end-subscription",
         label: "Open Subscription",
         nextStatus: "Open For Subscription",
         message: "Closed-end subscription window is now open",
@@ -2347,23 +2725,32 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Open Closed-end Subscription",
         modalDescription:
           "Verify issuer identity and open the subscription window for investors.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Subscription Opening",
-          reviewDescription:
-            "Confirm the subscription window and issuance terms before opening investor access.",
-          identityDescription:
-            "Issuer identity and subscription authority are being verified.",
-          actionLabel: "Sign",
-          actionTitle: "Sign Opening Request",
-          actionDescription:
-            "The subscription opening request is being signed.",
-          successTitle: "Subscription opened",
-          successDescription:
-            "The closed-end fund is now open for subscription.",
-        }),
-      };
+        reviewTitle: "Review Subscription Opening",
+        reviewDescription:
+          "Confirm the subscription window and issuance terms before opening investor access.",
+        identityDescription:
+          "Issuer identity and subscription authority are being verified.",
+        taNotificationTitle: "Notify Transfer Agent",
+        taNotificationDescription:
+          "The live subscription window, settlement route, and eligibility package are being handed to the transfer agent.",
+        taConfirmationTitle: "Transfer Agent Confirmation",
+        taConfirmationDescription:
+          "Transfer Agent confirmation has been received for the subscription opening package.",
+        onChainTitle: "Execute On-chain Update",
+        onChainDescription:
+          "The subscription window is being opened on chain for eligible investors.",
+        successTitle: "Subscription opened",
+        successDescription:
+          "The closed-end fund is now open for subscription.",
+        impactType: "hybrid",
+        requiresTa: true,
+        requiresOnChain: true,
+        nextStepHint: "This action will notify TA and update the subscription state on chain.",
+        affectedObjects: ["Subscription window", "Eligibility pack", "Funding route", "Collection destination"],
+      }, fund, context);
     case "Open For Subscription":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "close-book",
         label: "Close and Start Allocation",
         nextStatus: "Allocation Period",
         message: "Subscription closed. Allocation period started",
@@ -2372,23 +2759,29 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Close Subscription And Start Allocation",
         modalDescription:
           "Verify issuer identity and close subscriptions before starting allocation.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Allocation Start",
-          reviewDescription:
-            "Confirm subscriptions should be closed and allocation processing should begin.",
-          identityDescription:
-            "Issuer identity and allocation-start authority are being verified.",
-          actionLabel: "Close",
-          actionTitle: "Close Subscription Window",
-          actionDescription:
-            "The subscription close instruction is being processed.",
-          successTitle: "Allocation started",
-          successDescription:
-            "The fund is now in the allocation period.",
-        }),
-      };
+        reviewTitle: "Review Allocation Start",
+        reviewDescription:
+          "Confirm subscriptions should be closed and allocation processing should begin.",
+        identityDescription:
+          "Issuer identity and allocation-start authority are being verified.",
+        taNotificationTitle: "Notify Transfer Agent",
+        taNotificationDescription:
+          "The accepted subscription book is being locked and sent to TA for allocation intake.",
+        taConfirmationTitle: "Transfer Agent Confirmation",
+        taConfirmationDescription:
+          "Transfer Agent confirmation has been received for the allocation intake package.",
+        successTitle: "Allocation started",
+        successDescription:
+          "The fund is now in the allocation period.",
+        impactType: "ta",
+        requiresTa: true,
+        requiresOnChain: false,
+        nextStepHint: "This action will notify TA to freeze the book and start allocation review.",
+        affectedObjects: ["Subscription order book", "Accepted investor list", "Pre-allocation register draft"],
+      }, fund, context);
     case "Allocation Period":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "calculate-allocation",
         label: "Calculate Allocation",
         nextStatus: "Calculated",
         message: "Allocation calculation completed",
@@ -2397,23 +2790,29 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Calculate Allocation",
         modalDescription:
           "Verify issuer identity before running the allocation calculation step.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Allocation Calculation",
-          reviewDescription:
-            "Confirm the subscription book is ready for allocation calculation.",
-          identityDescription:
-            "Issuer identity and allocation-calculation authority are being verified.",
-          actionLabel: "Calculate",
-          actionTitle: "Calculate Allocation",
-          actionDescription:
-            "The allocation result is being calculated for the closed-end fund.",
-          successTitle: "Allocation calculated",
-          successDescription:
-            "The allocation result is ready for the next on-chain step.",
-        }),
-      };
+        reviewTitle: "Review Allocation Calculation",
+        reviewDescription:
+          "Confirm the subscription book is ready for allocation calculation.",
+        identityDescription:
+          "Issuer identity and allocation-calculation authority are being verified.",
+        taNotificationTitle: "Notify Transfer Agent",
+        taNotificationDescription:
+          "The final order book and allocation workbook are being submitted for TA review.",
+        taConfirmationTitle: "Transfer Agent Confirmation",
+        taConfirmationDescription:
+          "Transfer Agent confirmation has been received for the allocation workbook review package.",
+        successTitle: "Allocation calculated",
+        successDescription:
+          "The allocation result is ready for the next on-chain step.",
+        impactType: "ta",
+        requiresTa: true,
+        requiresOnChain: false,
+        nextStepHint: "This action will notify TA to validate the allocation workbook and register delta.",
+        affectedObjects: ["Allocation workbook", "Cap table draft", "Register delta approval"],
+      }, fund, context);
     case "Calculated":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "allocate-on-chain",
         label: "Allocate On Chain",
         nextStatus: "Allocate On Chain",
         message: "Allocation moved to on-chain execution",
@@ -2422,27 +2821,32 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Allocate On Chain",
         modalDescription:
           "Verify issuer identity and execute the on-chain allocation step.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review On-chain Allocation",
-          reviewDescription:
-            "Confirm the calculated allocation result before pushing it on chain.",
-          identityDescription:
-            "Issuer identity and on-chain allocation authority are being verified.",
-          actionLabel: "Approve",
-          actionTitle: "Approve Allocation",
-          actionDescription:
-            "The on-chain allocation approval is being signed.",
-          executionLabel: "Execute",
-          executionTitle: "Execute Allocation",
-          executionDescription:
-            "The calculated allocation is being sent to the on-chain step.",
-          successTitle: "Allocation moved on chain",
-          successDescription:
-            "The allocation is now in the on-chain execution stage.",
-        }),
-      };
+        reviewTitle: "Review On-chain Allocation",
+        reviewDescription:
+          "Confirm the calculated allocation result before pushing it on chain.",
+        identityDescription:
+          "Issuer identity and on-chain allocation authority are being verified.",
+        taNotificationTitle: "Notify Transfer Agent",
+        taNotificationDescription:
+          "The mint instruction, wallet allocation list, and register baseline are being submitted to TA.",
+        taConfirmationTitle: "Transfer Agent Confirmation",
+        taConfirmationDescription:
+          "Transfer Agent confirmation has been received for the mint instruction package.",
+        onChainTitle: "Execute On-chain Allocation",
+        onChainDescription:
+          "The calculated allocation is being executed on chain against the approved instruction set.",
+        successTitle: "Allocation moved on chain",
+        successDescription:
+          "The allocation is now in the on-chain execution stage.",
+        impactType: "hybrid",
+        requiresTa: true,
+        requiresOnChain: true,
+        nextStepHint: "This action will notify TA and execute the final allocation on chain.",
+        affectedObjects: ["Final allocation workbook", "Mint instruction", "Wallet allocation list", "Initial holder register baseline"],
+      }, fund, context);
     case "Allocate On Chain":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "mark-allocation-completed",
         label: "Mark Allocation Completed",
         nextStatus: "Allocation Completed",
         message: "On-chain allocation completed",
@@ -2451,23 +2855,32 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Mark Allocation Completed",
         modalDescription:
           "Verify issuer identity before confirming the on-chain allocation is complete.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Allocation Completion",
-          reviewDescription:
-            "Confirm the on-chain allocation step completed successfully.",
-          identityDescription:
-            "Issuer identity and completion authority are being verified.",
-          actionLabel: "Confirm",
-          actionTitle: "Confirm Completion",
-          actionDescription:
-            "The allocation completion confirmation is being recorded.",
-          successTitle: "Allocation completed",
-          successDescription:
-            "The fund has completed the allocation step.",
-        }),
-      };
+        reviewTitle: "Review Allocation Completion",
+        reviewDescription:
+          "Confirm the on-chain allocation step completed successfully.",
+        identityDescription:
+          "Issuer identity and completion authority are being verified.",
+        taNotificationTitle: "Notify Transfer Agent",
+        taNotificationDescription:
+          "The executed mint result and holder-register posting package are being sent to TA.",
+        taConfirmationTitle: "Transfer Agent Confirmation",
+        taConfirmationDescription:
+          "Transfer Agent confirmation has been received for the post-mint register package.",
+        onChainTitle: "Record On-chain Completion",
+        onChainDescription:
+          "The on-chain issuance workflow is being updated to mark the allocation as completed.",
+        successTitle: "Allocation completed",
+        successDescription:
+          "The fund has completed the allocation step.",
+        impactType: "hybrid",
+        requiresTa: true,
+        requiresOnChain: true,
+        nextStepHint: "This action will notify TA, reconcile the posted mint result, and update the on-chain completion state.",
+        affectedObjects: ["Mint execution result", "Booked holder register", "Issuance execution confirmation"],
+      }, fund, context);
     case "Allocation Completed":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "complete-issuance",
         label: "Complete Issuance",
         nextStatus: "Issuance Completed",
         message: "Issuance process completed",
@@ -2476,23 +2889,29 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Complete Issuance",
         modalDescription:
           "Verify issuer identity and complete the closed-end issuance process.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Issuance Completion",
-          reviewDescription:
-            "Confirm the issuance can move from allocation completion to final completion.",
-          identityDescription:
-            "Issuer identity and issuance-completion authority are being verified.",
-          actionLabel: "Complete",
-          actionTitle: "Complete Issuance",
-          actionDescription:
-            "The issuance completion request is being processed.",
-          successTitle: "Issuance completed",
-          successDescription:
-            "The closed-end issuance process has been completed.",
-        }),
-      };
+        reviewTitle: "Review Issuance Completion",
+        reviewDescription:
+          "Confirm the issuance can move from allocation completion to final completion.",
+        identityDescription:
+          "Issuer identity and issuance-completion authority are being verified.",
+        taNotificationTitle: "Notify Transfer Agent",
+        taNotificationDescription:
+          "The final issuance close-out memo and register baseline confirmation are being sent to TA.",
+        taConfirmationTitle: "Transfer Agent Confirmation",
+        taConfirmationDescription:
+          "Transfer Agent confirmation has been received for the issuance close-out package.",
+        successTitle: "Issuance completed",
+        successDescription:
+          "The closed-end issuance process has been completed.",
+        impactType: "ta",
+        requiresTa: true,
+        requiresOnChain: false,
+        nextStepHint: "This action will notify TA to close the issuance workflow and confirm the register baseline.",
+        affectedObjects: ["Initial holder register baseline", "TA close-out memo", "Operational handoff pack"],
+      }, fund, context);
     case "Issuance Completed":
-      return {
+      return finalizeIssuanceAction({
+        previewKey: "activate-closed-end-fund",
         label: "Activate Fund",
         nextStatus: "Issuance Active",
         message: "Closed-end fund is now active",
@@ -2501,24 +2920,138 @@ function getFundAction(fund: FundIssuance) {
         modalTitle: "Activate Closed-end Fund",
         modalDescription:
           "Verify issuer identity and activate the fund after issuance completion.",
-        modalSteps: buildActionFlow({
-          reviewTitle: "Review Fund Activation",
-          reviewDescription:
-            "Confirm the fund is ready to enter its active post-issuance state.",
-          identityDescription:
-            "Issuer identity and fund-activation authority are being verified.",
-          actionLabel: "Activate",
-          actionTitle: "Activate Fund",
-          actionDescription:
-            "The activation request is being recorded for the closed-end fund.",
-          successTitle: "Fund activated",
-          successDescription:
-            "The closed-end fund is now active.",
-        }),
-      };
+        reviewTitle: "Review Fund Activation",
+        reviewDescription:
+          "Confirm the fund is ready to enter its active post-issuance state.",
+        identityDescription:
+          "Issuer identity and fund-activation authority are being verified.",
+        onChainTitle: "Execute On-chain Activation",
+        onChainDescription:
+          "The fund is being moved into its active post-issuance state on chain.",
+        successTitle: "Fund activated",
+        successDescription:
+          "The closed-end fund is now active.",
+        impactType: "onchain",
+        requiresTa: false,
+        requiresOnChain: true,
+        nextStepHint: "This action will activate the fund on chain using the confirmed register baseline.",
+        affectedObjects: ["Active fund ledger baseline", "Fund activation flag", "Post-issuance operating state"],
+      }, fund, context);
     default:
       return null;
   }
+}
+
+function getActionPanelSurfaceClasses(impactType: IssuanceActionImpactType) {
+  switch (impactType) {
+    case "ta":
+      return "border-teal-200 bg-teal-50/70";
+    case "onchain":
+      return "border-cyan-200 bg-cyan-50/70";
+    case "hybrid":
+      return "border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-teal-50";
+    case "internal":
+    default:
+      return "border-slate-200 bg-slate-50/80";
+  }
+}
+
+function IssuanceNextActionPanel({
+  action,
+  currentStatus,
+  disabled,
+  disabledReason,
+  onOpen,
+}: {
+  action: IssuanceActionConfig;
+  currentStatus: string;
+  disabled: boolean;
+  disabledReason?: string;
+  onOpen: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-4 shadow-sm",
+        getActionPanelSurfaceClasses(action.impactType),
+      )}
+    >
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex-1 space-y-4">
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+              Next Action
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+              <span>{currentStatus}</span>
+              <span className="text-slate-400">-&gt;</span>
+              <span>{action.nextStatus}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {action.impactBadges.map((badge) => (
+              <Badge
+                key={`${badge.kind}-${badge.label}`}
+                variant="outline"
+                className={
+                  badge.kind === "ta"
+                    ? "border-teal-200 bg-teal-50 text-teal-700"
+                    : badge.kind === "onchain"
+                      ? "border-cyan-200 bg-cyan-50 text-cyan-700"
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                }
+              >
+                {badge.label}
+              </Badge>
+            ))}
+          </div>
+
+          <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {action.previewSummary.map((item) => (
+              <div key={item.label} className="rounded-lg border bg-white/90 p-3">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {item.label}
+                </div>
+                <div className="mt-1 text-sm font-medium text-foreground">{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Affected Objects
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {action.affectedObjects.map((item) => (
+                <div
+                  key={item}
+                  className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700"
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="xl:w-56 xl:shrink-0">
+          <Button
+            className="w-full"
+            variant={action.variant}
+            disabled={disabled}
+            title={disabled ? disabledReason : undefined}
+            onClick={onOpen}
+          >
+            <action.icon className="mr-2 h-4 w-4" />
+            {action.label}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function renderOrderTable(
@@ -2645,9 +3178,7 @@ export function FundIssuanceDetail() {
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [issuerActionModalOpen, setIssuerActionModalOpen] = useState(false);
-  const [pendingIssuerAction, setPendingIssuerAction] = useState<
-    ReturnType<typeof getFundAction> | null
-  >(null);
+  const [pendingIssuerAction, setPendingIssuerAction] = useState<IssuanceActionConfig | null>(null);
 
   const {
     currentInvestor,
@@ -3067,7 +3598,13 @@ export function FundIssuanceDetail() {
     if (!added) return;
   };
 
-  const issuerAction = getFundAction(fundData);
+  const issuanceActionContext: IssuanceActionContext = {
+    allocationPreview,
+    issuanceApprovalObjects,
+    issuanceLedgerRows,
+    allFundOrders,
+  };
+  const issuerAction = getFundAction(fundData, issuanceActionContext);
   const editableSections = getEditableSections(fundData);
   const canOpenEndSubscribe =
     isOpenEnd &&
@@ -3090,6 +3627,35 @@ export function FundIssuanceDetail() {
     userRole === "issuer" &&
     updateFundPermission.allowed &&
     editableSections.length > 0;
+  const issuanceResponsibilityItems = !isOpenEnd
+    ? [
+        {
+          label: "1. Draft Listing",
+          owner: "Issuer / Fund Manager",
+          description: "Define the issuance terms, token setup, and subscription rules before submission.",
+        },
+        {
+          label: "2. Review And Approve",
+          owner: "Issuer / Approver",
+          description: "Review the closed-end draft and confirm the fund is ready for listing preparation.",
+        },
+        {
+          label: "3. Collect Subscriptions",
+          owner: "Investor / Issuer",
+          description: "Open the subscription window and accept investor participation into the issuance book.",
+        },
+        {
+          label: "4. Validate Allocation",
+          owner: "Transfer Agent",
+          description: "Freeze the order book, review the allocation workbook, and approve the mint instruction.",
+        },
+        {
+          label: "5. Publish Register",
+          owner: "Transfer Agent / Issuer",
+          description: "Complete on-chain issuance, publish the initial holder register, and activate the fund.",
+        },
+      ]
+    : [];
 
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
@@ -3190,7 +3756,7 @@ export function FundIssuanceDetail() {
           currentStatus={fundData.status}
           fundType={fundData.fundType}
           actionSlot={
-            !isMarketplaceView && issuerAction ? (
+            !isMarketplaceView && issuerAction && isOpenEnd ? (
               <Button
                 variant={issuerAction.variant}
                 disabled={!issuerActionPermission.allowed}
@@ -3203,6 +3769,20 @@ export function FundIssuanceDetail() {
                 <issuerAction.icon className="mr-2 h-4 w-4" />
                 {issuerAction.label}
               </Button>
+            ) : undefined
+          }
+          actionPanel={
+            !isMarketplaceView && issuerAction && !isOpenEnd ? (
+              <IssuanceNextActionPanel
+                action={issuerAction}
+                currentStatus={fundData.status}
+                disabled={!issuerActionPermission.allowed}
+                disabledReason={issuerActionPermission.reason}
+                onOpen={() => {
+                  setPendingIssuerAction(issuerAction);
+                  setIssuerActionModalOpen(true);
+                }}
+              />
             ) : undefined
           }
         />
@@ -4436,18 +5016,11 @@ export function FundIssuanceDetail() {
           title={pendingIssuerAction.modalTitle}
           description={pendingIssuerAction.modalDescription}
           steps={pendingIssuerAction.modalSteps}
+          impactBadges={pendingIssuerAction.impactBadges}
+          detailGroups={pendingIssuerAction.previewDetails}
           startLabel="Start"
           completionLabel="Done"
-          summary={[
-            { label: "Fund", value: fundData.name },
-            { label: "Fund Type", value: fundData.fundType },
-            { label: "Current Status", value: fundData.status },
-            { label: "Actor Role", value: userRole },
-            {
-              label: "Latest NAV",
-              value: fundData.currentNav,
-            },
-          ]}
+          summary={pendingIssuerAction.previewSummary}
         />
       )}
     </div>

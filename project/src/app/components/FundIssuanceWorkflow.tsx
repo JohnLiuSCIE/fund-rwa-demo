@@ -309,6 +309,7 @@ interface FundWorkflowProps {
   type?: WorkflowType;
   fundType?: IssuanceFundType;
   actionSlot?: ReactNode;
+  actionPanel?: ReactNode;
   workflowModel?: WorkflowModel;
   distributionLabel?: "Distribution" | "Dividend";
 }
@@ -366,6 +367,7 @@ interface FundIssuanceWorkflowProps {
   variant?: "full" | "compact";
   fundType?: IssuanceFundType;
   actionSlot?: ReactNode;
+  actionPanel?: ReactNode;
   workflowModel?: WorkflowModel;
   distributionLabel?: "Distribution" | "Dividend";
 }
@@ -950,6 +952,7 @@ export function FundIssuanceWorkflow({
   variant = "full",
   fundType = "Closed-end",
   actionSlot,
+  actionPanel,
   workflowModel = "default",
 }: FundIssuanceWorkflowProps) {
   return (
@@ -959,6 +962,7 @@ export function FundIssuanceWorkflow({
       type="issuance"
       fundType={fundType}
       actionSlot={actionSlot}
+      actionPanel={actionPanel}
       workflowModel={workflowModel}
     />
   );
@@ -1006,6 +1010,7 @@ function FundWorkflow({
   type = "issuance",
   fundType = "Closed-end",
   actionSlot,
+  actionPanel,
   workflowModel = "default",
   distributionLabel = "Distribution",
 }: FundWorkflowProps) {
@@ -1301,6 +1306,8 @@ function FundWorkflow({
               )}
             </div>
           )}
+
+          {actionPanel}
 
           {actionSlot && <div className="flex justify-end">{actionSlot}</div>}
         </div>
