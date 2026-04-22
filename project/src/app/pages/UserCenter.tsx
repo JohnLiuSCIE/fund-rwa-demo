@@ -1,262 +1,281 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { useMemo, useState } from "react";
+
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { StatusBadge } from "../components/StatusBadge";
-import { useApp } from "../context/AppContext";
+import { Separator } from "../components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Textarea } from "../components/ui/textarea";
+import { useRbacWorkflow } from "../modules/rbac/useRbacWorkflow";
+
+const ACTIONS = [
+  { key: "save_draft", label: "Save Draft" },
+  { key: "submit_for_review", label: "Submit" },
+  { key: "resubmit", label: "Resubmit" },
+  { key: "approve", label: "Approve" },
+  { key: "reject", label: "Reject" },
+  { key: "final_confirm", label: "Final Confirm" },
+] as const;
+
+const UAT_CHECKLIST = [
+  "Maker can create listing and keep status in Draft.",
+  "Maker can submit Draft/ChangesRequested listing to PendingReview.",
+  "Checker can approve/reject from PendingReview.",
+  "Checker can final confirm ApprovedInternal to Listed.",
+  "Platform user can view tenants and all tenant listings (read-only).",
+  "Cross-tab sync works via BroadcastChannel/storage fallback.",
+  "Version conflict shows warning and blocks stale write.",
+];
+
+const DEMO_SCRIPT = [
+  "Step 1: switch to Alpha Maker and click Create Demo Listing.",
+  "Step 2: run Submit action so listing enters PendingReview.",
+  "Step 3: switch to Alpha Checker and run Approve -> Final Confirm.",
+  "Step 4: switch to Platform Super Admin and verify penetrated read-only listing state is Listed.",
+];
 
 export function UserCenter() {
-  const { currentInvestor, fundOrders, fundIssuances, fundDistributions } = useApp();
+  const {
+    users,
+    tenants,
+    events,
+    currentUser,
+    currentRole,
+    tenantScopedListings,
+    checkerQueue,
+    error,
+    stageByStep,
+    setCurrentUserId,
+    createListing,
+    applyAction,
+    resetAll,
+  } = useRbacWorkflow();
 
-  const investorOrders = fundOrders.filter((order) => order.investorId === currentInvestor.id);
-  const subscriptionOrders = investorOrders.filter((order) => order.type === "subscription");
-  const redemptionOrders = investorOrders.filter((order) => order.type === "redemption");
-  const activeFund = fundIssuances.find((fund) => fund.id === "fund-open-001");
+  const [comment, setComment] = useState("");
+
+  const groupedByTenant = useMemo(() => {
+    return tenants.map((tenant) => ({
+      ...tenant,
+      listings: tenantScopedListings.filter((item) => item.tenantId === tenant.tenantId),
+    }));
+  }, [tenantScopedListings, tenants]);
 
   return (
-    <div className="container mx-auto px-6 py-8 max-w-7xl">
-      <div className="mb-8">
-        <h1 style={{ fontFamily: "var(--font-heading)" }}>User Center</h1>
+    <div className="container mx-auto px-6 py-8 max-w-7xl space-y-6">
+      <div>
+        <h1 style={{ fontFamily: "var(--font-heading)" }}>RBAC Workflow Workbench (WF-01 ~ WF-08)</h1>
         <p className="text-muted-foreground mt-2">
-          Track your open-end fund holdings, subscription orders, redemption requests, and settlement progress.
+          Platform / Tenant Maker / Tenant Checker unified simulation with local event store and sync.
         </p>
       </div>
 
-      <div className="grid md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-muted-foreground mb-1">Open Orders</div>
-          <div className="text-2xl font-semibold">
-            {investorOrders.filter((order) => !["Completed", "Confirmed", "Rejected"].includes(order.status)).length}
+      <Card>
+        <CardHeader>
+          <CardTitle>Persona Switcher (WF-01)</CardTitle>
+          <CardDescription>Switch identity to verify scoped access control and data synchronization.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid md:grid-cols-3 gap-4 items-end">
+          <div className="space-y-2">
+            <Label>Active User</Label>
+            <select
+              className="w-full h-10 rounded-md border px-3 bg-background"
+              value={currentUser.userId}
+              onChange={(event) => setCurrentUserId(event.target.value)}
+            >
+              {users.map((user) => (
+                <option key={user.userId} value={user.userId}>
+                  {user.displayName}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-        <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-muted-foreground mb-1">Subscription Orders</div>
-          <div className="text-2xl font-semibold">{subscriptionOrders.length}</div>
-        </div>
-        <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-muted-foreground mb-1">Redemption Orders</div>
-          <div className="text-2xl font-semibold">{redemptionOrders.length}</div>
-        </div>
-        <div className="bg-white border rounded-lg p-4">
-          <div className="text-sm text-muted-foreground mb-1">Current Holdings</div>
-          <div className="text-2xl font-semibold">
-            {activeFund?.availableHoldingLabel || "0 units"}
+          <div className="space-y-2">
+            <Label>Role</Label>
+            <Input value={currentRole} disabled />
           </div>
-        </div>
-      </div>
+          <div className="space-y-2">
+            <Label>Tenant Scope</Label>
+            <Input value={currentUser.tenantId || "platform-global"} disabled />
+          </div>
+        </CardContent>
+      </Card>
 
-      <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5 h-auto">
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="holdings">Holdings</TabsTrigger>
-          <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
-          <TabsTrigger value="redemptions">Redemptions</TabsTrigger>
-          <TabsTrigger value="distributions">Distributions</TabsTrigger>
+      {error && <div className="text-sm rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>}
+
+      <Tabs defaultValue="tenant" className="space-y-4">
+        <TabsList className="grid grid-cols-5 w-full h-auto">
+          <TabsTrigger value="tenant">Tenant Workbench</TabsTrigger>
+          <TabsTrigger value="platform">Platform View</TabsTrigger>
+          <TabsTrigger value="sync">Sync & Events</TabsTrigger>
+          <TabsTrigger value="uat">UAT</TabsTrigger>
+          <TabsTrigger value="api">API Mapping Draft</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="profile">
+        <TabsContent value="tenant" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Investor Profile</CardTitle>
+              <CardTitle>Maker / Checker Board (WF-03, WF-04)</CardTitle>
+              <CardDescription>Create listings and run state-machine actions by role.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label>Full Name</Label>
-                  <Input value={currentInvestor.name} disabled />
-                </div>
-                <div className="space-y-2">
-                  <Label>Investor Type</Label>
-                  <Input value={currentInvestor.investorType} disabled />
-                </div>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={createListing}>Create Demo Listing</Button>
+                <Button variant="outline" onClick={resetAll}>Reset Demo Data</Button>
+                <Badge variant="secondary">Checker Queue: {checkerQueue.length}</Badge>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label>Jurisdiction</Label>
-                  <Input value={currentInvestor.jurisdiction} disabled />
-                </div>
-                <div className="space-y-2">
-                  <Label>Wallet Address</Label>
-                  <Input value={currentInvestor.wallet} disabled className="font-mono text-sm" />
-                </div>
+              <div className="space-y-3">
+                <Label>Review Comment (for approve/reject)</Label>
+                <Textarea
+                  value={comment}
+                  onChange={(event) => setComment(event.target.value)}
+                  placeholder="Enter checker note or rejection reason"
+                />
+              </div>
+
+              <div className="space-y-3">
+                {tenantScopedListings.length === 0 && (
+                  <div className="text-sm text-muted-foreground">No listings yet. Create one from maker persona first.</div>
+                )}
+                {tenantScopedListings.map((record) => (
+                  <div key={record.listingId} className="rounded-md border p-4 space-y-3">
+                    <div className="flex flex-wrap gap-2 items-center justify-between">
+                      <div className="font-medium">{record.name}</div>
+                      <div className="text-xs text-muted-foreground">{record.listingId}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <Badge variant="outline">Status: {record.status}</Badge>
+                      <Badge variant="outline">Step: {record.step}</Badge>
+                      <Badge variant="outline">Owner Tenant: {record.tenantId}</Badge>
+                      <Badge variant="outline">Version: {record.version}</Badge>
+                      <Badge variant="outline">Current Stage: {stageByStep(record.step)}</Badge>
+                    </div>
+                    <div className="grid md:grid-cols-3 gap-2">
+                      {ACTIONS.map((action) => (
+                        <Button
+                          key={action.key}
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => applyAction(record, action.key, comment)}
+                        >
+                          {action.label}
+                        </Button>
+                      ))}
+                    </div>
+                    {record.reviewComment && (
+                      <div className="text-xs text-muted-foreground">Latest review note: {record.reviewComment}</div>
+                    )}
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="holdings">
+        <TabsContent value="platform" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Fund Holdings</CardTitle>
+              <CardTitle>Platform Tenant Management & Penetration View (WF-05)</CardTitle>
+              <CardDescription>Platform user can inspect tenant status and all products in read-only mode.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Fund</TableHead>
-                    <TableHead>Fund Type</TableHead>
-                    <TableHead>Current NAV</TableHead>
-                    <TableHead>Holding Units</TableHead>
-                    <TableHead>Redemption Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {activeFund ? (
-                    <TableRow>
-                      <TableCell className="font-medium">{activeFund.name}</TableCell>
-                      <TableCell>{activeFund.fundType}</TableCell>
-                      <TableCell>{activeFund.currentNav}</TableCell>
-                      <TableCell>{activeFund.availableHoldingLabel}</TableCell>
-                      <TableCell>{activeFund.redemptionStatus}</TableCell>
-                    </TableRow>
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        No holdings found.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+            <CardContent className="space-y-4">
+              {groupedByTenant.map((tenant) => (
+                <div key={tenant.tenantId} className="border rounded-md p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{tenant.tenantName}</div>
+                      <div className="text-xs text-muted-foreground">{tenant.tenantId}</div>
+                    </div>
+                    <Badge>{tenant.status}</Badge>
+                  </div>
+                  <Separator />
+                  <div className="space-y-2 text-sm">
+                    {tenant.listings.length === 0 ? (
+                      <div className="text-muted-foreground">No listing records under this tenant.</div>
+                    ) : (
+                      tenant.listings.map((item) => (
+                        <div key={item.listingId} className="flex items-center justify-between">
+                          <span>{item.name}</span>
+                          <Badge variant="outline">{item.status}</Badge>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="subscriptions">
+        <TabsContent value="sync" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Subscription Orders</CardTitle>
+              <CardTitle>Event Log / Snapshot / Conflict Handling (WF-06, WF-07)</CardTitle>
+              <CardDescription>
+                Append-only events with optimistic version check; open another tab to observe sync behavior.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Order ID</TableHead>
-                    <TableHead>Fund</TableHead>
-                    <TableHead>Requested Amount</TableHead>
-                    <TableHead>Estimated Shares</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Submit Time</TableHead>
-                    <TableHead>Settlement Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {subscriptionOrders.map((order) => {
-                    const fund = fundIssuances.find((item) => item.id === order.fundId);
-                    return (
-                      <TableRow key={order.id}>
-                        <TableCell className="font-mono text-xs">{order.id}</TableCell>
-                        <TableCell>{fund?.name || order.fundId}</TableCell>
-                        <TableCell>{order.requestAmount}</TableCell>
-                        <TableCell>{order.estimatedSharesOrCash}</TableCell>
-                        <TableCell>
-                          <StatusBadge status={order.status} />
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{order.submitTime}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{order.settlementTime || "Pending"}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {subscriptionOrders.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                        No subscription orders found.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+            <CardContent className="space-y-3">
+              {events.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No events yet.</div>
+              ) : (
+                events
+                  .slice()
+                  .reverse()
+                  .map((event) => (
+                    <div key={event.eventId} className="border rounded-md p-3 text-sm">
+                      <div className="font-medium">{event.eventType}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {event.aggregateId} · {event.actor.role} · expectedVersion={event.expectedVersion}
+                      </div>
+                    </div>
+                  ))
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="redemptions">
+        <TabsContent value="uat" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Redemption Orders</CardTitle>
+              <CardTitle>UAT Checklist + Demo Script (WF-08)</CardTitle>
             </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Order ID</TableHead>
-                    <TableHead>Fund</TableHead>
-                    <TableHead>Requested Shares</TableHead>
-                    <TableHead>Estimated Cash</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Submit Time</TableHead>
-                    <TableHead>Settlement Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {redemptionOrders.map((order) => {
-                    const fund = fundIssuances.find((item) => item.id === order.fundId);
-                    return (
-                      <TableRow key={order.id}>
-                        <TableCell className="font-mono text-xs">{order.id}</TableCell>
-                        <TableCell>{fund?.name || order.fundId}</TableCell>
-                        <TableCell>{order.requestQuantity}</TableCell>
-                        <TableCell>{order.estimatedSharesOrCash}</TableCell>
-                        <TableCell>
-                          <StatusBadge status={order.status} />
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{order.submitTime}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{order.settlementTime || "Pending"}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {redemptionOrders.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                        No redemption orders found.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="distributions">
-          <Card>
-            <CardHeader>
-              <CardTitle>Distributions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Record Date</TableHead>
-                    <TableHead>Payment Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {fundDistributions.map((distribution) => (
-                    <TableRow key={distribution.id}>
-                      <TableCell className="font-mono text-xs">{distribution.id}</TableCell>
-                      <TableCell>{distribution.name}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={distribution.status} />
-                      </TableCell>
-                      <TableCell>{distribution.recordDate || "TBD"}</TableCell>
-                      <TableCell>{distribution.paymentDate || "TBD"}</TableCell>
-                    </TableRow>
+            <CardContent className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <div className="font-medium">Checklist</div>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  {UAT_CHECKLIST.map((item) => (
+                    <li key={item}>{item}</li>
                   ))}
-                </TableBody>
-              </Table>
+                </ul>
+              </div>
+              <div className="space-y-2">
+                <div className="font-medium">Demo Script</div>
+                <ol className="list-decimal list-inside text-sm space-y-1">
+                  {DEMO_SCRIPT.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ol>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="api" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>API Mapping Draft (WF-08)</CardTitle>
+              <CardDescription>Interface draft for future backend integration.</CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm space-y-2">
+              <div><code>POST /api/tenants/:tenantId/listings</code> create listing draft (maker).</div>
+              <div><code>POST /api/listings/:listingId/actions/submit_for_review</code> maker submit.</div>
+              <div><code>POST /api/listings/:listingId/actions/approve</code> checker approve.</div>
+              <div><code>POST /api/listings/:listingId/actions/reject</code> checker reject with comment.</div>
+              <div><code>POST /api/listings/:listingId/actions/final_confirm</code> checker confirm listing.</div>
+              <div><code>GET /api/platform/tenants/:tenantId/listings</code> platform read-only penetration.</div>
             </CardContent>
           </Card>
         </TabsContent>
