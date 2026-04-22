@@ -30,6 +30,7 @@ export type OrderStatus =
 export type BatchStatus = "Scheduled" | "Processing" | "Confirmed" | "Settled";
 export type ActorRole = "issuer" | "investor";
 export type NavUpdateMode = "Manual" | "Oracle Feed";
+export type TenantId = string;
 
 export interface NavRecord {
   id: string;
@@ -179,6 +180,8 @@ export interface FundIssuance {
   lastActorRole?: ActorRole;
   lastActionAt?: string;
   identitySource?: "authSession";
+  tenantId?: TenantId;
+  lastActorWallet?: string;
 }
 
 export interface FundOrder {
@@ -221,6 +224,8 @@ export interface FundOrder {
   lastActorRole?: ActorRole;
   lastActionAt?: string;
   identitySource?: "authSession";
+  tenantId?: TenantId;
+  lastActorWallet?: string;
 }
 
 export interface FundBatch {
@@ -234,6 +239,7 @@ export interface FundBatch {
   totalQuantity: string;
   settlementDate: string;
   status: BatchStatus;
+  tenantId?: TenantId;
 }
 
 export interface FundRedemptionConfig {
@@ -264,6 +270,8 @@ export interface FundRedemptionConfig {
   lastActorRole?: ActorRole;
   lastActionAt?: string;
   identitySource?: "authSession";
+  tenantId?: TenantId;
+  lastActorWallet?: string;
 }
 
 export interface FundDistribution {
@@ -293,6 +301,8 @@ export interface FundDistribution {
   lastActorRole?: ActorRole;
   lastActionAt?: string;
   identitySource?: "authSession";
+  tenantId?: TenantId;
+  lastActorWallet?: string;
 }
 
 export const initialFunds: FundIssuance[] = [
