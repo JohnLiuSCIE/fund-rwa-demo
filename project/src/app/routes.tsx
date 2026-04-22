@@ -17,22 +17,25 @@ import { UserCenter } from "./pages/UserCenter";
 import { NotFound } from "./pages/NotFound";
 import { LoginPage } from "./pages/LoginPage";
 import { ConnectWalletPage } from "./pages/ConnectWalletPage";
-import { UserRole, useApp } from "./context/AppContext";
+import { useApp } from "./context/AppContext";
 import { FundsWorkspace } from "./pages/FundsWorkspace";
+import type { Permission } from "./auth/permissions";
 
-function ProtectedRoute({ allow }: { allow: UserRole[] }) {
-  const { authSession, isAuthSessionExpired } = useApp();
+function ProtectedRoute({ allow, permission }: { allow?: ("issuer" | "investor")[]; permission?: Permission }) {
+  const { authSession, isAuthSessionExpired, hasPermission } = useApp();
   if (!authSession?.walletAddress) {
     return <Navigate to="/connect-wallet" replace />;
   }
-  if (!authSession?.role) {
+  if (!authSession?.role || !authSession?.rbacRole) {
     return <Navigate to="/login" replace />;
   }
   if (isAuthSessionExpired(authSession)) {
     return <Navigate to="/login?reason=expired" replace />;
   }
-  const userRole = authSession.role;
-  if (!allow.includes(userRole)) {
+  if (permission && !hasPermission(permission, authSession.tenantId)) {
+    return <Navigate to="/" replace />;
+  }
+  if (allow && !allow.includes(authSession.role)) {
     return <Navigate to="/" replace />;
   }
   return <Outlet />;
@@ -45,13 +48,15 @@ export function AppRoutes() {
         <Route index element={<HomePage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="connect-wallet" element={<ConnectWalletPage />} />
-        <Route element={<ProtectedRoute allow={["issuer", "investor"]} />}>
+        <Route element={<ProtectedRoute allow={["issuer", "investor"]} permission="tenant:listing:view" />}>
           <Route path="funds" element={<FundsWorkspace />} />
         </Route>
-        <Route element={<ProtectedRoute allow={["issuer"]} />}>
+        <Route element={<ProtectedRoute allow={["issuer"]} permission="tenant:listing:create" />}>
           <Route path="create/fund-issuance" element={<CreateFundIssuance />} />
           <Route path="create/fund-redemption" element={<CreateFundRedemption />} />
           <Route path="create/fund-distribution" element={<CreateFundDistribution />} />
+        </Route>
+        <Route element={<ProtectedRoute allow={["issuer"]} permission="tenant:listing:update" />}>
           <Route path="manage/fund-issuance" element={<ManageFundIssuance />} />
           <Route path="manage/fund-redemption" element={<ManageFundRedemption />} />
           <Route path="manage/fund-distribution" element={<ManageFundDistribution />} />
@@ -65,7 +70,7 @@ export function AppRoutes() {
           <Route path="fund-redemption/:id" element={<FundRedemptionDetail />} />
           <Route path="fund-distribution/:id" element={<FundDistributionDetail />} />
         </Route>
-        <Route element={<ProtectedRoute allow={["investor"]} />}>
+        <Route element={<ProtectedRoute allow={["investor"]} permission="tenant:listing:view" />}>
           <Route path="marketplace/fund-issuance" element={<MarketplaceFundIssuance />} />
           <Route path="marketplace/fund-issuance/:id" element={<FundIssuanceDetail />} />
           <Route path="marketplace/fund-redemption" element={<MarketplaceFundRedemption />} />

@@ -14,6 +14,9 @@ import {
   initialFunds,
   initialRedemptions,
 } from "../data/fundDemoData";
+import { can as canByPermission } from "../auth/accessControl";
+import { type Permission } from "../auth/permissions";
+import { type Role as RbacRole, type UserIdentity } from "../auth/roles";
 
 export type UserRole = ActorRole;
 
@@ -62,6 +65,7 @@ export interface AuthSession {
   walletAddress: string;
   signedAt: string;
   role: UserRole | null;
+  rbacRole: RbacRole | null;
   isSimulated: boolean;
   tenantId: TenantId;
 }
@@ -112,12 +116,16 @@ interface AppContextType {
     walletAddress: string,
     isSimulated?: boolean,
     tenantId?: TenantId,
+    rbacRole?: RbacRole,
   ) => void;
   clearAuthSession: () => void;
   isAuthSessionExpired: (session?: AuthSession | null) => boolean;
   currentInvestor: InvestorProfile;
   localAuditEvents: LocalAuditEvent[];
   can: (role: UserRole, action: PermissionAction | string, resource: PermissionResource) => boolean;
+  hasPermission: (permission: Permission, tenantId?: TenantId) => boolean;
+  activeRbacRole: RbacRole | null;
+  userIdentity: UserIdentity | null;
   getPermissionResult: (
     action: PermissionAction | string,
     resource: PermissionResource,
@@ -136,6 +144,13 @@ const defaultInvestor: InvestorProfile = {
 };
 
 const DEMO_TENANT_ID: TenantId = "tenant-hkex-demo";
+const DEFAULT_TENANT_MAKER_ROLE: RbacRole = "tenant_maker";
+
+function mapRbacRoleToLegacyRole(role: RbacRole | null): UserRole {
+  if (!role) return "investor";
+  if (role === "tenant_viewer") return "investor";
+  return "issuer";
+}
 
 const permissionMatrix: Record<UserRole, Record<string, PermissionResource[]>> = {
   issuer: {
@@ -642,6 +657,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     walletAddress: defaultInvestor.wallet,
     signedAt: new Date().toISOString(),
     role: "issuer",
+    rbacRole: DEFAULT_TENANT_MAKER_ROLE,
     isSimulated: true,
     tenantId: DEMO_TENANT_ID,
   });
@@ -675,11 +691,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     walletAddress: string,
     isSimulated = false,
     tenantId: TenantId = DEMO_TENANT_ID,
+    rbacRole: RbacRole = DEFAULT_TENANT_MAKER_ROLE,
   ) => {
     setAuthSession({
       walletAddress,
       signedAt: new Date().toISOString(),
-      role,
+      role: mapRbacRoleToLegacyRole(rbacRole) || role,
+      rbacRole,
       isSimulated,
       tenantId,
     });
@@ -690,11 +708,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const userRole = authSession?.role ?? "investor";
+  const activeRbacRole = authSession?.rbacRole ?? null;
   const activeTenantId = authSession?.tenantId || DEMO_TENANT_ID;
+  const userIdentity: UserIdentity | null = authSession?.walletAddress
+    ? {
+        userId: authSession.walletAddress,
+        displayName: defaultInvestor.name,
+        tenantId: activeTenantId,
+        roles: activeRbacRole ? [activeRbacRole] : [],
+      }
+    : null;
 
   const can = (role: UserRole, action: PermissionAction | string, resource: PermissionResource) => {
     const actionResources = permissionMatrix[role][normalizeAction(action)] || [];
     return actionResources.includes(resource);
+  };
+
+  const hasPermission = (permission: Permission, tenantId?: TenantId) => {
+    if (!userIdentity || !activeRbacRole) return false;
+    return canByPermission(userIdentity, permission, { tenantId: tenantId || activeTenantId });
   };
 
   const getPermissionResult = (
@@ -1155,6 +1187,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         currentInvestor: defaultInvestor,
         localAuditEvents,
         can,
+        hasPermission,
+        activeRbacRole,
+        userIdentity,
         getPermissionResult,
       }}
     >

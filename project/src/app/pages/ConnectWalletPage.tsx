@@ -7,7 +7,13 @@ export function ConnectWalletPage() {
   const { currentInvestor, authSession, createAuthSession } = useApp();
 
   const connectWallet = () => {
-    createAuthSession(authSession?.role || "investor", currentInvestor.wallet, true);
+    createAuthSession(
+      authSession?.role || "investor",
+      currentInvestor.wallet,
+      true,
+      authSession?.tenantId,
+      authSession?.rbacRole || "tenant_viewer",
+    );
     navigate("/login", { replace: true });
   };
 
