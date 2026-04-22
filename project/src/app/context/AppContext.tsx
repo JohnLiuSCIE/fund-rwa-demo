@@ -7,6 +7,7 @@ import {
   FundIssuance,
   FundOrder,
   FundRedemptionConfig,
+  TenantId,
   initialDistributions,
   initialFundBatches,
   initialFundOrders,
@@ -45,11 +46,24 @@ interface PermissionResult {
   reason?: string;
 }
 
+interface LocalAuditEvent {
+  id: string;
+  at: string;
+  tenantId: TenantId;
+  action: string;
+  resource: PermissionResource;
+  targetId: string;
+  outcome: "allowed" | "denied";
+  actorWallet?: string;
+  reason?: string;
+}
+
 export interface AuthSession {
   walletAddress: string;
   signedAt: string;
   role: UserRole | null;
   isSimulated: boolean;
+  tenantId: TenantId;
 }
 
 interface AppContextType {
@@ -93,10 +107,16 @@ interface AppContextType {
   updateDistributionStatus: (id: string, status: string, action?: PermissionAction | string) => boolean;
   userRole: UserRole;
   authSession: AuthSession | null;
-  createAuthSession: (role: UserRole, walletAddress: string, isSimulated?: boolean) => void;
+  createAuthSession: (
+    role: UserRole,
+    walletAddress: string,
+    isSimulated?: boolean,
+    tenantId?: TenantId,
+  ) => void;
   clearAuthSession: () => void;
   isAuthSessionExpired: (session?: AuthSession | null) => boolean;
   currentInvestor: InvestorProfile;
+  localAuditEvents: LocalAuditEvent[];
   can: (role: UserRole, action: PermissionAction | string, resource: PermissionResource) => boolean;
   getPermissionResult: (
     action: PermissionAction | string,
@@ -114,6 +134,8 @@ const defaultInvestor: InvestorProfile = {
   investorType: "Institutional",
   jurisdiction: "Hong Kong SAR",
 };
+
+const DEMO_TENANT_ID: TenantId = "tenant-hkex-demo";
 
 const permissionMatrix: Record<UserRole, Record<string, PermissionResource[]>> = {
   issuer: {
@@ -621,12 +643,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     signedAt: new Date().toISOString(),
     role: "issuer",
     isSimulated: true,
+    tenantId: DEMO_TENANT_ID,
   });
-  const [fundIssuances, setFundIssuances] = useState<FundIssuance[]>(initialFunds);
-  const [fundRedemptions, setFundRedemptions] = useState<FundRedemptionConfig[]>(initialRedemptions);
-  const [fundOrders, setFundOrders] = useState<FundOrder[]>(initialFundOrders);
-  const [fundBatches, setFundBatches] = useState<FundBatch[]>(initialFundBatches);
-  const [fundDistributions, setFundDistributions] = useState<FundDistribution[]>(initialDistributions);
+  const [fundIssuances, setFundIssuances] = useState<FundIssuance[]>(
+    initialFunds.map((item) => ({ ...item, tenantId: item.tenantId || DEMO_TENANT_ID })),
+  );
+  const [fundRedemptions, setFundRedemptions] = useState<FundRedemptionConfig[]>(
+    initialRedemptions.map((item) => ({ ...item, tenantId: item.tenantId || DEMO_TENANT_ID })),
+  );
+  const [fundOrders, setFundOrders] = useState<FundOrder[]>(
+    initialFundOrders.map((item) => ({ ...item, tenantId: item.tenantId || DEMO_TENANT_ID })),
+  );
+  const [fundBatches, setFundBatches] = useState<FundBatch[]>(
+    initialFundBatches.map((item) => ({ ...item, tenantId: item.tenantId || DEMO_TENANT_ID })),
+  );
+  const [fundDistributions, setFundDistributions] = useState<FundDistribution[]>(
+    initialDistributions.map((item) => ({ ...item, tenantId: item.tenantId || DEMO_TENANT_ID })),
+  );
+  const [localAuditEvents, setLocalAuditEvents] = useState<LocalAuditEvent[]>([]);
 
   const isAuthSessionExpired = (session: AuthSession | null = authSession) => {
     if (!session?.signedAt) return true;
@@ -636,12 +670,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return Date.now() - signedAtMs > SESSION_TTL_MS;
   };
 
-  const createAuthSession = (role: UserRole, walletAddress: string, isSimulated = false) => {
+  const createAuthSession = (
+    role: UserRole,
+    walletAddress: string,
+    isSimulated = false,
+    tenantId: TenantId = DEMO_TENANT_ID,
+  ) => {
     setAuthSession({
       walletAddress,
       signedAt: new Date().toISOString(),
       role,
       isSimulated,
+      tenantId,
     });
   };
 
@@ -650,6 +690,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const userRole = authSession?.role ?? "investor";
+  const activeTenantId = authSession?.tenantId || DEMO_TENANT_ID;
 
   const can = (role: UserRole, action: PermissionAction | string, resource: PermissionResource) => {
     const actionResources = permissionMatrix[role][normalizeAction(action)] || [];
@@ -669,14 +710,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   };
 
+  const appendLocalAuditEvent = (
+    resource: PermissionResource,
+    targetId: string,
+    action: string,
+    outcome: "allowed" | "denied",
+    reason?: string,
+  ) => {
+    setLocalAuditEvents((prev) => [
+      {
+        id: `evt-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        at: new Date().toISOString(),
+        tenantId: activeTenantId,
+        action: normalizeAction(action),
+        resource,
+        targetId,
+        outcome,
+        actorWallet: authSession?.walletAddress,
+        reason,
+      },
+      ...prev,
+    ]);
+  };
+
   const ensurePermission = (action: PermissionAction | string, resource: PermissionResource) => {
     if (!authSession?.role || isAuthSessionExpired()) {
       console.warn("Write denied: missing or expired auth session role.");
+      appendLocalAuditEvent(resource, "n/a", action, "denied", "Missing or expired auth session");
       return false;
     }
     const result = getPermissionResult(action, resource);
     if (!result.allowed) {
       console.warn(result.reason);
+      appendLocalAuditEvent(resource, "n/a", action, "denied", result.reason);
       return false;
     }
     return true;
@@ -694,19 +760,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const ensureTenantScope = (tenantId?: TenantId) => {
+    const entityTenantId = tenantId || DEMO_TENANT_ID;
+    if (entityTenantId !== activeTenantId) {
+      console.warn("Write denied: cross-tenant access is not permitted.");
+      return false;
+    }
+    return true;
+  };
+
+  const ensureMakerChecker = (previousActorWallet?: string, action?: PermissionAction | string) => {
+    if (normalizeAction(action || "") !== "approve") return true;
+    if (!previousActorWallet || !authSession?.walletAddress) return true;
+    if (previousActorWallet.toLowerCase() === authSession.walletAddress.toLowerCase()) {
+      console.warn("Write denied: maker-checker policy forbids self-approval.");
+      return false;
+    }
+    return true;
+  };
+
   const addFundIssuance = (fund: FundIssuance, action: PermissionAction = "create") => {
     if (!ensureIdentitySource(fund.identitySource)) return false;
     if (!ensurePermission(action, "issuance")) return false;
+    if (!ensureTenantScope(fund.tenantId)) return false;
     setFundIssuances((prev) => [
       {
         ...fund,
+        tenantId: activeTenantId,
         lastAction: action,
         lastActorRole: authSession.role!,
+        lastActorWallet: authSession.walletAddress,
         lastActionAt: new Date().toISOString(),
         identitySource: "authSession",
       },
       ...prev,
     ]);
+    appendLocalAuditEvent("issuance", fund.id, action, "allowed");
     return true;
   };
 
@@ -714,6 +803,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "issuance")) return false;
     const targetFund = fundIssuances.find((fund) => fund.id === id);
+    if (!targetFund) return false;
+    if (!ensureTenantScope(targetFund.tenantId)) return false;
+    if (!ensureMakerChecker(targetFund.lastActorWallet, action)) return false;
     const demoSeed = targetFund
       ? buildLifecycleDemoSeed(
           targetFund,
@@ -726,8 +818,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setFundOrders((prev) => [
         ...demoSeed.orders.map((order) => ({
           ...order,
+          tenantId: activeTenantId,
           lastAction: "manage",
           lastActorRole: authSession.role!,
+          lastActorWallet: authSession.walletAddress,
           lastActionAt: new Date().toISOString(),
           identitySource: "authSession" as const,
         })),
@@ -742,14 +836,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ...fund,
               ...(demoSeed?.fundUpdates || {}),
               status,
+              tenantId: activeTenantId,
               lastAction: action,
               lastActorRole: authSession.role!,
+              lastActorWallet: authSession.walletAddress,
               lastActionAt: new Date().toISOString(),
               identitySource: "authSession",
             }
           : fund,
       ),
     );
+    appendLocalAuditEvent("issuance", id, action, "allowed");
     return true;
   };
 
@@ -760,14 +857,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ) => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "issuance")) return false;
+    const targetFund = fundIssuances.find((fund) => fund.id === id);
+    if (!targetFund) return false;
+    if (!ensureTenantScope(targetFund.tenantId)) return false;
+    if (!ensureMakerChecker(targetFund.lastActorWallet, action)) return false;
     setFundIssuances((prev) =>
       prev.map((fund) =>
         fund.id === id
           ? {
               ...fund,
               ...updates,
+              tenantId: activeTenantId,
               lastAction: action,
               lastActorRole: authSession.role!,
+              lastActorWallet: authSession.walletAddress,
               lastActionAt: new Date().toISOString(),
               identitySource: "authSession",
             }
@@ -780,11 +883,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addFundRedemption = (redemption: FundRedemptionConfig, action: PermissionAction = "create") => {
     if (!ensureIdentitySource(redemption.identitySource)) return false;
     if (!ensurePermission(action, "redemption")) return false;
+    if (!ensureTenantScope(redemption.tenantId)) return false;
     setFundRedemptions((prev) => [
       {
         ...redemption,
+        tenantId: activeTenantId,
         lastAction: action,
         lastActorRole: authSession.role!,
+        lastActorWallet: authSession.walletAddress,
         lastActionAt: new Date().toISOString(),
         identitySource: "authSession",
       },
@@ -800,14 +906,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ) => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "redemption")) return false;
+    const target = fundRedemptions.find((redemption) => redemption.id === id);
+    if (!target) return false;
+    if (!ensureTenantScope(target.tenantId)) return false;
+    if (!ensureMakerChecker(target.lastActorWallet, action)) return false;
     setFundRedemptions((prev) =>
       prev.map((redemption) =>
         redemption.id === id
           ? {
               ...redemption,
               ...updates,
+              tenantId: activeTenantId,
               lastAction: action,
               lastActorRole: authSession.role!,
+              lastActorWallet: authSession.walletAddress,
               lastActionAt: new Date().toISOString(),
               identitySource: "authSession",
             }
@@ -824,31 +936,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ) => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "redemption")) return false;
+    const target = fundRedemptions.find((redemption) => redemption.id === id);
+    if (!target) return false;
+    if (!ensureTenantScope(target.tenantId)) return false;
+    if (!ensureMakerChecker(target.lastActorWallet, action)) return false;
     setFundRedemptions((prev) =>
       prev.map((redemption) =>
         redemption.id === id
           ? {
               ...redemption,
               status,
+              tenantId: activeTenantId,
               lastAction: action,
               lastActorRole: authSession.role!,
+              lastActorWallet: authSession.walletAddress,
               lastActionAt: new Date().toISOString(),
               identitySource: "authSession",
             }
           : redemption,
       ),
     );
+    appendLocalAuditEvent("redemption", id, action, "allowed");
     return true;
   };
 
   const addFundOrder = (order: FundOrder, action: PermissionAction | string = order.type === "subscription" ? "subscribe" : "redeem") => {
     if (!ensureIdentitySource(order.identitySource)) return false;
     if (!ensurePermission(action, "order")) return false;
+    if (!ensureTenantScope(order.tenantId)) return false;
     setFundOrders((prev) => [
       {
         ...order,
+        tenantId: activeTenantId,
         lastAction: action,
         lastActorRole: authSession.role!,
+        lastActorWallet: authSession.walletAddress,
         lastActionAt: new Date().toISOString(),
         identitySource: "authSession",
       },
@@ -864,14 +986,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ) => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "order")) return false;
+    const target = fundOrders.find((order) => order.id === id);
+    if (!target) return false;
+    if (!ensureTenantScope(target.tenantId)) return false;
+    if (!ensureMakerChecker(target.lastActorWallet, action)) return false;
     setFundOrders((prev) =>
       prev.map((order) =>
         order.id === id
           ? {
               ...order,
               ...updates,
+              tenantId: activeTenantId,
               lastAction: action,
               lastActorRole: authSession.role!,
+              lastActorWallet: authSession.walletAddress,
               lastActionAt: new Date().toISOString(),
               identitySource: "authSession",
             }
@@ -884,38 +1012,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateFundOrderStatus = (id: string, status: FundOrder["status"], action: PermissionAction | string = "update") => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "order")) return false;
+    const target = fundOrders.find((order) => order.id === id);
+    if (!target) return false;
+    if (!ensureTenantScope(target.tenantId)) return false;
+    if (!ensureMakerChecker(target.lastActorWallet, action)) return false;
     setFundOrders((prev) =>
       prev.map((order) =>
         order.id === id
           ? {
               ...order,
               status,
+              tenantId: activeTenantId,
               lastAction: action,
               lastActorRole: authSession.role!,
+              lastActorWallet: authSession.walletAddress,
               lastActionAt: new Date().toISOString(),
               identitySource: "authSession",
             }
           : order,
       ),
     );
+    appendLocalAuditEvent("order", id, action, "allowed");
     return true;
   };
 
   const addFundBatch = (batch: FundBatch) => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission("manage", "order")) return false;
-    setFundBatches((prev) => [batch, ...prev]);
+    if (!ensureTenantScope(batch.tenantId)) return false;
+    setFundBatches((prev) => [{ ...batch, tenantId: activeTenantId }, ...prev]);
     return true;
   };
 
   const addFundDistribution = (distribution: FundDistribution, action: PermissionAction = "create") => {
     if (!ensureIdentitySource(distribution.identitySource)) return false;
     if (!ensurePermission(action, "distribution")) return false;
+    if (!ensureTenantScope(distribution.tenantId)) return false;
     setFundDistributions((prev) => [
       {
         ...distribution,
+        tenantId: activeTenantId,
         lastAction: action,
         lastActorRole: authSession.role!,
+        lastActorWallet: authSession.walletAddress,
         lastActionAt: new Date().toISOString(),
         identitySource: "authSession",
       },
@@ -931,14 +1070,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ) => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "distribution")) return false;
+    const target = fundDistributions.find((distribution) => distribution.id === id);
+    if (!target) return false;
+    if (!ensureTenantScope(target.tenantId)) return false;
+    if (!ensureMakerChecker(target.lastActorWallet, action)) return false;
     setFundDistributions((prev) =>
       prev.map((distribution) =>
         distribution.id === id
           ? {
               ...distribution,
               ...updates,
+              tenantId: activeTenantId,
               lastAction: action,
               lastActorRole: authSession.role!,
+              lastActorWallet: authSession.walletAddress,
               lastActionAt: new Date().toISOString(),
               identitySource: "authSession",
             }
@@ -951,41 +1096,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateDistributionStatus = (id: string, status: string, action: PermissionAction | string = "update") => {
     if (!ensureIdentitySource("authSession")) return false;
     if (!ensurePermission(action, "distribution")) return false;
+    const target = fundDistributions.find((distribution) => distribution.id === id);
+    if (!target) return false;
+    if (!ensureTenantScope(target.tenantId)) return false;
+    if (!ensureMakerChecker(target.lastActorWallet, action)) return false;
     setFundDistributions((prev) =>
       prev.map((distribution) =>
         distribution.id === id
           ? {
               ...distribution,
               status,
+              tenantId: activeTenantId,
               lastAction: action,
               lastActorRole: authSession.role!,
+              lastActorWallet: authSession.walletAddress,
               lastActionAt: new Date().toISOString(),
               identitySource: "authSession",
             }
           : distribution,
       ),
     );
+    appendLocalAuditEvent("distribution", id, action, "allowed");
     return true;
   };
+
+  const tenantFundIssuances = fundIssuances.filter((item) => (item.tenantId || DEMO_TENANT_ID) === activeTenantId);
+  const tenantFundRedemptions = fundRedemptions.filter((item) => (item.tenantId || DEMO_TENANT_ID) === activeTenantId);
+  const tenantFundOrders = fundOrders.filter((item) => (item.tenantId || DEMO_TENANT_ID) === activeTenantId);
+  const tenantFundBatches = fundBatches.filter((item) => (item.tenantId || DEMO_TENANT_ID) === activeTenantId);
+  const tenantFundDistributions = fundDistributions.filter((item) => (item.tenantId || DEMO_TENANT_ID) === activeTenantId);
 
   return (
     <AppContext.Provider
       value={{
-        fundIssuances,
+        fundIssuances: tenantFundIssuances,
         addFundIssuance,
         updateFundStatus,
         updateFundIssuance,
-        fundRedemptions,
+        fundRedemptions: tenantFundRedemptions,
         addFundRedemption,
         updateFundRedemption,
         updateRedemptionStatus,
-        fundOrders,
+        fundOrders: tenantFundOrders,
         addFundOrder,
         updateFundOrder,
         updateFundOrderStatus,
-        fundBatches,
+        fundBatches: tenantFundBatches,
         addFundBatch,
-        fundDistributions,
+        fundDistributions: tenantFundDistributions,
         addFundDistribution,
         updateFundDistribution,
         updateDistributionStatus,
@@ -995,6 +1153,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         clearAuthSession,
         isAuthSessionExpired,
         currentInvestor: defaultInvestor,
+        localAuditEvents,
         can,
         getPermissionResult,
       }}
