@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { StatusBadge } from "../components/StatusBadge";
+import { FundNavEventsCard, FundNavSparkline } from "../components/FundNavSurface";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import {
@@ -496,6 +497,12 @@ export function FundsWorkspace() {
     filteredFunds.find((fund) => fund.id === selectedFundId) || null;
   const selectedRedemption = selectedFund ? redemptionByFundId.get(selectedFund.id) : undefined;
   const selectedDistribution = selectedFund ? distributionByFundId.get(selectedFund.id) : undefined;
+  const selectedFundRedemptions = selectedFund
+    ? fundRedemptions.filter((redemption) => redemption.fundId === selectedFund.id)
+    : [];
+  const selectedFundDistributions = selectedFund
+    ? fundDistributions.filter((distribution) => distribution.fundId === selectedFund.id)
+    : [];
 
   const totalOpenEnd = visibleFunds.filter((fund) => fund.fundType === "Open-end").length;
   const totalClosedEnd = visibleFunds.filter((fund) => fund.fundType === "Closed-end").length;
@@ -648,6 +655,8 @@ export function FundsWorkspace() {
             {filteredFunds.map((fund) => {
               const linkedRedemption = redemptionByFundId.get(fund.id);
               const linkedDistribution = distributionByFundId.get(fund.id);
+              const cardRelatedRedemptions = fundRedemptions.filter((redemption) => redemption.fundId === fund.id);
+              const cardRelatedDistributions = fundDistributions.filter((distribution) => distribution.fundId === fund.id);
               const signalLabel = getCompactSignalLabel(fund, linkedRedemption, linkedDistribution);
               const isActiveCard = isWorkspaceOpen && selectedFund?.id === fund.id;
 
@@ -679,13 +688,25 @@ export function FundsWorkspace() {
 
                   <div className="mt-4 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
                     <div>
-                      <div className="text-xs uppercase tracking-[0.16em]">NAV</div>
+                      <div className="text-xs uppercase tracking-[0.16em]">Latest NAV</div>
                       <div className="mt-1 font-medium text-foreground">{fund.currentNav}</div>
                     </div>
                     <div>
                       <div className="text-xs uppercase tracking-[0.16em]">Liquidity</div>
                       <div className="mt-1 font-medium text-foreground">{getLiquidityModel(fund)}</div>
                     </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border bg-white/70 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                      <span>NAV Trend</span>
+                      <span>{fund.navUpdateMode || "Manual"}</span>
+                    </div>
+                    <FundNavSparkline
+                      fundData={fund}
+                      relatedRedemptions={cardRelatedRedemptions}
+                      relatedDistributions={cardRelatedDistributions}
+                    />
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2 text-xs">
@@ -766,6 +787,10 @@ export function FundsWorkspace() {
                         <div className="mt-3 font-medium">{selectedFund.currentNav}</div>
                       </div>
                       <div className="rounded-xl border bg-white/85 p-4">
+                        <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">NAV Source</div>
+                        <div className="mt-3 font-medium">{selectedFund.navUpdateMode || "Manual"}</div>
+                      </div>
+                      <div className="rounded-xl border bg-white/85 p-4">
                         <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Liquidity Model</div>
                         <div className="mt-3 font-medium">{getLiquidityModel(selectedFund)}</div>
                       </div>
@@ -775,6 +800,12 @@ export function FundsWorkspace() {
                       </div>
                     </CardContent>
                   </Card>
+
+                  <FundNavEventsCard
+                    fundData={selectedFund}
+                    relatedRedemptions={selectedFundRedemptions}
+                    relatedDistributions={selectedFundDistributions}
+                  />
 
                   <Card className="border-[var(--navy-100)] shadow-sm">
                     <CardHeader>

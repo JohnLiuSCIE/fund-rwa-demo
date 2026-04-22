@@ -29,6 +29,7 @@ export type OrderStatus =
 
 export type BatchStatus = "Scheduled" | "Processing" | "Confirmed" | "Settled";
 export type ActorRole = "issuer" | "investor";
+export type NavUpdateMode = "Manual" | "Oracle Feed";
 
 export interface NavRecord {
   id: string;
@@ -152,6 +153,12 @@ export interface FundIssuance {
   noticePeriodDays?: number;
   maxRedemptionPerInvestor?: string;
   fundLevelRedemptionGate?: string;
+  navUpdateMode?: NavUpdateMode;
+  oracleProvider?: string;
+  oracleFeedId?: string;
+  oracleUpdateFrequency?: string;
+  oracleFallbackRule?: string;
+  oracleLastSyncedAt?: string;
   lastNavUpdateTime?: string;
   nextCutoffTime?: string;
   nextConfirmationDate?: string;
@@ -349,6 +356,12 @@ export const initialFunds: FundIssuance[] = [
     noticePeriodDays: 0,
     maxRedemptionPerInvestor: "500,000 units / dealing day",
     fundLevelRedemptionGate: "10% of fund NAV / day",
+    navUpdateMode: "Oracle Feed",
+    oracleProvider: "Chainlink NAV Adapter",
+    oracleFeedId: "HKD-DLF-NAV-001",
+    oracleUpdateFrequency: "Every dealing day at 18:05 HKT",
+    oracleFallbackRule: "Fallback to manual override after 30 minutes without a fresh oracle tick",
+    oracleLastSyncedAt: "2026-04-16 18:05:00",
     lastNavUpdateTime: "2026-04-16 18:05:00",
     nextCutoffTime: "2026-04-17 16:00:00",
     nextConfirmationDate: "2026-04-17 18:00:00",
@@ -458,6 +471,8 @@ export const initialFunds: FundIssuance[] = [
     noticePeriodDays: 0,
     maxRedemptionPerInvestor: "250,000 units / dealing day",
     fundLevelRedemptionGate: "8% of fund NAV / day",
+    navUpdateMode: "Manual",
+    oracleFallbackRule: "Manual NAV committee approval remains primary while subscriptions are paused",
     lastNavUpdateTime: "2026-04-16 17:35:00",
     nextCutoffTime: "2026-04-17 15:00:00",
     nextConfirmationDate: "2026-04-17 17:30:00",
@@ -551,6 +566,12 @@ export const initialFunds: FundIssuance[] = [
     noticePeriodDays: 1,
     maxRedemptionPerInvestor: "150,000 units / dealing day",
     fundLevelRedemptionGate: "5% of fund NAV / day",
+    navUpdateMode: "Oracle Feed",
+    oracleProvider: "Internal Demo Oracle",
+    oracleFeedId: "AIAF-NAV-LAUNCH",
+    oracleUpdateFrequency: "Every launch day close",
+    oracleFallbackRule: "Issuer can manually seed the launch NAV before the first oracle publish",
+    oracleLastSyncedAt: "2026-04-16 18:30:00",
     lastNavUpdateTime: "2026-04-16 18:30:00",
     nextCutoffTime: "2026-04-17 16:00:00",
     nextConfirmationDate: "2026-04-17 18:30:00",

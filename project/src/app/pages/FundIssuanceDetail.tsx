@@ -38,6 +38,11 @@ import {
 } from "../components/ui/table";
 import { Textarea } from "../components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import {
+  FundNavEventsCard as SharedFundNavEventsCard,
+  FundNavRecordsTable,
+} from "../components/FundNavSurface";
+import { ChartContainer, ChartTooltip } from "../components/ui/chart";
 import { InfoAlert } from "../components/InfoAlert";
 import { MetricCard } from "../components/MetricCard";
 import { StatusBadge } from "../components/StatusBadge";
@@ -49,7 +54,23 @@ import {
 import { RedeemModal, SubscribeModal } from "../components/modals/InvestorModals";
 import { OperationActionModal } from "../components/modals/OperationActionModal";
 import { useApp } from "../context/AppContext";
-import { FundIssuance, FundOrder } from "../data/fundDemoData";
+import {
+  FundDistribution,
+  FundIssuance,
+  FundOrder,
+  FundRedemptionConfig,
+  NavRecord,
+} from "../data/fundDemoData";
+import {
+  ComposedChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  ReferenceArea,
+  Scatter,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 function formatNumber(value: number, digits = 2) {
   return new Intl.NumberFormat("en-US", {
@@ -258,6 +279,558 @@ function parseLeadingNumber(value: string) {
   const normalized = value.replace(/,/g, "");
   const match = normalized.match(/[\d.]+/);
   return match ? Number(match[0]) : 0;
+}
+
+type FundEventType = "subscription" | "redemption" | "distribution" | "oracle" | "manual";
+
+interface FundTimelineEvent {
+  id: string;
+  dateTag: string;
+  label: string;
+  detail: string;
+  type: FundEventType;
+}
+
+interface FundWindowOverlay {
+  id: string;
+  startDateTag: string;
+  endDateTag: string;
+  label: string;
+  type: "subscription" | "redemption";
+}
+
+interface FundNavPoint {
+  dateTag: string;
+  navValue: number | null;
+  markerNavValue: number;
+}
+
+const FUND_EVENT_META: Record<
+  FundEventType,
+  { label: string; dotColor: string; badgeClassName: string }
+> = {
+  subscription: {
+    label: "Subscription window",
+    dotColor: "#2563eb",
+    badgeClassName: "border-blue-200 bg-blue-50 text-blue-700",
+  },
+  redemption: {
+    label: "Redemption window",
+    dotColor: "#d97706",
+    badgeClassName: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  distribution: {
+    label: "Distribution event",
+    dotColor: "#7c3aed",
+    badgeClassName: "border-violet-200 bg-violet-50 text-violet-700",
+  },
+  oracle: {
+    label: "Oracle sync",
+    dotColor: "#059669",
+    badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  manual: {
+    label: "Manual NAV update",
+    dotColor: "#6b7280",
+    badgeClassName: "border-slate-200 bg-slate-50 text-slate-700",
+  },
+};
+
+function toDateTag(value?: string | null) {
+  const match = value?.match(/\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? null;
+}
+
+function toDateFromTag(dateTag: string) {
+  return new Date(`${dateTag}T00:00:00`);
+}
+
+function sortByDateTag(a: string, b: string) {
+  return toDateFromTag(a).getTime() - toDateFromTag(b).getTime();
+}
+
+function formatDateTag(dateTag: string, options?: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(options || {}),
+  }).format(toDateFromTag(dateTag));
+}
+
+function buildExtendedNavHistory(fund: FundIssuance): NavRecord[] {
+  const fallbackDateTag = toDateTag(fund.lastNavUpdateTime) || toDateTag(fund.issueDate) || toDateTag(nowString())!;
+  const fallbackHistory =
+    fund.navHistory.length > 0
+      ? [...fund.navHistory]
+      : [
+          {
+            id: `nav-${fund.id}-fallback`,
+            navDate: fallbackDateTag,
+            navValue: fund.currentNavValue || fund.initialNavValue || 1,
+            currency: fund.navCurrency,
+            updatedAt: fund.lastNavUpdateTime || nowString(),
+            note: "Generated fallback NAV record for demo charting",
+          },
+        ];
+
+  const sortedActual = [...fallbackHistory].sort((left, right) =>
+    sortByDateTag(left.navDate, right.navDate),
+  );
+
+  const targetCount = Math.max(sortedActual.length, fund.fundType === "Open-end" ? 10 : 7);
+  if (sortedActual.length >= targetCount) return sortedActual;
+
+  const firstActual = sortedActual[0];
+  const firstActualDate = toDateFromTag(firstActual.navDate);
+  const firstActualValue = firstActual.navValue || fund.initialNavValue || 1;
+  const baseStartValue = fund.initialNavValue || firstActualValue;
+  const missingCount = targetCount - sortedActual.length;
+  const volatility = fund.navUpdateMode === "Oracle Feed" ? 0.0028 : 0.0014;
+
+  const generatedHistory = Array.from({ length: missingCount }, (_, index) => {
+    const pointDate = new Date(firstActualDate);
+    pointDate.setDate(firstActualDate.getDate() - (missingCount - index));
+    const progress = (index + 1) / (missingCount + 1);
+    const baseValue = baseStartValue + (firstActualValue - baseStartValue) * progress;
+    const wave = Math.sin((index + 1) * 1.15) * baseStartValue * volatility;
+    const navValue = Number(Math.max(baseValue + wave, 0.0001).toFixed(4));
+    const navDate = pointDate.toISOString().slice(0, 10);
+
+    return {
+      id: `nav-${fund.id}-generated-${index + 1}`,
+      navDate,
+      navValue,
+      currency: fund.navCurrency,
+      updatedAt: `${navDate} 18:00:00`,
+      note:
+        fund.navUpdateMode === "Oracle Feed"
+          ? "Generated oracle-style history for demo visualization"
+          : "Generated manual NAV history for demo visualization",
+    };
+  });
+
+  return [...generatedHistory, ...sortedActual];
+}
+
+function buildFundTimelineEvents(
+  fund: FundIssuance,
+  relatedRedemptions: FundRedemptionConfig[],
+  relatedDistributions: FundDistribution[],
+): FundTimelineEvent[] {
+  const events: FundTimelineEvent[] = [];
+
+  const subscriptionStart = toDateTag(fund.subscriptionStartDate);
+  const subscriptionEnd = toDateTag(fund.subscriptionEndDate);
+  if (subscriptionStart) {
+    events.push({
+      id: `${fund.id}-subscription-open`,
+      dateTag: subscriptionStart,
+      label: "Subscription opens",
+      detail: "Initial subscription window opens for fund onboarding and launch orders.",
+      type: "subscription",
+    });
+  }
+  if (subscriptionEnd) {
+    events.push({
+      id: `${fund.id}-subscription-close`,
+      dateTag: subscriptionEnd,
+      label: "Subscription closes",
+      detail: "Initial subscription window closes and launch orders are locked.",
+      type: "subscription",
+    });
+  }
+
+  const navSourceDate = toDateTag(fund.oracleLastSyncedAt || fund.lastNavUpdateTime);
+  if (navSourceDate) {
+    events.push({
+      id: `${fund.id}-${fund.navUpdateMode === "Oracle Feed" ? "oracle" : "manual"}-sync`,
+      dateTag: navSourceDate,
+      label: fund.navUpdateMode === "Oracle Feed" ? "Latest oracle sync" : "Latest manual NAV update",
+      detail:
+        fund.navUpdateMode === "Oracle Feed"
+          ? `${fund.oracleProvider || "Oracle feed"} published the latest demo NAV update.`
+          : "Issuer or NAV committee manually confirmed the latest demo NAV update.",
+      type: fund.navUpdateMode === "Oracle Feed" ? "oracle" : "manual",
+    });
+  }
+
+  relatedRedemptions.forEach((redemption) => {
+    const windowStart = toDateTag(redemption.windowStart || redemption.effectiveDate);
+    const windowEnd = toDateTag(redemption.windowEnd);
+
+    if (windowStart) {
+      events.push({
+        id: `${redemption.id}-open`,
+        dateTag: windowStart,
+        label: "Redemption window opens",
+        detail: `${redemption.name} opens for redemption requests.`,
+        type: "redemption",
+      });
+    }
+
+    if (windowEnd) {
+      events.push({
+        id: `${redemption.id}-close`,
+        dateTag: windowEnd,
+        label: "Redemption window closes",
+        detail: `${redemption.name} closes and the redemption batch moves to settlement.`,
+        type: "redemption",
+      });
+    }
+  });
+
+  relatedDistributions.forEach((distribution) => {
+    const recordDate = toDateTag(distribution.recordDate);
+    const paymentDate = toDateTag(distribution.paymentDate);
+
+    if (recordDate) {
+      events.push({
+        id: `${distribution.id}-record`,
+        dateTag: recordDate,
+        label: "Distribution record date",
+        detail: `${distribution.name} freezes the eligible holder snapshot.`,
+        type: "distribution",
+      });
+    }
+
+    if (paymentDate) {
+      events.push({
+        id: `${distribution.id}-payment`,
+        dateTag: paymentDate,
+        label: "Distribution payment date",
+        detail: `${distribution.name} is scheduled for payout or claim opening.`,
+        type: "distribution",
+      });
+    }
+  });
+
+  return events.sort((left, right) => sortByDateTag(left.dateTag, right.dateTag));
+}
+
+function buildFundWindowOverlays(
+  fund: FundIssuance,
+  relatedRedemptions: FundRedemptionConfig[],
+): FundWindowOverlay[] {
+  const overlays: FundWindowOverlay[] = [];
+  const subscriptionStart = toDateTag(fund.subscriptionStartDate);
+  const subscriptionEnd = toDateTag(fund.subscriptionEndDate);
+
+  if (subscriptionStart && subscriptionEnd) {
+    overlays.push({
+      id: `${fund.id}-subscription-window`,
+      startDateTag: subscriptionStart,
+      endDateTag: subscriptionEnd,
+      label: "Initial subscription window",
+      type: "subscription",
+    });
+  }
+
+  relatedRedemptions.forEach((redemption) => {
+    const windowStart = toDateTag(redemption.windowStart || redemption.effectiveDate);
+    const windowEnd = toDateTag(redemption.windowEnd);
+
+    if (windowStart && windowEnd) {
+      overlays.push({
+        id: `${redemption.id}-window`,
+        startDateTag: windowStart,
+        endDateTag: windowEnd,
+        label: redemption.name,
+        type: "redemption",
+      });
+    }
+  });
+
+  return overlays.sort((left, right) => sortByDateTag(left.startDateTag, right.startDateTag));
+}
+
+function buildFundNavTimeline(
+  fund: FundIssuance,
+  relatedRedemptions: FundRedemptionConfig[],
+  relatedDistributions: FundDistribution[],
+) {
+  const navHistory = buildExtendedNavHistory(fund);
+  const events = buildFundTimelineEvents(fund, relatedRedemptions, relatedDistributions);
+  const windows = buildFundWindowOverlays(fund, relatedRedemptions);
+  const navByDate = new Map(navHistory.map((record) => [record.navDate, record]));
+  const dateTags = new Set<string>(navHistory.map((record) => record.navDate));
+
+  events.forEach((event) => dateTags.add(event.dateTag));
+  windows.forEach((window) => {
+    dateTags.add(window.startDateTag);
+    dateTags.add(window.endDateTag);
+  });
+
+  const sortedDateTags = Array.from(dateTags).sort(sortByDateTag);
+  const actualNavValues = navHistory.map((record) => record.navValue);
+  const minNav = Math.min(...actualNavValues);
+  const maxNav = Math.max(...actualNavValues);
+  const navPadding = Math.max((maxNav - minNav) * 0.25, maxNav * 0.003, 0.003);
+
+  let latestKnownNav = navHistory[0]?.navValue || fund.currentNavValue || fund.initialNavValue || 1;
+  const chartPoints: FundNavPoint[] = sortedDateTags.map((dateTag) => {
+    const record = navByDate.get(dateTag);
+    if (record?.navValue !== undefined) {
+      latestKnownNav = record.navValue;
+    }
+
+    return {
+      dateTag,
+      navValue: record?.navValue ?? null,
+      markerNavValue: latestKnownNav,
+    };
+  });
+
+  const chartPointMap = new Map(chartPoints.map((point) => [point.dateTag, point]));
+  const stackedEventsByDate = new Map<string, number>();
+  const eventDots = events.map((event) => {
+    const point = chartPointMap.get(event.dateTag);
+    const stackIndex = stackedEventsByDate.get(event.dateTag) || 0;
+    stackedEventsByDate.set(event.dateTag, stackIndex + 1);
+
+    return {
+      ...event,
+      markerNavValue: (point?.markerNavValue || latestKnownNav) + stackIndex * navPadding * 0.35,
+    };
+  });
+
+  return {
+    navHistory,
+    events,
+    windows,
+    chartPoints,
+    eventDots,
+    minNav: Number((minNav - navPadding).toFixed(4)),
+    maxNav: Number((maxNav + navPadding).toFixed(4)),
+  };
+}
+
+function FundNavEventsCard({
+  fundData,
+  relatedRedemptions,
+  relatedDistributions,
+}: {
+  fundData: FundIssuance;
+  relatedRedemptions: FundRedemptionConfig[];
+  relatedDistributions: FundDistribution[];
+}) {
+  const timeline = buildFundNavTimeline(fundData, relatedRedemptions, relatedDistributions);
+  const markerGroups: Record<FundEventType, typeof timeline.eventDots> = {
+    subscription: [],
+    redemption: [],
+    distribution: [],
+    oracle: [],
+    manual: [],
+  };
+
+  timeline.eventDots.forEach((event) => {
+    markerGroups[event.type].push(event);
+  });
+
+  const latestNavRecord = timeline.navHistory[timeline.navHistory.length - 1];
+  const chartConfig = {
+    nav: { label: "NAV", color: "#1d4ed8" },
+    subscription: { label: FUND_EVENT_META.subscription.label, color: FUND_EVENT_META.subscription.dotColor },
+    redemption: { label: FUND_EVENT_META.redemption.label, color: FUND_EVENT_META.redemption.dotColor },
+    distribution: { label: FUND_EVENT_META.distribution.label, color: FUND_EVENT_META.distribution.dotColor },
+    oracle: { label: FUND_EVENT_META.oracle.label, color: FUND_EVENT_META.oracle.dotColor },
+    manual: { label: FUND_EVENT_META.manual.label, color: FUND_EVENT_META.manual.dotColor },
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>NAV & Fund Events</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          This view shows the fund's own market-facing attributes over time: NAV history, subscription
+          windows, redemption windows, and distribution milestones. It stays separate from the issuer's
+          workflow actions on the progress bar.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-4">
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">NAV source</div>
+            <div className="mt-1 font-medium">{fundData.navUpdateMode || "Manual"}</div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Provider / owner</div>
+            <div className="mt-1 font-medium">
+              {fundData.navUpdateMode === "Oracle Feed"
+                ? fundData.oracleProvider || "Oracle provider pending"
+                : "Issuer / NAV committee"}
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Latest NAV</div>
+            <div className="mt-1 font-medium">
+              {latestNavRecord.navValue.toFixed(4)} {latestNavRecord.currency}
+            </div>
+          </div>
+          <div className="rounded-lg border p-4">
+            <div className="text-sm text-muted-foreground">Last update</div>
+            <div className="mt-1 font-medium">
+              {fundData.oracleLastSyncedAt || fundData.lastNavUpdateTime || latestNavRecord.updatedAt}
+            </div>
+          </div>
+        </div>
+
+        {fundData.navUpdateMode === "Oracle Feed" ? (
+          <div className="rounded-lg border bg-emerald-50/70 p-4 text-sm">
+            <div className="font-medium text-emerald-900">
+              Oracle feed: {fundData.oracleFeedId || "Feed ID pending"}
+            </div>
+            <div className="mt-1 text-emerald-800">
+              Update frequency: {fundData.oracleUpdateFrequency || "Configured by issuer"}
+            </div>
+            {fundData.oracleFallbackRule && (
+              <div className="mt-2 text-emerald-900">
+                Fallback: {fundData.oracleFallbackRule}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-slate-50 p-4 text-sm">
+            <div className="font-medium text-slate-900">Manual NAV governance</div>
+            <div className="mt-1 text-slate-700">
+              {fundData.oracleFallbackRule || "NAV is manually reviewed and published by the issuer for this demo."}
+            </div>
+          </div>
+        )}
+
+        <ChartContainer config={chartConfig} className="h-[360px] w-full">
+          <ComposedChart data={timeline.chartPoints} margin={{ top: 16, right: 12, left: 12, bottom: 8 }}>
+            <CartesianGrid vertical={false} />
+            <XAxis
+              dataKey="dateTag"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={24}
+              tickFormatter={(value) => formatDateTag(String(value))}
+            />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              width={80}
+              domain={[timeline.minNav, timeline.maxNav]}
+              tickFormatter={(value) => Number(value).toFixed(4)}
+            />
+            <ChartTooltip
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length || !label) return null;
+
+                const navEntry = payload.find((item) => item.dataKey === "navValue" && item.value !== null);
+                const eventEntries = payload.filter((item) => item.dataKey === "markerNavValue");
+
+                return (
+                  <div className="min-w-[15rem] rounded-lg border bg-background px-3 py-2 text-xs shadow-xl">
+                    <div className="font-medium">{formatDateTag(String(label), { month: "short", day: "numeric", year: "numeric" })}</div>
+                    {navEntry?.value !== undefined && (
+                      <div className="mt-2">
+                        NAV: {Number(navEntry.value).toFixed(4)} {fundData.navCurrency}
+                      </div>
+                    )}
+                    {eventEntries.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {eventEntries.map((entry) => (
+                          <div key={`${entry.name}-${entry.payload.id}`} className="text-muted-foreground">
+                            <span className="font-medium text-foreground">
+                              {FUND_EVENT_META[entry.name as FundEventType].label}:
+                            </span>{" "}
+                            {(entry.payload as FundTimelineEvent).label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }}
+            />
+            <Legend
+              verticalAlign="top"
+              align="right"
+              content={() => (
+                <div className="flex flex-wrap justify-end gap-2 pb-2 text-xs">
+                  <div className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-blue-700">
+                    NAV
+                  </div>
+                  {Object.entries(FUND_EVENT_META).map(([key, meta]) => (
+                    <div
+                      key={key}
+                      className={`rounded-full border px-2.5 py-1 ${meta.badgeClassName}`}
+                    >
+                      {meta.label}
+                    </div>
+                  ))}
+                </div>
+              )}
+            />
+
+            {timeline.windows.map((window) => (
+              <ReferenceArea
+                key={window.id}
+                x1={window.startDateTag}
+                x2={window.endDateTag}
+                strokeOpacity={0}
+                fill={window.type === "subscription" ? "#bfdbfe" : "#fde68a"}
+                fillOpacity={0.28}
+              />
+            ))}
+
+            <Line
+              type="monotone"
+              dataKey="navValue"
+              name="nav"
+              stroke="var(--color-nav)"
+              strokeWidth={2.5}
+              dot={{ r: 3, fill: "var(--color-nav)" }}
+              activeDot={{ r: 5 }}
+              connectNulls={false}
+            />
+
+            {(Object.keys(markerGroups) as FundEventType[]).map((eventType) => (
+              <Scatter
+                key={eventType}
+                name={eventType}
+                data={markerGroups[eventType]}
+                dataKey="markerNavValue"
+                fill={FUND_EVENT_META[eventType].dotColor}
+                shape={(props: any) => (
+                  <circle
+                    cx={props.cx}
+                    cy={props.cy}
+                    r={5}
+                    fill={FUND_EVENT_META[eventType].dotColor}
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                  />
+                )}
+              />
+            ))}
+          </ComposedChart>
+        </ChartContainer>
+
+        <div className="space-y-3">
+          <div className="text-sm font-medium">Fund event rail</div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {timeline.events.map((event) => (
+              <div key={event.id} className="rounded-lg border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium">{event.label}</div>
+                  <div className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${FUND_EVENT_META[event.type].badgeClassName}`}>
+                    {FUND_EVENT_META[event.type].label}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">
+                  {formatDateTag(event.dateTag, { month: "short", day: "numeric", year: "numeric" })}
+                </div>
+                <div className="mt-2 text-sm text-muted-foreground">{event.detail}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function getLatestByCreatedTime<T extends { createdTime?: string }>(items: T[]) {
@@ -2711,11 +3284,19 @@ export function FundIssuanceDetail() {
                 </div>
               </div>
               <div>
-                <div className="mb-1 text-muted-foreground">
-                  {isOpenEnd ? "Current NAV" : "Initial NAV"}
-                </div>
+                <div className="mb-1 text-muted-foreground">Latest NAV</div>
+                <div className="font-medium">{fundData.currentNav}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-muted-foreground">NAV update mode</div>
+                <div className="font-medium">{fundData.navUpdateMode || "Manual"}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-muted-foreground">NAV provider / owner</div>
                 <div className="font-medium">
-                  {isOpenEnd ? fundData.currentNav : fundData.initialNav}
+                  {fundData.navUpdateMode === "Oracle Feed"
+                    ? fundData.oracleProvider || "Oracle provider pending"
+                    : "Issuer / NAV committee"}
                 </div>
               </div>
               <div>
@@ -2928,14 +3509,14 @@ export function FundIssuanceDetail() {
                 <TabsTrigger value="dealing">Dealing</TabsTrigger>
                 <TabsTrigger value="ta-ledger">TA Ledger</TabsTrigger>
                 <TabsTrigger value="orders">Orders</TabsTrigger>
-                <TabsTrigger value="nav-history">NAV History</TabsTrigger>
+                <TabsTrigger value="nav-history">NAV & Events</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="space-y-6">
                 <div className="grid gap-4 md:grid-cols-4">
                   <MetricCard
                     icon={LineChart}
-                    label="Current NAV"
+                    label="Latest NAV"
                     value={fundData.currentNavValue.toFixed(4)}
                     suffix={fundData.navCurrency}
                     variant="primary"
@@ -3327,39 +3908,22 @@ export function FundIssuanceDetail() {
                 </Tabs>
               </TabsContent>
 
-              <TabsContent value="nav-history">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>NAV Date</TableHead>
-                      <TableHead>NAV</TableHead>
-                      <TableHead>Updated At</TableHead>
-                      <TableHead>Note</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {fundData.navHistory.map((record) => (
-                      <TableRow key={record.id}>
-                        <TableCell>{record.navDate}</TableCell>
-                        <TableCell>
-                          {record.navValue.toFixed(4)} {record.currency}
-                        </TableCell>
-                        <TableCell>{record.updatedAt}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {record.note || "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <TabsContent value="nav-history" className="space-y-6">
+                <SharedFundNavEventsCard
+                  fundData={fundData}
+                  relatedRedemptions={relatedRedemptions}
+                  relatedDistributions={relatedDistributions}
+                />
+                <FundNavRecordsTable fundData={fundData} />
               </TabsContent>
             </Tabs>
           ) : (
             <Tabs defaultValue="overview" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="information">Information</TabsTrigger>
                 <TabsTrigger value="timeline">Timeline</TabsTrigger>
+                <TabsTrigger value="nav-history">NAV & Events</TabsTrigger>
                 <TabsTrigger value="ta-ledger">TA Ledger</TabsTrigger>
                 <TabsTrigger value="orders">Orders</TabsTrigger>
               </TabsList>
@@ -3368,8 +3932,8 @@ export function FundIssuanceDetail() {
                 <div className="grid gap-4 md:grid-cols-3">
                   <MetricCard
                     icon={ShieldCheck}
-                    label="Initial NAV"
-                    value={fundData.initialNavValue.toFixed(2)}
+                    label="Latest NAV"
+                    value={fundData.currentNavValue.toFixed(4)}
                     suffix={fundData.navCurrency}
                     variant="primary"
                   />
@@ -3601,6 +4165,15 @@ export function FundIssuanceDetail() {
                     </div>
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              <TabsContent value="nav-history" className="space-y-6">
+                <SharedFundNavEventsCard
+                  fundData={fundData}
+                  relatedRedemptions={relatedRedemptions}
+                  relatedDistributions={relatedDistributions}
+                />
+                <FundNavRecordsTable fundData={fundData} />
               </TabsContent>
 
               <TabsContent value="ta-ledger" className="space-y-6">
@@ -3871,8 +4444,8 @@ export function FundIssuanceDetail() {
             { label: "Current Status", value: fundData.status },
             { label: "Actor Role", value: userRole },
             {
-              label: isOpenEnd ? "Current NAV" : "Issue Price",
-              value: isOpenEnd ? fundData.currentNav : fundData.initialNav,
+              label: "Latest NAV",
+              value: fundData.currentNav,
             },
           ]}
         />

@@ -32,7 +32,7 @@ import {
 import { ProcessFlowCard } from "../components/ProcessFlowCard";
 import { InfoAlert } from "../components/InfoAlert";
 import { useApp } from "../context/AppContext";
-import { FundIssuance } from "../data/fundDemoData";
+import { FundIssuance, NavUpdateMode } from "../data/fundDemoData";
 
 function formatDate(date?: Date) {
   return date ? format(date, "yyyy-MM-dd HH:mm:ss") : "";
@@ -49,6 +49,44 @@ function formatNav(value: number, currency: string) {
 function deriveTokenSymbol(value: string) {
   const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
   return normalized.slice(0, 15) || "NEWTOKEN";
+}
+
+function buildSeedNavHistory(
+  fundId: string,
+  navValue: number,
+  currency: string,
+  createdAt: Date,
+  mode: NavUpdateMode,
+) {
+  const pointCount = mode === "Oracle Feed" ? 10 : 6;
+  const volatility = mode === "Oracle Feed" ? 0.0036 : 0.0016;
+
+  return Array.from({ length: pointCount }, (_, index) => {
+    const reverseOffset = pointCount - index - 1;
+    const pointDate = new Date(createdAt);
+    pointDate.setDate(createdAt.getDate() - reverseOffset);
+
+    const drift = (index - (pointCount - 1) / 2) * volatility * 0.22;
+    const wave = Math.sin(index * 1.35) * volatility;
+    const seededNav = Math.max(navValue * (1 + drift + wave), 0.0001);
+    const isLastPoint = index === pointCount - 1;
+
+    return {
+      id: `nav-${fundId}-${index + 1}`,
+      navDate: format(pointDate, "yyyy-MM-dd"),
+      navValue: isLastPoint ? navValue : Number(seededNav.toFixed(4)),
+      currency,
+      updatedAt: format(pointDate, "yyyy-MM-dd HH:mm:ss"),
+      note:
+        mode === "Oracle Feed"
+          ? isLastPoint
+            ? "Latest oracle-synced NAV"
+            : "Oracle-synced demo NAV"
+          : isLastPoint
+            ? "Latest manually confirmed NAV"
+            : "Manual NAV committee reference",
+    };
+  });
 }
 
 function getInvestorRuleCondition(ruleType: string) {
@@ -179,6 +217,13 @@ export function CreateFundIssuance() {
   const [dealingCutoffTime, setDealingCutoffTime] = useState("16:00");
   const [navValuationTime, setNavValuationTime] = useState("18:00");
   const [settlementCycle, setSettlementCycle] = useState("T+1");
+  const [navUpdateMode, setNavUpdateMode] = useState<NavUpdateMode>("Oracle Feed");
+  const [oracleProvider, setOracleProvider] = useState("Chainlink NAV Adapter");
+  const [oracleFeedId, setOracleFeedId] = useState("HKD-FUND-NAV-DEMO");
+  const [oracleUpdateFrequency, setOracleUpdateFrequency] = useState("Every dealing day close");
+  const [oracleFallbackRule, setOracleFallbackRule] = useState(
+    "Fallback to issuer manual confirmation after 30 minutes without a fresh oracle tick",
+  );
   const [subscriptionPaymentMethod, setSubscriptionPaymentMethod] =
     useState<(typeof SUBSCRIPTION_PAYMENT_METHOD_OPTIONS)[number]>("Fiat");
   const [subscriptionPaymentRail, setSubscriptionPaymentRail] =
@@ -396,6 +441,13 @@ export function CreateFundIssuance() {
       fundLevelRedemptionGate: openEndMode
         ? `${fundLevelRedemptionGate || "0"}% of fund NAV`
         : undefined,
+      navUpdateMode,
+      oracleProvider: navUpdateMode === "Oracle Feed" ? oracleProvider.trim() || undefined : undefined,
+      oracleFeedId: navUpdateMode === "Oracle Feed" ? oracleFeedId.trim() || undefined : undefined,
+      oracleUpdateFrequency:
+        navUpdateMode === "Oracle Feed" ? oracleUpdateFrequency.trim() || undefined : undefined,
+      oracleFallbackRule: oracleFallbackRule.trim() || undefined,
+      oracleLastSyncedAt: navUpdateMode === "Oracle Feed" ? createdTime : undefined,
       lastNavUpdateTime: openEndMode ? createdTime : undefined,
       nextCutoffTime: openEndMode ? nextCutoffTime : undefined,
       nextConfirmationDate: openEndMode ? nextConfirmationDate : undefined,
@@ -422,16 +474,7 @@ export function CreateFundIssuance() {
           : "Pro-rata",
       references: normalizedReferences,
       investorRules: normalizedInvestorRules,
-      navHistory: [
-        {
-          id: `nav-${newFundId}-1`,
-          navDate: format(now, "yyyy-MM-dd"),
-          navValue,
-          currency: dealSizeUnit,
-          updatedAt: createdTime,
-          note: "Draft creation NAV reference",
-        },
-      ],
+      navHistory: buildSeedNavHistory(newFundId, navValue, dealSizeUnit, now, navUpdateMode),
       identitySource: "authSession",
     };
 
@@ -1208,6 +1251,92 @@ export function CreateFundIssuance() {
                 </div>
               </div>
             </div>
+
+            <div className="rounded-lg border border-[var(--navy-100)] bg-[var(--navy-50)] p-4">
+              <h3 className="font-medium" style={{ fontFamily: "var(--font-heading)" }}>
+                NAV Data Source
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This is a fund-level attribute for the demo. It controls how the fund's NAV history is
+                presented in the product view, independently from the issuer's operating workflows.
+              </p>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>NAV update mode</Label>
+                <Select
+                  value={navUpdateMode}
+                  onValueChange={(value) => setNavUpdateMode(value as NavUpdateMode)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Oracle Feed">Oracle Feed</SelectItem>
+                    <SelectItem value="Manual">Manual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-lg border p-4 text-sm">
+                <div className="font-medium">
+                  {navUpdateMode === "Oracle Feed" ? "Oracle-driven demo" : "Manual NAV committee demo"}
+                </div>
+                <div className="mt-1 text-muted-foreground">
+                  {navUpdateMode === "Oracle Feed"
+                    ? "The detail page will show the fund as receiving periodic oracle NAV updates and will label the latest synced timestamp."
+                    : "The detail page will show the NAV as manually maintained, with event history still layered on top of the graph."}
+                </div>
+              </div>
+            </div>
+
+            {navUpdateMode === "Oracle Feed" ? (
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Oracle provider</Label>
+                  <Input
+                    value={oracleProvider}
+                    onChange={(event) => setOracleProvider(event.target.value)}
+                    placeholder="Chainlink NAV Adapter"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Feed ID / contract reference</Label>
+                  <Input
+                    value={oracleFeedId}
+                    onChange={(event) => setOracleFeedId(event.target.value)}
+                    placeholder="HKD-FUND-NAV-DEMO"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Oracle update frequency</Label>
+                  <Input
+                    value={oracleUpdateFrequency}
+                    onChange={(event) => setOracleUpdateFrequency(event.target.value)}
+                    placeholder="Every dealing day close"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Fallback rule</Label>
+                  <Textarea
+                    value={oracleFallbackRule}
+                    onChange={(event) => setOracleFallbackRule(event.target.value)}
+                    rows={3}
+                    placeholder="Fallback to issuer manual confirmation after 30 minutes without a fresh oracle tick"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Manual NAV governance note</Label>
+                <Textarea
+                  value={oracleFallbackRule}
+                  onChange={(event) => setOracleFallbackRule(event.target.value)}
+                  rows={3}
+                  placeholder="Describe who confirms and publishes NAV in this demo"
+                />
+              </div>
+            )}
 
             {openEndMode ? (
               <>
