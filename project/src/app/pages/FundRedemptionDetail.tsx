@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   CheckCircle2,
@@ -39,15 +39,53 @@ import { Badge } from "../components/ui/badge";
 import { InfoAlert } from "../components/InfoAlert";
 import { StatusBadge } from "../components/StatusBadge";
 import { FundRedemptionWorkflow } from "../components/FundIssuanceWorkflow";
-import { OperationActionModal } from "../components/modals/OperationActionModal";
+import {
+  OperationActionModal,
+  type ActionModalDetailGroup,
+  type ActionModalImpactBadge,
+  type ActionModalStep,
+  type ActionModalSummaryItem,
+} from "../components/modals/OperationActionModal";
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
-  WorkflowResponsibilityCard,
 } from "../components/TransferAgentPanels";
 import { useApp } from "../context/AppContext";
 import { FundIssuance, FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
 import { cn } from "../components/ui/utils";
+
+type RedemptionTab =
+  | "overview"
+  | "snapshot"
+  | "requests"
+  | "payment-list"
+  | "batches"
+  | "manual";
+
+type RedemptionActionImpactType = "internal" | "ta" | "onchain" | "hybrid";
+
+interface RedemptionViewLink {
+  label: string;
+  tab: RedemptionTab;
+}
+
+interface RedemptionWorkflowActionConfig {
+  label: string;
+  nextStatus: FundRedemptionConfig["status"];
+  message: string;
+  icon: LucideIcon;
+  variant: "default" | "outline";
+  modalTitle: string;
+  modalDescription: string;
+  modalSteps: ActionModalStep[];
+  impactType: RedemptionActionImpactType;
+  impactBadges: ActionModalImpactBadge[];
+  nextStepHint: string;
+  affectedObjects: string[];
+  previewSummary: ActionModalSummaryItem[];
+  previewDetails: ActionModalDetailGroup[];
+  viewLinks: RedemptionViewLink[];
+}
 
 function getNextRedemptionOrderAction(order: FundOrder) {
   switch (order.status) {
@@ -485,6 +523,286 @@ function buildHolderSnapshotRows(requests: FundOrder[]) {
   }));
 }
 
+function formatRedemptionNumber(value: number, digits = 2) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  }).format(value);
+}
+
+function buildRedemptionImpactBadges({
+  requiresTa,
+  requiresOnChain,
+}: {
+  requiresTa: boolean;
+  requiresOnChain: boolean;
+}) {
+  const badges: ActionModalImpactBadge[] = [{ label: "Identity Required", kind: "identity" }];
+
+  if (requiresTa) {
+    badges.push({ label: "Notify TA", kind: "ta" });
+  }
+
+  if (requiresOnChain) {
+    badges.push({ label: "On-chain Update", kind: "onchain" });
+  }
+
+  return badges;
+}
+
+function buildStructuredRedemptionModalFlow({
+  reviewTitle,
+  reviewDescription,
+  identityDescription,
+  workflowTitle,
+  workflowDescription,
+  taTitle,
+  taDescription,
+  onChainTitle,
+  onChainDescription,
+  successTitle,
+  successDescription,
+  requiresTa,
+  requiresOnChain,
+}: {
+  reviewTitle: string;
+  reviewDescription: string;
+  identityDescription: string;
+  workflowTitle: string;
+  workflowDescription: string;
+  taTitle?: string;
+  taDescription?: string;
+  onChainTitle?: string;
+  onChainDescription?: string;
+  successTitle: string;
+  successDescription: string;
+  requiresTa: boolean;
+  requiresOnChain: boolean;
+}) {
+  const steps: ActionModalStep[] = [
+    {
+      label: "Review",
+      title: reviewTitle,
+      description: reviewDescription,
+      state: "review",
+      kind: "review",
+    },
+    {
+      label: "Identity",
+      title: "Verify Identity",
+      description: identityDescription,
+      state: "loading",
+      kind: "identity",
+    },
+  ];
+
+  if (requiresTa) {
+    steps.push({
+      label: "TA",
+      title: taTitle || "Notify Transfer Agent",
+      description:
+        taDescription || "Transfer-agent instructions are being posted to the operating queue.",
+      state: "loading",
+      kind: "ta",
+    });
+  }
+
+  if (requiresOnChain) {
+    steps.push({
+      label: "On-chain",
+      title: onChainTitle || "Execute On-chain Update",
+      description:
+        onChainDescription || "The smart-contract update is being executed on chain.",
+      state: "loading",
+      kind: "onchain",
+    });
+  }
+
+  if (!requiresTa && !requiresOnChain) {
+    steps.push({
+      label: "Workflow",
+      title: workflowTitle,
+      description: workflowDescription,
+      state: "loading",
+      kind: "identity",
+    });
+  }
+
+  steps.push({
+    label: "Completed",
+    title: successTitle,
+    description: successDescription,
+    state: "success",
+    kind: "success",
+  });
+
+  return steps;
+}
+
+function getRedemptionActionPanelSurfaceClasses(impactType: RedemptionActionImpactType) {
+  switch (impactType) {
+    case "ta":
+      return "border-teal-200 bg-teal-50/70";
+    case "onchain":
+      return "border-cyan-200 bg-cyan-50/70";
+    case "hybrid":
+      return "border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-teal-50";
+    case "internal":
+    default:
+      return "border-slate-200 bg-slate-50/80";
+  }
+}
+
+function RedemptionNextActionPanel({
+  action,
+  currentStatus,
+  disabled,
+  disabledReason,
+  secondaryActions,
+  onOpen,
+  onOpenSecondary,
+  onViewMore,
+}: {
+  action: RedemptionWorkflowActionConfig;
+  currentStatus: string;
+  disabled: boolean;
+  disabledReason?: string;
+  secondaryActions: RedemptionWorkflowActionConfig[];
+  onOpen: () => void;
+  onOpenSecondary: (action: RedemptionWorkflowActionConfig) => void;
+  onViewMore: (link: RedemptionViewLink) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-4 shadow-sm",
+        getRedemptionActionPanelSurfaceClasses(action.impactType),
+      )}
+    >
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex-1 space-y-4">
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+              Next Action
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+              <span>{currentStatus}</span>
+              <span className="text-slate-400">-&gt;</span>
+              <span>{action.nextStatus}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {action.impactBadges.map((badge) => (
+              <Badge
+                key={`${badge.kind}-${badge.label}`}
+                variant="outline"
+                className={
+                  badge.kind === "ta"
+                    ? "border-teal-200 bg-teal-50 text-teal-700"
+                    : badge.kind === "onchain"
+                      ? "border-cyan-200 bg-cyan-50 text-cyan-700"
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                }
+              >
+                {badge.label}
+              </Badge>
+            ))}
+          </div>
+
+          <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {action.previewSummary.map((item) => (
+              <div key={item.label} className="rounded-lg border bg-white/90 p-3">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {item.label}
+                </div>
+                <div className="mt-1 text-sm font-medium text-foreground">{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Affected Objects
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {action.affectedObjects.map((item) => (
+                <div
+                  key={item}
+                  className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700"
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {action.viewLinks.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                View More
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {action.viewLinks.map((link) => (
+                  <Button
+                    key={`${link.tab}-${link.label}`}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="bg-white/90"
+                    onClick={() => onViewMore(link)}
+                  >
+                    {link.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {secondaryActions.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Additional Controls
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {secondaryActions.map((secondaryAction) => (
+                  <Button
+                    key={`${secondaryAction.label}-${secondaryAction.nextStatus}`}
+                    type="button"
+                    size="sm"
+                    variant={secondaryAction.variant}
+                    className="bg-white/90"
+                    onClick={() => onOpenSecondary(secondaryAction)}
+                  >
+                    <secondaryAction.icon className="mr-2 h-4 w-4" />
+                    {secondaryAction.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="xl:w-56 xl:shrink-0">
+          <Button
+            type="button"
+            className="w-full"
+            variant={action.variant}
+            disabled={disabled}
+            title={disabled ? disabledReason : undefined}
+            onClick={onOpen}
+          >
+            <action.icon className="mr-2 h-4 w-4" />
+            {action.label}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function includesKeyword(value: string | undefined, keyword: string) {
   return value?.toLowerCase().includes(keyword.toLowerCase()) ?? false;
 }
@@ -505,6 +823,587 @@ function getRedemptionOrderPermissionAction(label: string) {
   if (normalized.includes("review")) return "review";
   if (normalized.includes("approve")) return "approve";
   return "manage";
+}
+
+interface RedemptionActionContext {
+  fund?: FundIssuance;
+  requests: FundOrder[];
+  activeSettlementRequests: FundOrder[];
+  manuallyExcludedRequests: FundOrder[];
+  holderSnapshotRows: ReturnType<typeof buildHolderSnapshotRows>;
+  paymentRows: ReturnType<typeof buildRedemptionPaymentRows>;
+  transferAgentOps?: FundRedemptionConfig["transferAgentOps"];
+  currencyLabel: string;
+  batchesCount: number;
+}
+
+function buildRedemptionActionConfig({
+  label,
+  nextStatus,
+  message,
+  icon,
+  variant = "default",
+  modalTitle,
+  modalDescription,
+  reviewTitle,
+  reviewDescription,
+  identityDescription,
+  workflowTitle,
+  workflowDescription,
+  taTitle,
+  taDescription,
+  onChainTitle,
+  onChainDescription,
+  successTitle,
+  successDescription,
+  impactType,
+  requiresTa,
+  requiresOnChain,
+  nextStepHint,
+  affectedObjects,
+  previewSummary,
+  previewDetails = [],
+  viewLinks = [],
+}: {
+  label: string;
+  nextStatus: FundRedemptionConfig["status"];
+  message: string;
+  icon: LucideIcon;
+  variant?: "default" | "outline";
+  modalTitle: string;
+  modalDescription: string;
+  reviewTitle: string;
+  reviewDescription: string;
+  identityDescription: string;
+  workflowTitle: string;
+  workflowDescription: string;
+  taTitle?: string;
+  taDescription?: string;
+  onChainTitle?: string;
+  onChainDescription?: string;
+  successTitle: string;
+  successDescription: string;
+  impactType: RedemptionActionImpactType;
+  requiresTa: boolean;
+  requiresOnChain: boolean;
+  nextStepHint: string;
+  affectedObjects: string[];
+  previewSummary: ActionModalSummaryItem[];
+  previewDetails?: ActionModalDetailGroup[];
+  viewLinks?: RedemptionViewLink[];
+}): RedemptionWorkflowActionConfig {
+  return {
+    label,
+    nextStatus,
+    message,
+    icon,
+    variant,
+    modalTitle,
+    modalDescription,
+    modalSteps: buildStructuredRedemptionModalFlow({
+      reviewTitle,
+      reviewDescription,
+      identityDescription,
+      workflowTitle,
+      workflowDescription,
+      taTitle,
+      taDescription,
+      onChainTitle,
+      onChainDescription,
+      successTitle,
+      successDescription,
+      requiresTa,
+      requiresOnChain,
+    }),
+    impactType,
+    impactBadges: buildRedemptionImpactBadges({ requiresTa, requiresOnChain }),
+    nextStepHint,
+    affectedObjects,
+    previewSummary,
+    previewDetails,
+    viewLinks,
+  };
+}
+
+function getStructuredRedemptionActions(
+  config: FundRedemptionConfig,
+  context: RedemptionActionContext,
+): RedemptionWorkflowActionConfig[] {
+  const totalRequestedUnits = context.activeSettlementRequests.reduce(
+    (sum, request) => sum + parseLeadingNumber(request.requestQuantity),
+    0,
+  );
+  const totalGrossCash = context.paymentRows.reduce(
+    (sum, row) => sum + parseLeadingNumber(row.grossAmount),
+    0,
+  );
+  const topRequestItems =
+    context.activeSettlementRequests.length > 0
+      ? context.activeSettlementRequests.slice(0, 3).map(
+          (request) => `${request.investorName} - ${request.requestQuantity}`,
+        )
+      : ["No accepted redemption requests are in the active settlement roster."];
+  const topPaymentItems =
+    context.paymentRows.length > 0
+      ? context.paymentRows
+          .slice(0, 3)
+          .map((row) => `${row.investorName} - ${row.netAmount} to ${row.destinationAccount}`)
+      : ["No redemption payment rows are available yet."];
+  const taStatusItems = [
+    `Snapshot: ${context.transferAgentOps?.holderSnapshotId || "Pending"}`,
+    `Payment list: ${context.transferAgentOps?.paymentListStatus || "Pending generation"}`,
+    `Funding check: ${context.transferAgentOps?.fundingCheckStatus || "Pending funding confirmation"}`,
+  ];
+  const canShowSnapshot = context.fund?.fundType !== "Open-end";
+
+  switch (config.status) {
+    case "Draft":
+      return [
+        buildRedemptionActionConfig({
+          label: "Submit for Approval",
+          nextStatus: "Pending Approval",
+          message: "Redemption operation submitted for approval",
+          icon: Send,
+          modalTitle: "Submit Redemption Operation For Approval",
+          modalDescription:
+            "Review the redemption operation, verify issuer identity, and submit it for approval.",
+          reviewTitle: "Review Redemption Draft",
+          reviewDescription:
+            "Confirm the linked fund, cut-off rules, and liquidity settings before submission.",
+          identityDescription:
+            "Issuer identity and redemption authority are being verified.",
+          workflowTitle: "Submit Approval Request",
+          workflowDescription:
+            "The redemption approval request is being submitted to the workflow.",
+          successTitle: "Redemption submitted",
+          successDescription:
+            "The redemption operation is now waiting for approval review.",
+          impactType: "internal",
+          requiresTa: false,
+          requiresOnChain: false,
+          nextStepHint:
+            "This action will route the redemption setup into approval review without changing TA or on-chain records.",
+          affectedObjects: ["Approval request", "Liquidity event memo", "Redemption setup record"],
+          previewSummary: [
+            { label: "Linked Fund", value: config.fundName },
+            { label: "Mode", value: config.redemptionMode },
+            { label: "Notice Period", value: `${config.noticePeriodDays} day(s)` },
+            { label: "Settlement Cycle", value: config.settlementCycle },
+            { label: "Manual Approval", value: config.manualApprovalRequired ? "Enabled" : "Straight-through" },
+          ],
+          previewDetails: [
+            {
+              title: "Setup Controls",
+              items: [
+                `Cut-off: ${config.cutOffTime}`,
+                `Window: ${config.windowStart || "N/A"} to ${config.windowEnd || "N/A"}`,
+                `Per-investor limit: ${config.maxRedemptionQuantityPerInvestor}`,
+              ],
+            },
+          ],
+          viewLinks: [{ label: "View Requests", tab: "requests" }],
+        }),
+      ];
+    case "Pending Approval":
+      return [
+        buildRedemptionActionConfig({
+          label: config.pauseRedemptionAfterListing ? "Launch Notice Period" : "Activate Module",
+          nextStatus: config.pauseRedemptionAfterListing ? "Announced" : "Active",
+          message: config.pauseRedemptionAfterListing
+            ? "Redemption notice period launched"
+            : "Redemption module activated",
+          icon: ShieldCheck,
+          modalTitle: config.pauseRedemptionAfterListing
+            ? "Launch Redemption Notice Period"
+            : "Activate Redemption Module",
+          modalDescription:
+            "Verify issuer identity and move the approved redemption setup into its next operating state.",
+          reviewTitle: "Review Activation",
+          reviewDescription:
+            "Confirm the approved redemption setup is ready to move into its notice or active operating stage.",
+          identityDescription:
+            "Issuer identity and redemption activation authority are being verified.",
+          workflowTitle: config.pauseRedemptionAfterListing
+            ? "Launch Notice Period"
+            : "Activate Redemption Module",
+          workflowDescription:
+            "The approved redemption setup is being advanced to its next operating stage.",
+          taTitle: "Notify Transfer Agent",
+          taDescription:
+            "Transfer-agent and registry teams are being notified to align the redemption calendar and holder controls.",
+          successTitle: config.pauseRedemptionAfterListing
+            ? "Notice period started"
+            : "Redemption activated",
+          successDescription: config.pauseRedemptionAfterListing
+            ? "The redemption event has moved into its notice period."
+            : "The redemption module is now active.",
+          impactType: "ta",
+          requiresTa: true,
+          requiresOnChain: false,
+          nextStepHint:
+            "This action will notify TA and move the redemption setup into its notice or active operating stage.",
+          affectedObjects: ["Redemption operating calendar", "TA work queue", "Settlement account setup"],
+          previewSummary: [
+            { label: "Current Status", value: config.status },
+            { label: "Next Status", value: config.pauseRedemptionAfterListing ? "Announced" : "Active" },
+            { label: "Transfer Agent", value: context.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+            { label: "Linked Fund", value: context.fund?.status || "Linked fund pending" },
+          ],
+          previewDetails: [
+            { title: "TA Intake", kind: "ta", items: taStatusItems },
+          ],
+          viewLinks: [{ label: "View Requests", tab: "requests" }],
+        }),
+      ];
+    case "Announced":
+      return [
+        buildRedemptionActionConfig({
+          label: "Open Window",
+          nextStatus: "Window Open",
+          message: "Redemption window opened",
+          icon: PlayCircle,
+          modalTitle: "Open Redemption Window",
+          modalDescription:
+            "Verify issuer identity before opening the announced redemption window.",
+          reviewTitle: "Review Window Opening",
+          reviewDescription:
+            "Confirm the notice period is complete and the redemption window should be opened.",
+          identityDescription:
+            "Issuer identity and redemption window authority are being verified.",
+          workflowTitle: "Open Redemption Window",
+          workflowDescription:
+            "The redemption window opening request is being processed.",
+          taTitle: "Notify Transfer Agent",
+          taDescription:
+            "The transfer agent is being asked to activate the participation roster and monitor holder requests.",
+          successTitle: "Window opened",
+          successDescription:
+            "The redemption window is now open for investors.",
+          impactType: "ta",
+          requiresTa: true,
+          requiresOnChain: false,
+          nextStepHint:
+            "This action will notify TA and move the redemption event from notice into the live participation window.",
+          affectedObjects: ["Participation order book", "TA operating roster", "Window activation record"],
+          previewSummary: [
+            { label: "Announcement Date", value: config.announcementDate || "Pending" },
+            { label: "Window", value: `${config.windowStart || "N/A"} to ${config.windowEnd || "N/A"}` },
+            { label: "Active Requests", value: `${context.activeSettlementRequests.length}` },
+            { label: "Transfer Agent", value: context.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+          ],
+          previewDetails: [{ title: "Request Roster", kind: "ta", items: topRequestItems }],
+          viewLinks: [
+            { label: "View Requests", tab: "requests" },
+            ...(canShowSnapshot ? [{ label: "View Snapshot", tab: "snapshot" as const }] : []),
+          ],
+        }),
+      ];
+    case "Active":
+    case "Window Open":
+      return [
+        buildRedemptionActionConfig({
+          label: "Lock Snapshot",
+          nextStatus: "Snapshot Locked",
+          message: "Redemption holder snapshot locked",
+          icon: CheckCircle2,
+          modalTitle: "Lock Redemption Snapshot",
+          modalDescription:
+            "Verify issuer identity before handing the accepted redemption roster to the transfer agent for close-out.",
+          reviewTitle: "Review Snapshot Lock",
+          reviewDescription:
+            "Confirm the current request roster is ready to be frozen for TA close-out and settlement preparation.",
+          identityDescription:
+            "Issuer identity and snapshot authority are being verified.",
+          workflowTitle: "Post Snapshot Instruction",
+          workflowDescription:
+            "The current redemption roster is being handed into the TA snapshot queue.",
+          taTitle: "Lock Holder Snapshot",
+          taDescription:
+            "The transfer agent is freezing the accepted holder snapshot and cut-off roster.",
+          successTitle: "Snapshot locked",
+          successDescription:
+            "The redemption event has moved into TA close-out preparation.",
+          impactType: "ta",
+          requiresTa: true,
+          requiresOnChain: false,
+          nextStepHint:
+            "This action will notify TA to freeze the accepted request roster and start settlement preparation.",
+          affectedObjects: ["Holder snapshot", "Accepted request roster", "Snapshot lock instruction"],
+          previewSummary: [
+            { label: "Active Requests", value: `${context.activeSettlementRequests.length}` },
+            { label: "Requested Units", value: `${formatRedemptionNumber(totalRequestedUnits, 2)} units` },
+            { label: "Manual Overrides", value: `${context.manuallyExcludedRequests.length} excluded` },
+            { label: "Cut-off", value: config.cutOffTime },
+            { label: "Settlement Cycle", value: config.settlementCycle },
+          ],
+          previewDetails: [{ title: "Settlement Roster", kind: "ta", items: topRequestItems }],
+          viewLinks: [
+            { label: "View Requests", tab: "requests" },
+            ...(canShowSnapshot
+              ? [
+                  { label: "Open Manual Override", tab: "manual" as const },
+                  { label: "View Snapshot", tab: "snapshot" as const },
+                ]
+              : []),
+          ],
+        }),
+        buildRedemptionActionConfig({
+          label: "Pause",
+          nextStatus: "Paused",
+          message: "Redemption processing paused",
+          icon: PauseCircle,
+          variant: "outline",
+          modalTitle: "Pause Redemption Processing",
+          modalDescription:
+            "Verify issuer identity before pausing redemption processing.",
+          reviewTitle: "Review Pause Request",
+          reviewDescription:
+            "Confirm the redemption process should be paused at this stage.",
+          identityDescription:
+            "Issuer identity and redemption control authority are being verified.",
+          workflowTitle: "Pause Redemption",
+          workflowDescription:
+            "The pause request is being recorded in the redemption workflow.",
+          successTitle: "Redemption paused",
+          successDescription:
+            "Redemption processing has been paused successfully.",
+          impactType: "internal",
+          requiresTa: false,
+          requiresOnChain: false,
+          nextStepHint:
+            "This control pauses the operating window without posting a TA settlement instruction.",
+          affectedObjects: ["Pause control log", "Window halt record"],
+          previewSummary: [
+            { label: "Current Status", value: config.status },
+            { label: "Active Requests", value: `${context.activeSettlementRequests.length}` },
+            { label: "Window", value: `${config.windowStart || "N/A"} to ${config.windowEnd || "N/A"}` },
+          ],
+        }),
+      ];
+    case "Paused":
+      return [
+        buildRedemptionActionConfig({
+          label: "Lock Snapshot",
+          nextStatus: "Snapshot Locked",
+          message: "Redemption holder snapshot locked",
+          icon: CheckCircle2,
+          modalTitle: "Lock Redemption Snapshot",
+          modalDescription:
+            "Verify issuer identity before progressing the paused redemption event into TA close-out.",
+          reviewTitle: "Review Snapshot Lock",
+          reviewDescription:
+            "Confirm the paused redemption roster is final and ready for settlement preparation.",
+          identityDescription:
+            "Issuer identity and snapshot authority are being verified.",
+          workflowTitle: "Post Snapshot Instruction",
+          workflowDescription:
+            "The paused redemption roster is being handed into the TA snapshot queue.",
+          taTitle: "Lock Holder Snapshot",
+          taDescription:
+            "The transfer agent is freezing the accepted holder snapshot and cut-off roster.",
+          successTitle: "Snapshot locked",
+          successDescription:
+            "The redemption event has moved into TA close-out preparation.",
+          impactType: "ta",
+          requiresTa: true,
+          requiresOnChain: false,
+          nextStepHint:
+            "This action will notify TA to freeze the paused request roster and start settlement preparation.",
+          affectedObjects: ["Holder snapshot", "Accepted request roster", "Snapshot lock instruction"],
+          previewSummary: [
+            { label: "Paused Requests", value: `${context.activeSettlementRequests.length}` },
+            { label: "Manual Overrides", value: `${context.manuallyExcludedRequests.length} excluded` },
+            { label: "Cut-off", value: config.cutOffTime },
+            { label: "Settlement Cycle", value: config.settlementCycle },
+          ],
+          previewDetails: [{ title: "Settlement Roster", kind: "ta", items: topRequestItems }],
+          viewLinks: [
+            { label: "View Requests", tab: "requests" },
+            ...(canShowSnapshot
+              ? [{ label: "Open Manual Override", tab: "manual" as const }]
+              : []),
+          ],
+        }),
+        buildRedemptionActionConfig({
+          label: "Resume",
+          nextStatus: config.redemptionMode === "Window-based" ? "Window Open" : "Active",
+          message: "Redemption processing resumed",
+          icon: PlayCircle,
+          variant: "outline",
+          modalTitle: "Resume Redemption Processing",
+          modalDescription:
+            "Verify issuer identity before resuming redemption processing.",
+          reviewTitle: "Review Resume Request",
+          reviewDescription:
+            "Confirm the redemption setup is ready to resume processing.",
+          identityDescription:
+            "Issuer identity and redemption restart authority are being verified.",
+          workflowTitle: "Resume Redemption",
+          workflowDescription:
+            "The resume request is being processed for the redemption workflow.",
+          successTitle: "Redemption resumed",
+          successDescription:
+            "Redemption processing has resumed successfully.",
+          impactType: "internal",
+          requiresTa: false,
+          requiresOnChain: false,
+          nextStepHint:
+            "This control resumes the operating window without moving into TA close-out.",
+          affectedObjects: ["Operating control log", "Pause / resume record"],
+          previewSummary: [
+            { label: "Current Status", value: config.status },
+            { label: "Window", value: `${config.windowStart || "N/A"} to ${config.windowEnd || "N/A"}` },
+            { label: "Active Requests", value: `${context.activeSettlementRequests.length}` },
+          ],
+        }),
+      ];
+    case "Snapshot Locked":
+      return [
+        buildRedemptionActionConfig({
+          label: "Prepare Payment List",
+          nextStatus: "Payment List Ready",
+          message: "Redemption payment list prepared",
+          icon: ShieldCheck,
+          modalTitle: "Prepare Redemption Payment List",
+          modalDescription:
+            "Verify issuer identity before confirming the TA payment list package.",
+          reviewTitle: "Review Payment Preparation",
+          reviewDescription:
+            "Confirm the locked snapshot is ready for payment-file generation and funding review.",
+          identityDescription:
+            "Issuer identity and payment-file authority are being verified.",
+          workflowTitle: "Queue Payment Prep",
+          workflowDescription:
+            "The settlement package is being advanced to the TA payment-list stage.",
+          taTitle: "Generate Payment List",
+          taDescription:
+            "The transfer agent is validating accepted units and preparing the payment file.",
+          successTitle: "Payment list ready",
+          successDescription:
+            "The redemption payment list is now ready for burn and cash release.",
+          impactType: "ta",
+          requiresTa: true,
+          requiresOnChain: false,
+          nextStepHint:
+            "This action will notify TA to generate the payment list and confirm the settlement roster.",
+          affectedObjects: ["Payment list", "Funding confirmation pack", "Accepted unit ledger"],
+          previewSummary: [
+            { label: "Snapshot ID", value: context.transferAgentOps?.holderSnapshotId || "Pending" },
+            { label: "Eligible Holders", value: `${context.holderSnapshotRows.length}` },
+            { label: "Estimated Cash", value: `${formatRedemptionNumber(totalGrossCash, 2)} ${context.currencyLabel}`.trim() },
+            { label: "Manual Overrides", value: `${context.manuallyExcludedRequests.length} excluded` },
+          ],
+          previewDetails: [
+            { title: "Holder Snapshot", kind: "ta", items: topRequestItems },
+            { title: "TA Status", kind: "ta", items: taStatusItems },
+          ],
+          viewLinks: [
+            ...(canShowSnapshot ? [{ label: "View Snapshot", tab: "snapshot" as const }] : []),
+            { label: "View Payment List", tab: "payment-list" },
+            ...(canShowSnapshot
+              ? [{ label: "Open Manual Override", tab: "manual" as const }]
+              : []),
+          ],
+        }),
+      ];
+    case "Payment List Ready":
+      return [
+        buildRedemptionActionConfig({
+          label: "Burn On Chain",
+          nextStatus: "Burn On Chain",
+          message: "Redemption burn instruction posted on chain",
+          icon: ShieldCheck,
+          modalTitle: "Execute Redemption Burn On Chain",
+          modalDescription:
+            "Verify issuer identity before executing the on-chain burn leg for accepted redemption units.",
+          reviewTitle: "Review Burn Instruction",
+          reviewDescription:
+            "Confirm the payment list and funding pack are complete before posting the burn instruction on chain.",
+          identityDescription:
+            "Issuer identity and burn authority are being verified.",
+          workflowTitle: "Queue Burn Instruction",
+          workflowDescription:
+            "The burn instruction is being posted to the settlement workflow.",
+          taTitle: "Confirm Payment List",
+          taDescription:
+            "The transfer agent is confirming the payment file and funding pack before broadcast.",
+          onChainTitle: "Execute Burn On Chain",
+          onChainDescription:
+            "Accepted redemption units are being moved into the on-chain burn leg.",
+          successTitle: "Burn instruction posted",
+          successDescription:
+            "The redemption event is ready for final close-out and reconciliation.",
+          impactType: "hybrid",
+          requiresTa: true,
+          requiresOnChain: true,
+          nextStepHint:
+            "This action will confirm the payment list with TA and execute the on-chain burn leg for accepted units.",
+          affectedObjects: ["Payment list", "Funding confirmation pack", "On-chain burn instruction"],
+          previewSummary: [
+            { label: "Payment Rows", value: `${context.paymentRows.length}` },
+            { label: "Gross Cash", value: `${formatRedemptionNumber(totalGrossCash, 2)} ${context.currencyLabel}`.trim() },
+            { label: "Funding Check", value: context.transferAgentOps?.fundingCheckStatus || "Pending funding confirmation" },
+            { label: "Payment List Status", value: context.transferAgentOps?.paymentListStatus || "Pending generation" },
+          ],
+          previewDetails: [
+            { title: "Payment Preview", kind: "ta", items: topPaymentItems },
+            { title: "TA Status", kind: "ta", items: taStatusItems },
+          ],
+          viewLinks: [
+            { label: "View Payment List", tab: "payment-list" },
+            ...(canShowSnapshot ? [{ label: "View Snapshot", tab: "snapshot" as const }] : []),
+            ...(canShowSnapshot
+              ? [{ label: "Open Manual Override", tab: "manual" as const }]
+              : []),
+          ],
+        }),
+      ];
+    case "Burn On Chain":
+      return [
+        buildRedemptionActionConfig({
+          label: "Close Window",
+          nextStatus: "Window Closed",
+          message: "Redemption close-out completed",
+          icon: CheckCircle2,
+          modalTitle: "Close Redemption Event",
+          modalDescription:
+            "Verify issuer identity before closing the redemption event and handing it into reconciliation.",
+          reviewTitle: "Review Close-out",
+          reviewDescription:
+            "Confirm the burn instruction and payment list are complete before closing the current redemption event.",
+          identityDescription:
+            "Issuer identity and close-out authority are being verified.",
+          workflowTitle: "Close Redemption Event",
+          workflowDescription:
+            "The redemption event is being moved into its final close-out state.",
+          taTitle: "Close TA Event",
+          taDescription:
+            "The transfer agent is releasing the final payment file and marking the event for reconciliation.",
+          successTitle: "Redemption closed",
+          successDescription:
+            "The redemption event has entered its completed reconciliation stage.",
+          impactType: "ta",
+          requiresTa: true,
+          requiresOnChain: false,
+          nextStepHint:
+            "This action will close the redemption event, release the final TA settlement package, and mark the event complete.",
+          affectedObjects: ["Released payment list", "Reconciliation memo", "Closed event record"],
+          previewSummary: [
+            { label: "Payment Rows", value: `${context.paymentRows.length}` },
+            { label: "Batches", value: `${context.batchesCount}` },
+            { label: "Reconciliation", value: context.transferAgentOps?.reconciliationStatus || "Pending" },
+            { label: "Funding Check", value: context.transferAgentOps?.fundingCheckStatus || "Pending funding confirmation" },
+          ],
+          previewDetails: [{ title: "Payment Preview", kind: "ta", items: topPaymentItems }],
+          viewLinks: [
+            { label: "View Payment List", tab: "payment-list" },
+            { label: "View Batches", tab: "batches" },
+          ],
+        }),
+      ];
+    default:
+      return [];
+  }
 }
 
 function getEditableRedemptionSections(config: FundRedemptionConfig): RedemptionEditableSection[] {
@@ -627,6 +1526,8 @@ function OpenEndRedemptionOperatingCard({
     const operatingState =
       redemption.status === "Paused"
         ? "Paused"
+        : ["Snapshot Locked", "Payment List Ready", "Burn On Chain"].includes(redemption.status)
+          ? "Close-out"
         : redemption.status === "Window Closed"
           ? "Cycle Closed"
           : "Live";
@@ -677,7 +1578,10 @@ function OpenEndRedemptionOperatingCard({
         ? 1
         : redemption.status === "Paused"
           ? 2
-          : redemption.status === "Window Closed"
+          : redemption.status === "Window Closed" ||
+              redemption.status === "Snapshot Locked" ||
+              redemption.status === "Payment List Ready" ||
+              redemption.status === "Burn On Chain"
             ? 3
             : -1;
 
@@ -950,12 +1854,14 @@ export function FundRedemptionDetail() {
   const location = useLocation();
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [hasAppliedEditIntent, setHasAppliedEditIntent] = useState(false);
+  const [detailTab, setDetailTab] = useState<RedemptionTab>("overview");
   const [actionModalOpen, setActionModalOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<RedemptionActionConfig | null>(null);
+  const [pendingAction, setPendingAction] = useState<RedemptionWorkflowActionConfig | null>(null);
   const [requestActionModalOpen, setRequestActionModalOpen] = useState(false);
   const [pendingRequestAction, setPendingRequestAction] = useState<
     (ReturnType<typeof getRedemptionRequestActionConfig> & { orderId: string }) | null
   >(null);
+  const detailSectionRef = useRef<HTMLDivElement | null>(null);
   const {
     fundRedemptions,
     fundOrders,
@@ -992,12 +1898,36 @@ export function FundRedemptionDetail() {
   const requests = fundOrders.filter(
     (order) => order.fundId === redemption.fundId && order.type === "redemption",
   );
-  const paymentRows = buildRedemptionPaymentRows(requests);
-  const holderSnapshotRows = buildHolderSnapshotRows(requests);
+  const manualExcludedRequestIds = redemption.manualExcludedRequestIds || [];
+  const activeSettlementRequests = requests.filter(
+    (request) => !manualExcludedRequestIds.includes(request.id),
+  );
+  const manuallyExcludedRequests = requests.filter((request) =>
+    manualExcludedRequestIds.includes(request.id),
+  );
+  const paymentRows = buildRedemptionPaymentRows(activeSettlementRequests);
+  const holderSnapshotRows = buildHolderSnapshotRows(activeSettlementRequests);
   const batches = fundBatches.filter(
     (batch) => batch.fundId === redemption.fundId && batch.type === "redemption",
   );
-  const setupActions = getRedemptionActions(redemption);
+  const redemptionCurrency =
+    requests[0]?.estimatedSharesOrCash.split(" ").slice(-1)[0] ||
+    requests[0]?.confirmedSharesOrCash?.split(" ").slice(-1)[0] ||
+    redemption.latestNav.split(" ").slice(-1)[0] ||
+    "";
+  const setupActions = getStructuredRedemptionActions(redemption, {
+    fund,
+    requests,
+    activeSettlementRequests,
+    manuallyExcludedRequests,
+    holderSnapshotRows,
+    paymentRows,
+    transferAgentOps: redemption.transferAgentOps,
+    currencyLabel: redemptionCurrency,
+    batchesCount: batches.length,
+  });
+  const primarySetupAction = setupActions.find((action) => action.variant === "default") || null;
+  const secondarySetupActions = setupActions.filter((action) => action !== primarySetupAction);
   const updatePermission = getPermissionResult("update", "redemption");
   const editableSections = getEditableRedemptionSections(redemption);
   const canEditSetup = userRole === "issuer" && updatePermission.allowed && editableSections.length > 0;
@@ -1006,40 +1936,6 @@ export function FundRedemptionDetail() {
   const editIntentRequested = new URLSearchParams(location.search).get("mode") === "edit";
   const transferAgentOps = redemption.transferAgentOps;
   const showTransferAgentLayer = !isOpenEndFund || Boolean(transferAgentOps);
-  const responsibilityItems = !isOpenEndFund
-    ? [
-        {
-          label: "1. Launch Event",
-          owner: "Issuer / Fund Manager",
-          description: "Announce the repurchase event, define the window, and approve participation terms.",
-        },
-        {
-          label: "2. Receive Participation",
-          owner: "Investor / System",
-          description: "Collect investor requests during the announced participation window.",
-        },
-        {
-          label: "3. Lock Holder Snapshot",
-          owner: "Transfer Agent",
-          description: "Freeze the accepted holdings and lock the holder snapshot after cut-off.",
-        },
-        {
-          label: "4. Generate Payment List",
-          owner: "Transfer Agent",
-          description: "Validate accepted units and prepare the redemption payment file.",
-        },
-        {
-          label: "5. Confirm Funding",
-          owner: "Issuer / Fund Manager",
-          description: "Fund the settlement account before the payment list is released.",
-        },
-        {
-          label: "6. Reconcile Cash Out",
-          owner: "Transfer Agent",
-          description: "Mark payments complete and reconcile units against cash movements.",
-        },
-      ]
-    : [];
   const totalSnapshotUnits = holderSnapshotRows.reduce(
     (sum, row) => sum + parseLeadingNumber(row.snapshotUnits),
     0,
@@ -1159,6 +2055,46 @@ export function FundRedemptionDetail() {
     }
   }, [editIntentRequested, canEditSetup, hasAppliedEditIntent]);
 
+  const openDetailTab = (tab: RedemptionTab) => {
+    setDetailTab(tab);
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          detailSectionRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        });
+      });
+    }
+  };
+
+  const handleExcludeFromSettlement = (request: FundOrder) => {
+    const updated = updateFundRedemption(
+      redemption.id,
+      {
+        manualExcludedRequestIds: [...manualExcludedRequestIds, request.id],
+      },
+      "manage",
+    );
+    if (!updated) return;
+    toast.success(`${request.investorName} removed from the settlement roster`);
+  };
+
+  const handleRestoreToSettlement = (request: FundOrder) => {
+    const updated = updateFundRedemption(
+      redemption.id,
+      {
+        manualExcludedRequestIds: manualExcludedRequestIds.filter(
+          (requestId) => requestId !== request.id,
+        ),
+      },
+      "manage",
+    );
+    if (!updated) return;
+    toast.success(`${request.investorName} restored to the settlement roster`);
+  };
+
   const handleStatusChange = (nextStatus: typeof redemption.status, message: string) => {
     if (!pendingAction) return;
     const updated = updateRedemptionStatus(
@@ -1226,45 +2162,38 @@ export function FundRedemptionDetail() {
         <FundRedemptionWorkflow
           currentStatus={redemption.status}
           workflowModel={isOpenEndFund ? "open-end" : "default"}
-          actionSlot={
-            setupActions.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {setupActions.map((action) => {
-                  const permission = getPermissionResult(
-                    getRedemptionPermissionAction(action.label),
+          actionPanel={
+            primarySetupAction ? (
+              <RedemptionNextActionPanel
+                action={primarySetupAction}
+                currentStatus={redemption.status}
+                disabled={
+                  !getPermissionResult(
+                    getRedemptionPermissionAction(primarySetupAction.label),
                     "redemption",
-                  );
-                  return (
-                    <Button
-                      key={action.label}
-                      variant={action.variant}
-                      disabled={!permission.allowed}
-                      title={permission.reason}
-                      onClick={() => {
-                        setPendingAction(action);
-                        setActionModalOpen(true);
-                      }}
-                    >
-                      <action.icon className="mr-2 h-4 w-4" />
-                      {action.label}
-                    </Button>
-                  );
-                })}
-              </div>
+                  ).allowed
+                }
+                disabledReason={
+                  getPermissionResult(
+                    getRedemptionPermissionAction(primarySetupAction.label),
+                    "redemption",
+                  ).reason
+                }
+                secondaryActions={secondarySetupActions}
+                onOpen={() => {
+                  setPendingAction(primarySetupAction);
+                  setActionModalOpen(true);
+                }}
+                onOpenSecondary={(action) => {
+                  setPendingAction(action);
+                  setActionModalOpen(true);
+                }}
+                onViewMore={(link) => openDetailTab(link.tab)}
+              />
             ) : undefined
           }
         />
       </div>
-
-      {showTransferAgentLayer && (
-        <div className="mb-8">
-          <WorkflowResponsibilityCard
-            title="Redemption Responsibility Map"
-            description="This closed-end cash-out flow separates issuer funding from transfer-agent snapshot, payment-list, and reconciliation work."
-            items={responsibilityItems}
-          />
-        </div>
-      )}
 
       {isOpenEndFund && (
         <div className="mb-8">
@@ -1438,22 +2367,30 @@ export function FundRedemptionDetail() {
           )}
         </div>
 
-        <div className="lg:col-span-2">
-          <Tabs defaultValue="overview" className="space-y-6">
-            <TabsList className={cn("grid w-full", isOpenEndFund ? "grid-cols-4" : "grid-cols-5")}>
+        <div ref={detailSectionRef} className="lg:col-span-2 scroll-mt-24">
+          <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as RedemptionTab)} className="space-y-6">
+            <TabsList
+              className={cn(
+                "grid w-full",
+                isOpenEndFund ? "grid-cols-4" : userRole === "issuer" ? "grid-cols-6" : "grid-cols-5",
+              )}
+            >
               <TabsTrigger value="overview">Overview</TabsTrigger>
               {!isOpenEndFund && <TabsTrigger value="snapshot">Holder Snapshot</TabsTrigger>}
               <TabsTrigger value="requests">Requests</TabsTrigger>
               <TabsTrigger value="payment-list">Payment List</TabsTrigger>
               <TabsTrigger value="batches">Batch History</TabsTrigger>
+              {!isOpenEndFund && userRole === "issuer" && (
+                <TabsTrigger value="manual">Manual Override</TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
               <div className="grid md:grid-cols-3 gap-4">
                 <Card>
                   <CardContent className="pt-6">
-                    <div className="text-sm text-muted-foreground mb-1">Redemption Requests</div>
-                    <div className="text-2xl font-semibold">{requests.length}</div>
+                    <div className="text-sm text-muted-foreground mb-1">Active Settlement Requests</div>
+                    <div className="text-2xl font-semibold">{activeSettlementRequests.length}</div>
                   </CardContent>
                 </Card>
                 <Card>
@@ -1466,9 +2403,9 @@ export function FundRedemptionDetail() {
                 </Card>
                 <Card>
                   <CardContent className="pt-6">
-                    <div className="text-sm text-muted-foreground mb-1">Pending Cash Settlement</div>
+                    <div className="text-sm text-muted-foreground mb-1">Manual Overrides</div>
                     <div className="text-2xl font-semibold">
-                      {requests.filter((item) => item.status === "Pending Cash Settlement").length}
+                      {manuallyExcludedRequests.length}
                     </div>
                   </CardContent>
                 </Card>
@@ -1718,7 +2655,7 @@ export function FundRedemptionDetail() {
                         .toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {requests[0]?.estimatedSharesOrCash.split(" ").slice(-1)[0] || ""}
+                      {redemptionCurrency}
                     </div>
                   </CardContent>
                 </Card>
@@ -1772,6 +2709,98 @@ export function FundRedemptionDetail() {
               </Card>
             </TabsContent>
 
+            {!isOpenEndFund && userRole === "issuer" && (
+              <TabsContent value="manual" className="space-y-6">
+                <div className="grid md:grid-cols-3 gap-4">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Active Roster</div>
+                      <div className="text-2xl font-semibold">{activeSettlementRequests.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Excluded Requests</div>
+                      <div className="text-2xl font-semibold">{manuallyExcludedRequests.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Requested Units</div>
+                      <div className="text-2xl font-semibold">
+                        {formatRedemptionNumber(
+                          activeSettlementRequests.reduce(
+                            (sum, request) => sum + parseLeadingNumber(request.requestQuantity),
+                            0,
+                          ),
+                          2,
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Manual Settlement Override</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Request ID</TableHead>
+                          <TableHead>Investor</TableHead>
+                          <TableHead>Requested Shares</TableHead>
+                          <TableHead>Estimated Cash</TableHead>
+                          <TableHead>Settlement Roster</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {requests.map((request) => {
+                          const excluded = manualExcludedRequestIds.includes(request.id);
+                          return (
+                            <TableRow key={`${request.id}-manual`}>
+                              <TableCell className="font-mono text-xs">{request.id}</TableCell>
+                              <TableCell>
+                                <div className="font-medium">{request.investorName}</div>
+                                <div className="text-xs text-muted-foreground truncate max-w-[180px]">
+                                  {request.investorWallet}
+                                </div>
+                              </TableCell>
+                              <TableCell>{request.requestQuantity}</TableCell>
+                              <TableCell>{request.estimatedSharesOrCash}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{excluded ? "Excluded" : "Included"}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <StatusBadge status={request.status} />
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    excluded
+                                      ? handleRestoreToSettlement(request)
+                                      : handleExcludeFromSettlement(request)
+                                  }
+                                >
+                                  {excluded ? "Restore" : "Exclude"}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
+
             <TabsContent value="batches">
               <Table>
                 <TableHeader>
@@ -1823,13 +2852,9 @@ export function FundRedemptionDetail() {
           steps={pendingAction.modalSteps}
           startLabel="Start"
           completionLabel="Done"
-          summary={[
-            { label: "Redemption Operation", value: redemption.name },
-            { label: "Linked Fund", value: redemption.fundName },
-            { label: "Mode", value: redemption.redemptionMode },
-            { label: "Current Status", value: redemption.status },
-            { label: "Actor Role", value: userRole },
-          ]}
+          summary={pendingAction.previewSummary}
+          impactBadges={pendingAction.impactBadges}
+          detailGroups={pendingAction.previewDetails}
         />
       )}
 

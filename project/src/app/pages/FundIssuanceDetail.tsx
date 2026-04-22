@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   ArrowRightLeft,
@@ -51,7 +51,6 @@ import { FundIssuanceWorkflow } from "../components/FundIssuanceWorkflow";
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
-  WorkflowResponsibilityCard,
 } from "../components/TransferAgentPanels";
 import { RedeemModal, SubscribeModal } from "../components/modals/InvestorModals";
 import {
@@ -135,6 +134,9 @@ interface FundEditFormState {
   orderConfirmationMethod: string;
 }
 
+type ClosedEndTab = "overview" | "information" | "timeline" | "nav-history" | "ta-ledger" | "orders";
+type ClosedEndOrdersTab = "orders" | "buyers" | "allocation" | "manual";
+
 function formatAmount(value: number, currency: string) {
   return `${new Intl.NumberFormat("en-US").format(value)} ${currency}`;
 }
@@ -174,6 +176,40 @@ function parseMintingRule(value?: string) {
 
 function parseOrderConfirmationMethod(value?: string) {
   return value === "Issuer review then confirm" ? "manual" : "auto";
+}
+
+const ALLOCATION_OVERRIDE_MARKER = "[allocation-override-prev-status:";
+
+function getAllocationOverridePreviousStatus(order: FundOrder): FundOrder["status"] | null {
+  const match = order.note?.match(/\[allocation-override-prev-status:([^\]]+)\]/);
+  return (match?.[1] as FundOrder["status"] | undefined) || null;
+}
+
+function isAllocationManuallyExcluded(order: FundOrder) {
+  return !!getAllocationOverridePreviousStatus(order);
+}
+
+function stripAllocationOverrideNote(note?: string) {
+  if (!note) return undefined;
+
+  const cleaned = note
+    .replace(/Manual override: excluded from allocation preview\.?/g, "")
+    .replace(/\[allocation-override-prev-status:[^\]]+\]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return cleaned || undefined;
+}
+
+function buildAllocationOverrideNote(order: FundOrder) {
+  const existing = stripAllocationOverrideNote(order.note);
+  return [
+    "Manual override: excluded from allocation preview.",
+    `${ALLOCATION_OVERRIDE_MARKER}${order.status}]`,
+    existing,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function buildFundEditFormState(fund: FundIssuance): FundEditFormState {
@@ -904,7 +940,12 @@ function buildAllocationPreview(
   orders: FundOrder[],
   fundData: FundIssuance,
 ) {
-  const subscriptionOrders = orders.filter((order) => order.type === "subscription");
+  const subscriptionOrders = orders.filter(
+    (order) =>
+      order.type === "subscription" &&
+      order.status !== "Rejected" &&
+      !isAllocationManuallyExcluded(order),
+  );
   const totalRequestedAmount = subscriptionOrders.reduce(
     (sum, order) => sum + parseLeadingNumber(order.requestAmount),
     0,
@@ -1305,6 +1346,12 @@ interface IssuanceActionConfig extends IssuanceActionBaseConfig {
   impactBadges: ActionModalImpactBadge[];
 }
 
+interface ActionViewLink {
+  label: string;
+  tab: ClosedEndTab;
+  ordersTab?: ClosedEndOrdersTab;
+}
+
 function formatAddressPreview(value?: string) {
   if (!value) return "Pending";
   if (value.length <= 14) return value;
@@ -1489,15 +1536,22 @@ function buildIssuanceActionPreview(
         { label: "Token / Address", value: `${fundData.tokenSymbol || fundData.tokenName} / ${formatAddressPreview(fundData.tokenAddress)}` },
         { label: "Subscription Opens", value: fundData.subscriptionStartDate || "Pending date" },
         { label: "Notice Period", value: `${fundData.noticePeriodDays ?? 7} day(s)` },
-        { label: "Transfer Agent", value: fundData.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+        { label: "Listing Control", value: "On-chain notice publication" },
       ];
       previewDetails.push({
-        title: "Listing Package",
-        kind: "ta",
+        title: "On-chain Notice Payload",
+        kind: "onchain",
+        items: [
+          `Fund identifier and token reference: ${fundData.tokenSymbol || fundData.tokenName} / ${formatAddressPreview(fundData.tokenAddress)}.`,
+          `Upcoming subscription open timestamp: ${fundData.subscriptionStartDate || "the configured launch date"}.`,
+          `Public notice period: ${fundData.noticePeriodDays ?? 7} day(s) before subscriptions open.`,
+        ],
+      });
+      previewDetails.push({
+        title: "Off-chain Listing Context",
         items: [
           `Offering summary ready for ${fundData.name}.`,
-          `Token contract ${formatAddressPreview(fundData.tokenAddress)} will be referenced in the listing notice.`,
-          `Subscription opens on ${fundData.subscriptionStartDate || "the configured launch date"}.`,
+          `The public listing notice points investors to the configured subscription timetable.`,
         ],
       });
       break;
@@ -1507,7 +1561,7 @@ function buildIssuanceActionPreview(
         { label: "Eligibility Rules", value: `${fundData.investorRules?.length || 0} configured rule(s)` },
         { label: "Funding Route", value: `${fundData.subscriptionPaymentMethod || "Fiat"} via ${fundData.subscriptionPaymentRail || "Off-chain Bank Transfer"}` },
         { label: "Collection Route", value: formatCollectionDestination(fundData) },
-        { label: "Transfer Agent", value: fundData.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+        { label: "Window Control", value: "On-chain subscription gate" },
       ];
       break;
     case "close-book":
@@ -1575,6 +1629,15 @@ function buildIssuanceActionPreview(
               )
             : ["No transfer-agent holder-register rows are available yet."],
       });
+      previewDetails.push({
+        title: "On-chain Completion Payload",
+        kind: "onchain",
+        items: [
+          `Issuance completion flag for ${fundData.tokenSymbol || fundData.tokenName} is updated on chain.`,
+          `Booked allocation result references register version ${fundData.transferAgentOps?.registerVersion || "pending"}.`,
+          `Holder-register posting covers ${context.issuanceLedgerRows.length} booked ledger row(s).`,
+        ],
+      });
       break;
     case "complete-issuance":
       previewSummary = [
@@ -1622,6 +1685,35 @@ function finalizeIssuanceAction(
   };
 }
 
+function getActionViewLinks(action: IssuanceActionConfig): ActionViewLink[] {
+  switch (action.previewKey) {
+    case "list-closed-end":
+    case "open-closed-end-subscription":
+      return [{ label: "View Orders", tab: "orders", ordersTab: "orders" }];
+    case "close-book":
+      return [
+        { label: "View Orders", tab: "orders", ordersTab: "orders" },
+        { label: "Open Manual Override", tab: "orders", ordersTab: "manual" },
+      ];
+    case "calculate-allocation":
+    case "allocate-on-chain":
+      return [
+        { label: "View Allocation Preview", tab: "orders", ordersTab: "allocation" },
+        { label: "Open Manual Override", tab: "orders", ordersTab: "manual" },
+        { label: "View TA Ledger", tab: "ta-ledger" },
+      ];
+    case "mark-allocation-completed":
+    case "complete-issuance":
+    case "activate-closed-end-fund":
+      return [
+        { label: "View TA Ledger", tab: "ta-ledger" },
+        { label: "View Allocation Preview", tab: "orders", ordersTab: "allocation" },
+      ];
+    default:
+      return [];
+  }
+}
+
 function renderBuyerTable(
   orders: FundOrder[],
   currency: string,
@@ -1667,6 +1759,124 @@ function renderBuyerTable(
         )}
       </TableBody>
     </Table>
+  );
+}
+
+function ManualAllocationOverrideTable({
+  orders,
+  allocationPreview,
+  currency,
+  disabled,
+  disabledReason,
+  onExclude,
+  onRestore,
+}: {
+  orders: FundOrder[];
+  allocationPreview: ReturnType<typeof buildAllocationPreview>;
+  currency: string;
+  disabled: boolean;
+  disabledReason?: string;
+  onExclude: (order: FundOrder) => void;
+  onRestore: (order: FundOrder) => void;
+}) {
+  const allocationByOrderId = new Map(
+    allocationPreview.rows.map((row) => [row.id, row]),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Manual Override Controls</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-lg border border-dashed bg-secondary/20 p-4 text-sm text-muted-foreground">
+          Automated allocation stays editable in the demo. You can remove a subscription from the
+          active allocation roster or restore it, and the projected allocation preview will
+          recalculate immediately.
+        </div>
+
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Investor</TableHead>
+              <TableHead>Request</TableHead>
+              <TableHead>Workflow Status</TableHead>
+              <TableHead>Allocation Roster</TableHead>
+              <TableHead>Projected Allocation</TableHead>
+              <TableHead>Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {orders.map((order) => {
+              const excluded = isAllocationManuallyExcluded(order);
+              const allocationRow = allocationByOrderId.get(order.id);
+
+              return (
+                <TableRow key={`override-${order.id}`}>
+                  <TableCell>
+                    <div className="font-medium">{order.investorName}</div>
+                    <div className="max-w-[220px] truncate text-xs text-muted-foreground">
+                      {order.investorWallet}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div>{order.requestAmount}</div>
+                    <div className="text-xs text-muted-foreground">{order.requestQuantity}</div>
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={order.status} />
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={
+                        excluded
+                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : "border-green-200 bg-green-50 text-green-700"
+                      }
+                    >
+                      {excluded ? "Excluded" : "Included"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {allocationRow ? (
+                      <div>
+                        {formatNumber(allocationRow.allocatedAmount)} {currency}
+                        <div className="text-xs text-muted-foreground">
+                          {formatNumber(allocationRow.allocatedUnits, 2)} units
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        {excluded ? "Removed from active roster" : "Not generated yet"}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant={excluded ? "outline" : "default"}
+                      disabled={disabled}
+                      title={disabled ? disabledReason : undefined}
+                      onClick={() => (excluded ? onRestore(order) : onExclude(order))}
+                    >
+                      {excluded ? "Restore" : "Exclude"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {orders.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                  No subscription orders are available for manual override.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -2696,23 +2906,17 @@ function getFundAction(
           "Confirm the fund should move from pending listing into the upcoming subscription stage.",
         identityDescription:
           "Issuer identity and listing authority are being verified.",
-        taNotificationTitle: "Notify Transfer Agent",
-        taNotificationDescription:
-          "The listing notice, offering summary, and transfer-agent servicing package are being delivered to TA.",
-        taConfirmationTitle: "Transfer Agent Confirmation",
-        taConfirmationDescription:
-          "Transfer Agent confirmation has been received for the pre-subscription listing package.",
         onChainTitle: "Execute On-chain Listing",
         onChainDescription:
-          "The listing notice is being published on chain for the upcoming subscription period.",
+          "The listing notice is being published on chain with the fund reference, token contract, and subscription opening timetable.",
         successTitle: "Fund listed",
         successDescription:
           "The closed-end fund is now in the upcoming stage.",
-        impactType: "hybrid",
-        requiresTa: true,
+        impactType: "onchain",
+        requiresTa: false,
         requiresOnChain: true,
-        nextStepHint: "This action will notify TA and publish the listing notice on chain.",
-        affectedObjects: ["Listing notice", "Offering summary", "Transfer-agent servicing package", "Token contract reference"],
+        nextStepHint: "This action will publish the listing notice on chain, including the fund reference, token contract, and notice timetable.",
+        affectedObjects: ["Listing notice", "Fund reference", "Public notice timetable", "Token contract reference"],
       }, fund, context);
     case "Upcoming":
       return finalizeIssuanceAction({
@@ -2730,22 +2934,16 @@ function getFundAction(
           "Confirm the subscription window and issuance terms before opening investor access.",
         identityDescription:
           "Issuer identity and subscription authority are being verified.",
-        taNotificationTitle: "Notify Transfer Agent",
-        taNotificationDescription:
-          "The live subscription window, settlement route, and eligibility package are being handed to the transfer agent.",
-        taConfirmationTitle: "Transfer Agent Confirmation",
-        taConfirmationDescription:
-          "Transfer Agent confirmation has been received for the subscription opening package.",
         onChainTitle: "Execute On-chain Update",
         onChainDescription:
           "The subscription window is being opened on chain for eligible investors.",
         successTitle: "Subscription opened",
         successDescription:
           "The closed-end fund is now open for subscription.",
-        impactType: "hybrid",
-        requiresTa: true,
+        impactType: "onchain",
+        requiresTa: false,
         requiresOnChain: true,
-        nextStepHint: "This action will notify TA and update the subscription state on chain.",
+        nextStepHint: "This action will open the subscription window on chain for eligible investors.",
         affectedObjects: ["Subscription window", "Eligibility pack", "Funding route", "Collection destination"],
       }, fund, context);
     case "Open For Subscription":
@@ -2770,14 +2968,17 @@ function getFundAction(
         taConfirmationTitle: "Transfer Agent Confirmation",
         taConfirmationDescription:
           "Transfer Agent confirmation has been received for the allocation intake package.",
+        onChainTitle: "Close Subscription On Chain",
+        onChainDescription:
+          "The subscription gate is being closed on chain before allocation review begins.",
         successTitle: "Allocation started",
         successDescription:
           "The fund is now in the allocation period.",
-        impactType: "ta",
+        impactType: "hybrid",
         requiresTa: true,
-        requiresOnChain: false,
-        nextStepHint: "This action will notify TA to freeze the book and start allocation review.",
-        affectedObjects: ["Subscription order book", "Accepted investor list", "Pre-allocation register draft"],
+        requiresOnChain: true,
+        nextStepHint: "This action will close the subscription window on chain and notify TA to freeze the book for allocation review.",
+        affectedObjects: ["Subscription window state", "Subscription order book", "Accepted investor list", "Pre-allocation register draft"],
       }, fund, context);
     case "Allocation Period":
       return finalizeIssuanceAction({
@@ -2868,15 +3069,15 @@ function getFundAction(
           "Transfer Agent confirmation has been received for the post-mint register package.",
         onChainTitle: "Record On-chain Completion",
         onChainDescription:
-          "The on-chain issuance workflow is being updated to mark the allocation as completed.",
+          "The on-chain issuance workflow is being updated with the completion flag, booked allocation reference, and holder-register posting baseline.",
         successTitle: "Allocation completed",
         successDescription:
           "The fund has completed the allocation step.",
         impactType: "hybrid",
         requiresTa: true,
         requiresOnChain: true,
-        nextStepHint: "This action will notify TA, reconcile the posted mint result, and update the on-chain completion state.",
-        affectedObjects: ["Mint execution result", "Booked holder register", "Issuance execution confirmation"],
+        nextStepHint: "This action will notify TA, reconcile the posted mint result, and write the completion flag plus register baseline reference on chain.",
+        affectedObjects: ["Mint execution result", "Booked holder register", "Completion flag", "Register baseline reference"],
       }, fund, context);
     case "Allocation Completed":
       return finalizeIssuanceAction({
@@ -2961,12 +3162,16 @@ function IssuanceNextActionPanel({
   currentStatus,
   disabled,
   disabledReason,
+  viewLinks,
+  onViewMore,
   onOpen,
 }: {
   action: IssuanceActionConfig;
   currentStatus: string;
   disabled: boolean;
   disabledReason?: string;
+  viewLinks: ActionViewLink[];
+  onViewMore: (link: ActionViewLink) => void;
   onOpen: () => void;
 }) {
   return (
@@ -3035,10 +3240,33 @@ function IssuanceNextActionPanel({
               ))}
             </div>
           </div>
+
+          {viewLinks.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                View More
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {viewLinks.map((link) => (
+                  <Button
+                    key={`${link.tab}-${link.ordersTab || "main"}-${link.label}`}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="bg-white/90"
+                    onClick={() => onViewMore(link)}
+                  >
+                    {link.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="xl:w-56 xl:shrink-0">
           <Button
+            type="button"
             className="w-full"
             variant={action.variant}
             disabled={disabled}
@@ -3178,6 +3406,9 @@ export function FundIssuanceDetail() {
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [issuerActionModalOpen, setIssuerActionModalOpen] = useState(false);
+  const closedEndDetailsRef = useRef<HTMLDivElement | null>(null);
+  const [closedEndTab, setClosedEndTab] = useState<ClosedEndTab>("overview");
+  const [closedEndOrdersTab, setClosedEndOrdersTab] = useState<ClosedEndOrdersTab>("orders");
   const [pendingIssuerAction, setPendingIssuerAction] = useState<IssuanceActionConfig | null>(null);
 
   const {
@@ -3244,6 +3475,10 @@ export function FundIssuanceDetail() {
   const persistedInvestorRules = fundData.investorRules ?? [];
   const subscriptionOrders = visibleOrders.filter((order) => order.type === "subscription");
   const redemptionOrders = visibleOrders.filter((order) => order.type === "redemption");
+  const allocationEligibleSubscriptionOrders = subscriptionOrders.filter(
+    (order) => order.status !== "Rejected" && !isAllocationManuallyExcluded(order),
+  );
+  const manualExcludedSubscriptionOrders = subscriptionOrders.filter(isAllocationManuallyExcluded);
   const allocationPreview = buildAllocationPreview(allFundOrders, fundData);
   const pendingSubscriptionOrders = allFundOrders.filter(
     (order) =>
@@ -3486,6 +3721,23 @@ export function FundIssuanceDetail() {
     toast.success("Copied to clipboard");
   };
 
+  const openClosedEndSnapshot = (tab: ClosedEndTab, ordersTab?: ClosedEndOrdersTab) => {
+    setClosedEndTab(tab);
+    if (ordersTab) {
+      setClosedEndOrdersTab(ordersTab);
+    }
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          closedEndDetailsRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        });
+      });
+    }
+  };
+
   const transitionFundStatus = (nextStatus: string, description: string) => {
     if (!pendingIssuerAction) return;
     const updated = updateFundStatus(
@@ -3495,6 +3747,33 @@ export function FundIssuanceDetail() {
     );
     if (!updated) return;
     toast.success(description);
+  };
+
+  const handleExcludeFromAllocation = (order: FundOrder) => {
+    const updated = updateFundOrder(
+      order.id,
+      {
+        status: "Rejected",
+        note: buildAllocationOverrideNote(order),
+      },
+      "manage",
+    );
+    if (!updated) return;
+    toast.success(`${order.investorName} removed from the active allocation roster`);
+  };
+
+  const handleRestoreToAllocation = (order: FundOrder) => {
+    const previousStatus = getAllocationOverridePreviousStatus(order) || "Pending Review";
+    const updated = updateFundOrder(
+      order.id,
+      {
+        status: previousStatus,
+        note: stripAllocationOverrideNote(order.note),
+      },
+      "manage",
+    );
+    if (!updated) return;
+    toast.success(`${order.investorName} restored to the active allocation roster`);
   };
 
   const handleOrderAdvance = (order: FundOrder) => {
@@ -3627,36 +3906,6 @@ export function FundIssuanceDetail() {
     userRole === "issuer" &&
     updateFundPermission.allowed &&
     editableSections.length > 0;
-  const issuanceResponsibilityItems = !isOpenEnd
-    ? [
-        {
-          label: "1. Draft Listing",
-          owner: "Issuer / Fund Manager",
-          description: "Define the issuance terms, token setup, and subscription rules before submission.",
-        },
-        {
-          label: "2. Review And Approve",
-          owner: "Issuer / Approver",
-          description: "Review the closed-end draft and confirm the fund is ready for listing preparation.",
-        },
-        {
-          label: "3. Collect Subscriptions",
-          owner: "Investor / Issuer",
-          description: "Open the subscription window and accept investor participation into the issuance book.",
-        },
-        {
-          label: "4. Validate Allocation",
-          owner: "Transfer Agent",
-          description: "Freeze the order book, review the allocation workbook, and approve the mint instruction.",
-        },
-        {
-          label: "5. Publish Register",
-          owner: "Transfer Agent / Issuer",
-          description: "Complete on-chain issuance, publish the initial holder register, and activate the fund.",
-        },
-      ]
-    : [];
-
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
       <div className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
@@ -3778,6 +4027,8 @@ export function FundIssuanceDetail() {
                 currentStatus={fundData.status}
                 disabled={!issuerActionPermission.allowed}
                 disabledReason={issuerActionPermission.reason}
+                viewLinks={getActionViewLinks(issuerAction)}
+                onViewMore={(link) => openClosedEndSnapshot(link.tab, link.ordersTab)}
                 onOpen={() => {
                   setPendingIssuerAction(issuerAction);
                   setIssuerActionModalOpen(true);
@@ -3787,16 +4038,6 @@ export function FundIssuanceDetail() {
           }
         />
       </div>
-
-      {!isOpenEnd && (
-        <div className="mb-8">
-          <WorkflowResponsibilityCard
-            title="Closed-end Lifecycle Responsibility Map"
-            description="The transfer agent is now explicit in investor validation, allocation approval, mint-file sign-off, and holder-register publication."
-            items={issuanceResponsibilityItems}
-          />
-        </div>
-      )}
 
       {!isMarketplaceView && (
         <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
@@ -4498,7 +4739,12 @@ export function FundIssuanceDetail() {
               </TabsContent>
             </Tabs>
           ) : (
-            <Tabs defaultValue="overview" className="space-y-6">
+            <div ref={closedEndDetailsRef} className="scroll-mt-24">
+              <Tabs
+                value={closedEndTab}
+                onValueChange={(value) => setClosedEndTab(value as ClosedEndTab)}
+                className="space-y-6"
+              >
               <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="information">Information</TabsTrigger>
@@ -4526,8 +4772,8 @@ export function FundIssuanceDetail() {
                   />
                   <MetricCard
                     icon={RefreshCcw}
-                    label="Subscription Orders"
-                    value={subscriptionOrders.length}
+                    label="Active Subscription Orders"
+                    value={allocationEligibleSubscriptionOrders.length}
                     variant="success"
                   />
                 </div>
@@ -4536,7 +4782,7 @@ export function FundIssuanceDetail() {
                   <CardHeader>
                     <CardTitle>Closed-end Issuance Snapshot</CardTitle>
                   </CardHeader>
-                  <CardContent className="grid gap-4 text-sm md:grid-cols-2">
+                  <CardContent className="grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">
                     <div className="rounded-lg border p-4">
                       <div className="text-muted-foreground">Current stage</div>
                       <div className="mt-1 font-medium">{fundData.status}</div>
@@ -4556,6 +4802,51 @@ export function FundIssuanceDetail() {
                     <div className="rounded-lg border p-4">
                       <div className="text-muted-foreground">Lock-up period</div>
                       <div className="mt-1 font-medium">{fundData.lockupPeriod}</div>
+                    </div>
+                    <div className="rounded-lg border p-4">
+                      <div className="text-muted-foreground">Active allocation roster</div>
+                      <div className="mt-1 font-medium">
+                        {allocationEligibleSubscriptionOrders.length} subscription order(s)
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="mt-3"
+                        onClick={() => openClosedEndSnapshot("orders", "orders")}
+                      >
+                        View orders
+                      </Button>
+                    </div>
+                    {!isMarketplaceView && (
+                      <div className="rounded-lg border p-4">
+                        <div className="text-muted-foreground">Manual overrides</div>
+                        <div className="mt-1 font-medium">
+                          {manualExcludedSubscriptionOrders.length} excluded record(s)
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-3"
+                          onClick={() => openClosedEndSnapshot("orders", "manual")}
+                        >
+                          Open override controls
+                        </Button>
+                      </div>
+                    )}
+                    <div className="rounded-lg border p-4">
+                      <div className="text-muted-foreground">TA ledger rows</div>
+                      <div className="mt-1 font-medium">{issuanceLedgerRows.length}</div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="mt-3"
+                        onClick={() => openClosedEndSnapshot("ta-ledger")}
+                      >
+                        View ledger rows
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -4844,11 +5135,23 @@ export function FundIssuanceDetail() {
               </TabsContent>
 
               <TabsContent value="orders">
-                <Tabs defaultValue="orders" className="space-y-4">
-                  <TabsList className="grid w-full grid-cols-3">
+                <Tabs
+                  value={closedEndOrdersTab}
+                  onValueChange={(value) => setClosedEndOrdersTab(value as ClosedEndOrdersTab)}
+                  className="space-y-4"
+                >
+                  <TabsList
+                    className={cn(
+                      "grid w-full",
+                      !isMarketplaceView ? "grid-cols-4" : "grid-cols-3",
+                    )}
+                  >
                     <TabsTrigger value="orders">Orders</TabsTrigger>
                     <TabsTrigger value="buyers">Buyers</TabsTrigger>
                     <TabsTrigger value="allocation">Allocation Preview</TabsTrigger>
+                    {!isMarketplaceView && (
+                      <TabsTrigger value="manual">Manual Override</TabsTrigger>
+                    )}
                   </TabsList>
 
                   <TabsContent value="orders">
@@ -4864,7 +5167,7 @@ export function FundIssuanceDetail() {
 
                   <TabsContent value="buyers">
                     {renderBuyerTable(
-                      subscriptionOrders,
+                      allocationEligibleSubscriptionOrders,
                       fundData.subscriptionCashCurrency || fundData.navCurrency,
                     )}
                   </TabsContent>
@@ -4973,9 +5276,24 @@ export function FundIssuanceDetail() {
                       </CardContent>
                     </Card>
                   </TabsContent>
+
+                  {!isMarketplaceView && (
+                    <TabsContent value="manual" className="space-y-6">
+                      <ManualAllocationOverrideTable
+                        orders={subscriptionOrders}
+                        allocationPreview={allocationPreview}
+                        currency={fundData.navCurrency}
+                        disabled={!manageOrderPermission.allowed}
+                        disabledReason={manageOrderPermission.reason}
+                        onExclude={handleExcludeFromAllocation}
+                        onRestore={handleRestoreToAllocation}
+                      />
+                    </TabsContent>
+                  )}
                 </Tabs>
               </TabsContent>
-            </Tabs>
+              </Tabs>
+            </div>
           )}
         </div>
       </div>

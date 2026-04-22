@@ -88,6 +88,18 @@ export function StatusBadge({ status }: StatusBadgeProps) {
         label: "Window Open",
         pulse: true,
       },
+      "Snapshot Locked": {
+        color: "bg-sky-100 text-sky-800 border-sky-200",
+        label: "Snapshot Locked",
+      },
+      "Payment List Ready": {
+        color: "bg-violet-100 text-violet-800 border-violet-200",
+        label: "Payment List Ready",
+      },
+      "Burn On Chain": {
+        color: "bg-indigo-100 text-indigo-800 border-indigo-200",
+        label: "Burn On Chain",
+      },
       "Window Closed": {
         color: "bg-slate-100 text-slate-800 border-slate-200",
         label: "Window Closed",
@@ -152,6 +164,10 @@ export function StatusBadge({ status }: StatusBadgeProps) {
       "Pending Allocation": {
         color: "bg-purple-100 text-purple-800 border-purple-200",
         label: "Pending Allocation",
+      },
+      Reconciled: {
+        color: "bg-cyan-100 text-cyan-800 border-cyan-200",
+        label: "Reconciled",
       },
       "Put On Chain": {
         color: "bg-indigo-100 text-indigo-800 border-indigo-200",

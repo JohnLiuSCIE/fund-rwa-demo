@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useParams, Link } from "react-router-dom";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -29,16 +29,41 @@ import {
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
-  WorkflowResponsibilityCard,
 } from "../components/TransferAgentPanels";
 import {
-  SubmitDistributionApprovalModal,
-  ListingDistributionModal,
-  PendingAllocationDistributionModal,
-  AllocationCompletedDistributionModal,
-  OpenForDistributionModal,
-} from "../components/modals/DistributionModals";
+  OperationActionModal,
+  type ActionModalDetailGroup,
+  type ActionModalImpactBadge,
+  type ActionModalStep,
+  type ActionModalSummaryItem,
+} from "../components/modals/OperationActionModal";
 import { FundDistribution, FundOrder } from "../data/fundDemoData";
+import { cn } from "../components/ui/utils";
+
+type DistributionTab = "overview" | "recipients" | "payout" | "manual";
+type DistributionActionImpactType = "internal" | "ta" | "onchain" | "hybrid";
+
+interface DistributionViewLink {
+  label: string;
+  tab: DistributionTab;
+}
+
+interface DistributionWorkflowActionConfig {
+  label: string;
+  nextStatus: string;
+  message: string;
+  variant: "default" | "outline";
+  modalTitle: string;
+  modalDescription: string;
+  modalSteps: ActionModalStep[];
+  impactType: DistributionActionImpactType;
+  impactBadges: ActionModalImpactBadge[];
+  nextStepHint: string;
+  affectedObjects: string[];
+  previewSummary: ActionModalSummaryItem[];
+  previewDetails: ActionModalDetailGroup[];
+  viewLinks: DistributionViewLink[];
+}
 
 type DistributionEditableSection = "details" | "payout";
 
@@ -69,7 +94,7 @@ function getEditableDistributionSections(status: string): DistributionEditableSe
   if (["Draft", "Pending Approval", "Pending Listing", "Upcoming"].includes(status)) {
     return ["details", "payout"];
   }
-  if (["Pending Allocation", "Put On Chain", "Open For Distribution"].includes(status)) {
+  if (["Snapshot Locked", "Pending Allocation", "Put On Chain", "Open For Distribution"].includes(status)) {
     return ["payout"];
   }
   return [];
@@ -210,6 +235,7 @@ function buildDistributionRecipients(
     parseLeadingNumber(linkedFund?.initialNav);
   const distributionRate = parseLeadingNumber(distribution.distributionRate);
 
+  const excludedInvestorIds = new Set(distribution.manualExcludedInvestorIds || []);
   const rows = Array.from(holders.values())
     .map((holder) => {
       const eligibleUnits = Math.max(holder.eligibleUnits, 0);
@@ -224,7 +250,7 @@ function buildDistributionRecipients(
         estimatedPayout,
       };
     })
-    .filter((holder) => holder.eligibleUnits > 0);
+    .filter((holder) => holder.eligibleUnits > 0 && !excludedInvestorIds.has(holder.investorId));
 
   const categoryBreakdown = Array.from(
     rows.reduce((map, row) => {
@@ -249,6 +275,803 @@ function buildDistributionRecipients(
     totalEligibleUnits: rows.reduce((sum, row) => sum + row.eligibleUnits, 0),
     totalEstimatedPayout: rows.reduce((sum, row) => sum + row.estimatedPayout, 0),
   };
+}
+
+function formatDistributionNumber(value: number, digits = 2) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  }).format(value);
+}
+
+function buildDistributionImpactBadges({
+  requiresTa,
+  requiresOnChain,
+}: {
+  requiresTa: boolean;
+  requiresOnChain: boolean;
+}) {
+  const badges: ActionModalImpactBadge[] = [{ label: "Identity Required", kind: "identity" }];
+
+  if (requiresTa) {
+    badges.push({ label: "Notify TA", kind: "ta" });
+  }
+
+  if (requiresOnChain) {
+    badges.push({ label: "On-chain Update", kind: "onchain" });
+  }
+
+  return badges;
+}
+
+function buildDistributionModalFlow({
+  reviewTitle,
+  reviewDescription,
+  identityDescription,
+  workflowTitle,
+  workflowDescription,
+  taTitle,
+  taDescription,
+  onChainTitle,
+  onChainDescription,
+  successTitle,
+  successDescription,
+  requiresTa,
+  requiresOnChain,
+}: {
+  reviewTitle: string;
+  reviewDescription: string;
+  identityDescription: string;
+  workflowTitle: string;
+  workflowDescription: string;
+  taTitle?: string;
+  taDescription?: string;
+  onChainTitle?: string;
+  onChainDescription?: string;
+  successTitle: string;
+  successDescription: string;
+  requiresTa: boolean;
+  requiresOnChain: boolean;
+}) {
+  const steps: ActionModalStep[] = [
+    {
+      label: "Review",
+      title: reviewTitle,
+      description: reviewDescription,
+      state: "review",
+      kind: "review",
+    },
+    {
+      label: "Identity",
+      title: "Verify Identity",
+      description: identityDescription,
+      state: "loading",
+      kind: "identity",
+    },
+  ];
+
+  if (requiresTa) {
+    steps.push({
+      label: "TA",
+      title: taTitle || "Notify Transfer Agent",
+      description:
+        taDescription || "Transfer-agent instructions are being posted to the operating queue.",
+      state: "loading",
+      kind: "ta",
+    });
+  }
+
+  if (requiresOnChain) {
+    steps.push({
+      label: "On-chain",
+      title: onChainTitle || "Execute On-chain Update",
+      description:
+        onChainDescription || "The smart-contract update is being executed on chain.",
+      state: "loading",
+      kind: "onchain",
+    });
+  }
+
+  if (!requiresTa && !requiresOnChain) {
+    steps.push({
+      label: "Workflow",
+      title: workflowTitle,
+      description: workflowDescription,
+      state: "loading",
+      kind: "identity",
+    });
+  }
+
+  steps.push({
+    label: "Completed",
+    title: successTitle,
+    description: successDescription,
+    state: "success",
+    kind: "success",
+  });
+
+  return steps;
+}
+
+function getDistributionActionPanelSurfaceClasses(impactType: DistributionActionImpactType) {
+  switch (impactType) {
+    case "ta":
+      return "border-teal-200 bg-teal-50/70";
+    case "onchain":
+      return "border-cyan-200 bg-cyan-50/70";
+    case "hybrid":
+      return "border-cyan-200 bg-gradient-to-br from-cyan-50 via-white to-teal-50";
+    case "internal":
+    default:
+      return "border-slate-200 bg-slate-50/80";
+  }
+}
+
+function DistributionNextActionPanel({
+  action,
+  currentStatus,
+  disabled,
+  disabledReason,
+  onOpen,
+  onViewMore,
+}: {
+  action: DistributionWorkflowActionConfig;
+  currentStatus: string;
+  disabled: boolean;
+  disabledReason?: string;
+  onOpen: () => void;
+  onViewMore: (link: DistributionViewLink) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-4 shadow-sm",
+        getDistributionActionPanelSurfaceClasses(action.impactType),
+      )}
+    >
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex-1 space-y-4">
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+              Next Action
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+              <span>{currentStatus}</span>
+              <span className="text-slate-400">-&gt;</span>
+              <span>{action.nextStatus}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {action.impactBadges.map((badge) => (
+              <Badge
+                key={`${badge.kind}-${badge.label}`}
+                variant="outline"
+                className={
+                  badge.kind === "ta"
+                    ? "border-teal-200 bg-teal-50 text-teal-700"
+                    : badge.kind === "onchain"
+                      ? "border-cyan-200 bg-cyan-50 text-cyan-700"
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                }
+              >
+                {badge.label}
+              </Badge>
+            ))}
+          </div>
+
+          <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {action.previewSummary.map((item) => (
+              <div key={item.label} className="rounded-lg border bg-white/90 p-3">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {item.label}
+                </div>
+                <div className="mt-1 text-sm font-medium text-foreground">{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Affected Objects
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {action.affectedObjects.map((item) => (
+                <div
+                  key={item}
+                  className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700"
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {action.viewLinks.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                View More
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {action.viewLinks.map((link) => (
+                  <Button
+                    key={`${link.tab}-${link.label}`}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="bg-white/90"
+                    onClick={() => onViewMore(link)}
+                  >
+                    {link.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="xl:w-56 xl:shrink-0">
+          <Button
+            type="button"
+            className="w-full"
+            variant={action.variant}
+            disabled={disabled}
+            title={disabled ? disabledReason : undefined}
+            onClick={onOpen}
+          >
+            {action.label}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface DistributionActionContext {
+  distribution: FundDistribution;
+  linkedFund?: {
+    name: string;
+    status: string;
+    assetCurrency?: string;
+    fundType?: string;
+  };
+  eventLabel: string;
+  eventLabelLower: string;
+  isClaimMode: boolean;
+  canManualOverride: boolean;
+  recipientPreview: ReturnType<typeof buildDistributionRecipients>;
+  allRecipients: ReturnType<typeof buildDistributionRecipients>;
+  manuallyExcludedRecipients: ReturnType<typeof buildDistributionRecipients>["rows"];
+  transferAgentOps?: FundDistribution["transferAgentOps"];
+}
+
+function getDistributionPermissionAction(status: string) {
+  const actionByStatus: Record<string, string> = {
+    Draft: "submit",
+    "Pending Approval": "approve",
+    "Pending Listing": "list",
+    Upcoming: "open",
+    "Snapshot Locked": "update",
+    "Pending Allocation": "put_on_chain",
+    "Put On Chain": "open",
+    "Open For Distribution": "update",
+    Reconciled: "update",
+  };
+
+  return actionByStatus[status] || "update";
+}
+
+function buildDistributionActionConfig({
+  label,
+  nextStatus,
+  message,
+  variant = "default",
+  modalTitle,
+  modalDescription,
+  reviewTitle,
+  reviewDescription,
+  identityDescription,
+  workflowTitle,
+  workflowDescription,
+  taTitle,
+  taDescription,
+  onChainTitle,
+  onChainDescription,
+  successTitle,
+  successDescription,
+  impactType,
+  requiresTa,
+  requiresOnChain,
+  nextStepHint,
+  affectedObjects,
+  previewSummary,
+  previewDetails = [],
+  viewLinks = [],
+}: {
+  label: string;
+  nextStatus: string;
+  message: string;
+  variant?: "default" | "outline";
+  modalTitle: string;
+  modalDescription: string;
+  reviewTitle: string;
+  reviewDescription: string;
+  identityDescription: string;
+  workflowTitle: string;
+  workflowDescription: string;
+  taTitle?: string;
+  taDescription?: string;
+  onChainTitle?: string;
+  onChainDescription?: string;
+  successTitle: string;
+  successDescription: string;
+  impactType: DistributionActionImpactType;
+  requiresTa: boolean;
+  requiresOnChain: boolean;
+  nextStepHint: string;
+  affectedObjects: string[];
+  previewSummary: ActionModalSummaryItem[];
+  previewDetails?: ActionModalDetailGroup[];
+  viewLinks?: DistributionViewLink[];
+}): DistributionWorkflowActionConfig {
+  return {
+    label,
+    nextStatus,
+    message,
+    variant,
+    modalTitle,
+    modalDescription,
+    modalSteps: buildDistributionModalFlow({
+      reviewTitle,
+      reviewDescription,
+      identityDescription,
+      workflowTitle,
+      workflowDescription,
+      taTitle,
+      taDescription,
+      onChainTitle,
+      onChainDescription,
+      successTitle,
+      successDescription,
+      requiresTa,
+      requiresOnChain,
+    }),
+    impactType,
+    impactBadges: buildDistributionImpactBadges({ requiresTa, requiresOnChain }),
+    nextStepHint,
+    affectedObjects,
+    previewSummary,
+    previewDetails,
+    viewLinks,
+  };
+}
+
+function getStructuredDistributionAction(
+  distribution: FundDistribution,
+  context: DistributionActionContext,
+): DistributionWorkflowActionConfig | null {
+  const currency =
+    distribution.payoutToken ||
+    distribution.distributionUnit ||
+    context.linkedFund?.assetCurrency ||
+    "Unit";
+  const topRecipientItems =
+    context.recipientPreview.rows.length > 0
+      ? context.recipientPreview.rows.slice(0, 3).map(
+          (recipient) =>
+            `${recipient.investorName} - ${formatDistributionNumber(recipient.estimatedPayout)} ${currency}`,
+        )
+      : ["No active recipient rows are available yet."];
+  const excludedRecipientItems =
+    context.manuallyExcludedRecipients.length > 0
+      ? context.manuallyExcludedRecipients.slice(0, 3).map(
+          (recipient) =>
+            `${recipient.investorName} - ${formatDistributionNumber(recipient.estimatedPayout)} ${currency}`,
+        )
+      : ["No recipient records have been manually excluded."];
+  const taStatusItems = [
+    `Snapshot: ${context.transferAgentOps?.holderSnapshotId || "Pending lock"}`,
+    `Recipient list: ${context.transferAgentOps?.recipientListStatus || "Pending generation"}`,
+    `Funding check: ${context.transferAgentOps?.fundingCheckStatus || "Pending funding confirmation"}`,
+    `Reconciliation: ${context.transferAgentOps?.reconciliationStatus || "Pending"}`,
+  ];
+
+  switch (distribution.status) {
+    case "Draft":
+      return buildDistributionActionConfig({
+        label: `Submit ${context.eventLabel} For Approval`,
+        nextStatus: "Pending Approval",
+        message: `${context.eventLabel} submitted for approval`,
+        modalTitle: `Submit ${context.eventLabel} For Approval`,
+        modalDescription:
+          "Review the event timetable and payout routing before routing the draft into approval.",
+        reviewTitle: `Review ${context.eventLabel} Draft`,
+        reviewDescription:
+          "Confirm the linked fund, event dates, payout route, and rate mechanics before submission.",
+        identityDescription:
+          "Issuer identity and distribution workflow authority are being verified.",
+        workflowTitle: "Submit Approval Request",
+        workflowDescription:
+          "The event setup is being routed into the approval workflow.",
+        successTitle: `${context.eventLabel} submitted`,
+        successDescription:
+          "The event is now waiting for approval review.",
+        impactType: "internal",
+        requiresTa: false,
+        requiresOnChain: false,
+        nextStepHint:
+          "This action routes the event into approval review without notifying TA or posting an on-chain update.",
+        affectedObjects: ["Approval request", "Event timetable", "Payout configuration"],
+        previewSummary: [
+          { label: "Linked Fund", value: context.linkedFund?.name || distribution.fundName || "Fund pending" },
+          { label: "Record Date", value: distribution.recordDate || "Pending" },
+          { label: "Payment Date", value: distribution.paymentDate || "Pending" },
+          { label: "Payout Mode", value: distribution.payoutMode || "Claim" },
+          {
+            label: `${context.eventLabel} Rate`,
+            value: distribution.distributionRate
+              ? `${distribution.distributionRate}${distribution.distributionRateType === "Fixed Rate" ? "%" : ` ${distribution.distributionUnit || ""}`}`
+              : "Pending rate",
+          },
+        ],
+        previewDetails: [
+          {
+            title: "Routing Package",
+            items: [
+              `Treasury route: ${distribution.payoutAccount || "Pending treasury account"}`,
+              `Payout token: ${distribution.payoutToken || distribution.distributionUnit || "Pending token"}`,
+              `Day-count basis: ${distribution.actualDaysInPeriod || "Pending"} / ${distribution.actualDaysInYear || "Pending"}`,
+            ],
+          },
+        ],
+        viewLinks: [{ label: "View Recipients", tab: "recipients" }],
+      });
+    case "Pending Approval":
+      return buildDistributionActionConfig({
+        label: context.eventLabel === "Dividend" ? `Approve ${context.eventLabel}` : "Approve Distribution",
+        nextStatus: "Pending Listing",
+        message: `${context.eventLabel} approved and moved into notice preparation`,
+        modalTitle: `Approve ${context.eventLabel}`,
+        modalDescription:
+          "Verify issuer identity before moving the approved event into notice preparation.",
+        reviewTitle: "Review Approved Event",
+        reviewDescription:
+          "Confirm the event economics, dates, and payout route are ready for notice preparation.",
+        identityDescription:
+          "Issuer identity and approval authority are being verified.",
+        workflowTitle: "Advance To Notice Preparation",
+        workflowDescription:
+          "The event is being advanced into the notice-preparation stage.",
+        successTitle: `${context.eventLabel} approved`,
+        successDescription:
+          "The event is now ready for notice publication.",
+        impactType: "internal",
+        requiresTa: false,
+        requiresOnChain: false,
+        nextStepHint:
+          "This action completes internal approval and moves the event into notice preparation.",
+        affectedObjects: ["Approval memo", "Notice preparation record", "Distribution control pack"],
+        previewSummary: [
+          { label: "Current Status", value: distribution.status },
+          { label: "Next Status", value: "Pending Listing" },
+          { label: "Transfer Agent", value: context.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+          { label: "Payout Token", value: distribution.payoutToken || distribution.distributionUnit || "Pending" },
+        ],
+        viewLinks: [{ label: "View Recipients", tab: "recipients" }],
+      });
+    case "Pending Listing":
+      return buildDistributionActionConfig({
+        label: context.eventLabel === "Dividend" ? "Publish Dividend Notice" : "Publish Notice",
+        nextStatus: "Upcoming",
+        message: `${context.eventLabel} notice published`,
+        modalTitle: `Publish ${context.eventLabel} Notice`,
+        modalDescription:
+          "Review the notice package before notifying TA and publishing the event timetable.",
+        reviewTitle: "Review Notice Package",
+        reviewDescription:
+          "Confirm the record date, payment date, and distribution route before the notice goes live.",
+        identityDescription:
+          "Issuer identity and notice-publication authority are being verified.",
+        workflowTitle: "Publish Notice",
+        workflowDescription:
+          "The notice package is being posted to the operating workflow.",
+        taTitle: "Notify Transfer Agent",
+        taDescription:
+          "Transfer-agent teams are being notified to prepare the holder register and event calendar.",
+        successTitle: "Notice published",
+        successDescription:
+          "The event has entered its notice period and is awaiting the record-date snapshot.",
+        impactType: "ta",
+        requiresTa: true,
+        requiresOnChain: false,
+        nextStepHint:
+          "This action publishes the event notice and notifies TA to align the record-date and payout timetable.",
+        affectedObjects: ["Notice package", "TA operating calendar", "Record-date timetable"],
+        previewSummary: [
+          { label: "Record Date", value: distribution.recordDate || "Pending" },
+          { label: "Payment Date", value: distribution.paymentDate || "Pending" },
+          { label: "Payout Mode", value: distribution.payoutMode || "Claim" },
+          { label: "Transfer Agent", value: context.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+        ],
+        previewDetails: [{ title: "TA Intake", kind: "ta", items: taStatusItems }],
+        viewLinks: [
+          { label: "View Overview", tab: "overview" },
+          { label: "View Recipients", tab: "recipients" },
+        ],
+      });
+    case "Upcoming":
+      return buildDistributionActionConfig({
+        label: "Lock Snapshot",
+        nextStatus: "Snapshot Locked",
+        message: "Distribution holder snapshot locked",
+        modalTitle: `Lock ${context.eventLabel} Snapshot`,
+        modalDescription:
+          "Review the current holder roster before sending the snapshot-lock instruction to TA.",
+        reviewTitle: "Review Snapshot Lock",
+        reviewDescription:
+          "Confirm the event is ready to freeze the holder register for record-date entitlement.",
+        identityDescription:
+          "Issuer identity and snapshot-lock authority are being verified.",
+        workflowTitle: "Post Snapshot Lock",
+        workflowDescription:
+          "The holder-register lock request is being posted to the TA operating queue.",
+        taTitle: "Lock Holder Snapshot",
+        taDescription:
+          "The transfer agent is freezing the record-date holder snapshot for entitlement generation.",
+        successTitle: "Snapshot locked",
+        successDescription:
+          "The event has moved into snapshot-controlled entitlement preparation.",
+        impactType: "ta",
+        requiresTa: true,
+        requiresOnChain: false,
+        nextStepHint:
+          "This action notifies TA to freeze the holder register and create the record-date snapshot.",
+        affectedObjects: ["Holder snapshot", "Record-date register", "Snapshot lock instruction"],
+        previewSummary: [
+          { label: "Active Recipients", value: `${context.recipientPreview.totalRecipients}` },
+          { label: "Eligible Units", value: `${formatDistributionNumber(context.recipientPreview.totalEligibleUnits, 2)} units` },
+          { label: "Estimated Payout", value: `${formatDistributionNumber(context.recipientPreview.totalEstimatedPayout)} ${currency}` },
+          { label: "Manual Overrides", value: `${context.manuallyExcludedRecipients.length} excluded` },
+        ],
+        previewDetails: [
+          { title: "Recipient Preview", kind: "ta", items: topRecipientItems },
+          { title: "Manual Exclusions", kind: "ta", items: excludedRecipientItems },
+        ],
+        viewLinks: [
+          { label: "View Recipients", tab: "recipients" },
+          ...(context.canManualOverride
+            ? [{ label: "Open Manual Override", tab: "manual" as const }]
+            : []),
+        ],
+      });
+    case "Snapshot Locked":
+      return buildDistributionActionConfig({
+        label: "Generate Recipient List",
+        nextStatus: "Pending Allocation",
+        message: "Distribution recipient list generated",
+        modalTitle: "Generate Recipient List",
+        modalDescription:
+          "Review the frozen snapshot and send the entitlement-generation instruction to TA.",
+        reviewTitle: "Review Entitlement Generation",
+        reviewDescription:
+          "Confirm the frozen holder snapshot is ready to be turned into the final recipient list.",
+        identityDescription:
+          "Issuer identity and entitlement-generation authority are being verified.",
+        workflowTitle: "Generate Entitlement List",
+        workflowDescription:
+          "The entitlement-generation instruction is being sent to the transfer agent.",
+        taTitle: "Generate Recipient List",
+        taDescription:
+          "The transfer agent is preparing the recipient list and validating destination controls.",
+        successTitle: "Recipient list ready",
+        successDescription:
+          "The event has moved into payout preparation with a frozen recipient roster.",
+        impactType: "ta",
+        requiresTa: true,
+        requiresOnChain: false,
+        nextStepHint:
+          "This action asks TA to convert the frozen snapshot into the final recipient list and payout roster.",
+        affectedObjects: ["Recipient list", "Entitlement register", "Funding instruction pack"],
+        previewSummary: [
+          { label: "Snapshot ID", value: context.transferAgentOps?.holderSnapshotId || "Pending lock" },
+          { label: "Recipients", value: `${context.recipientPreview.totalRecipients}` },
+          { label: "Estimated Payout", value: `${formatDistributionNumber(context.recipientPreview.totalEstimatedPayout)} ${currency}` },
+          { label: "Funding Check", value: context.transferAgentOps?.fundingCheckStatus || "Pending funding confirmation" },
+        ],
+        previewDetails: [
+          { title: "Recipient Preview", kind: "ta", items: topRecipientItems },
+          { title: "TA Control Plane", kind: "ta", items: taStatusItems },
+        ],
+        viewLinks: [
+          { label: "View Recipients", tab: "recipients" },
+          ...(context.canManualOverride
+            ? [{ label: "Open Manual Override", tab: "manual" as const }]
+            : []),
+        ],
+      });
+    case "Pending Allocation":
+      return buildDistributionActionConfig({
+        label: "Put On Chain",
+        nextStatus: "Put On Chain",
+        message: `${context.eventLabel} release posted on chain`,
+        modalTitle: "Put Distribution On Chain",
+        modalDescription:
+          "Review the final recipient list before notifying TA and posting the payout instruction on chain.",
+        reviewTitle: "Review On-chain Release",
+        reviewDescription:
+          "Confirm the payout roster, treasury route, and release mode before the on-chain instruction is executed.",
+        identityDescription:
+          "Issuer identity and release authority are being verified.",
+        workflowTitle: "Prepare Release Package",
+        workflowDescription:
+          "The final recipient list is being packaged for the release instruction.",
+        taTitle: "Notify Transfer Agent",
+        taDescription:
+          "The transfer agent is confirming the final recipient list and funding package.",
+        onChainTitle: "Execute On-chain Release",
+        onChainDescription:
+          "The payout release instruction is being posted to the smart-contract workflow.",
+        successTitle: "Release posted on chain",
+        successDescription:
+          "The event has moved into its on-chain release stage.",
+        impactType: "hybrid",
+        requiresTa: true,
+        requiresOnChain: true,
+        nextStepHint:
+          "This action notifies TA and posts the payout release instruction on chain using the finalized recipient list.",
+        affectedObjects: ["Recipient list", "On-chain payout instruction", "Treasury release package"],
+        previewSummary: [
+          { label: "Recipients", value: `${context.recipientPreview.totalRecipients}` },
+          { label: "Eligible Units", value: `${formatDistributionNumber(context.recipientPreview.totalEligibleUnits, 2)} units` },
+          { label: "Estimated Payout", value: `${formatDistributionNumber(context.recipientPreview.totalEstimatedPayout)} ${currency}` },
+          { label: "Payout Mode", value: distribution.payoutMode || "Claim" },
+          { label: "Funding Check", value: context.transferAgentOps?.fundingCheckStatus || "Pending funding confirmation" },
+        ],
+        previewDetails: [
+          { title: "Recipient Preview", kind: "onchain", items: topRecipientItems },
+          { title: "TA Control Plane", kind: "ta", items: taStatusItems },
+        ],
+        viewLinks: [
+          { label: "View Recipients", tab: "recipients" },
+          { label: "View Payout", tab: "payout" },
+          ...(context.canManualOverride
+            ? [{ label: "Open Manual Override", tab: "manual" as const }]
+            : []),
+        ],
+      });
+    case "Put On Chain":
+      return buildDistributionActionConfig({
+        label:
+          context.eventLabel === "Dividend"
+            ? "Open Dividend"
+            : context.isClaimMode
+              ? "Open For Claim"
+              : "Start Auto Distribution",
+        nextStatus: "Open For Distribution",
+        message: `${context.eventLabel} opened for distribution`,
+        modalTitle: `Open ${context.eventLabel}`,
+        modalDescription:
+          "Review the posted payout instruction before opening the investor-facing distribution step.",
+        reviewTitle: "Review Distribution Opening",
+        reviewDescription:
+          "Confirm the on-chain instruction is ready and the treasury route should move into active release.",
+        identityDescription:
+          "Issuer identity and distribution-opening authority are being verified.",
+        workflowTitle: "Open Distribution",
+        workflowDescription:
+          "The distribution release is being transitioned into its live execution state.",
+        taTitle: "Notify Transfer Agent",
+        taDescription:
+          "The transfer agent is being notified that the release window is now live.",
+        onChainTitle: context.isClaimMode ? "Open Claim Window" : "Start On-chain Transfers",
+        onChainDescription: context.isClaimMode
+          ? "The claim contract is being opened for eligible recipients."
+          : "The automated transfer process is being activated on chain.",
+        successTitle: `${context.eventLabel} opened`,
+        successDescription:
+          "The event is now live for claim or automated distribution.",
+        impactType: "hybrid",
+        requiresTa: true,
+        requiresOnChain: true,
+        nextStepHint:
+          "This action notifies TA and activates the live release path on chain for eligible recipients.",
+        affectedObjects: ["Live payout route", "Recipient release roster", "Claim / transfer instruction"],
+        previewSummary: [
+          { label: "Payout Mode", value: distribution.payoutMode || "Claim" },
+          { label: "Recipients", value: `${context.recipientPreview.totalRecipients}` },
+          { label: "Estimated Payout", value: `${formatDistributionNumber(context.recipientPreview.totalEstimatedPayout)} ${currency}` },
+          { label: "Treasury Route", value: distribution.payoutAccount || "Pending treasury account" },
+        ],
+        previewDetails: [
+          { title: "Payout Preview", kind: "onchain", items: topRecipientItems },
+          { title: "TA Control Plane", kind: "ta", items: taStatusItems },
+        ],
+        viewLinks: [
+          { label: "View Payout", tab: "payout" },
+          { label: "View Recipients", tab: "recipients" },
+        ],
+      });
+    case "Open For Distribution":
+      return buildDistributionActionConfig({
+        label: "Reconcile Distribution",
+        nextStatus: "Reconciled",
+        message: `${context.eventLabel} reconciled`,
+        modalTitle: "Reconcile Distribution",
+        modalDescription:
+          "Review the live payout state before recording TA reconciliation.",
+        reviewTitle: "Review Reconciliation",
+        reviewDescription:
+          "Confirm payout execution is complete enough to move into reconciliation close-out.",
+        identityDescription:
+          "Issuer identity and reconciliation authority are being verified.",
+        workflowTitle: "Record Reconciliation",
+        workflowDescription:
+          "The payout event is being advanced into reconciliation close-out.",
+        taTitle: "Confirm Reconciliation",
+        taDescription:
+          "The transfer agent is confirming recipient settlement and final control checks.",
+        successTitle: "Distribution reconciled",
+        successDescription:
+          "The event has moved into reconciled close-out.",
+        impactType: "ta",
+        requiresTa: true,
+        requiresOnChain: false,
+        nextStepHint:
+          "This action records TA reconciliation after the live distribution route has executed.",
+        affectedObjects: ["Payout reconciliation", "Recipient settlement log", "Close-out memo"],
+        previewSummary: [
+          { label: "Recipients", value: `${context.recipientPreview.totalRecipients}` },
+          { label: "Estimated Payout", value: `${formatDistributionNumber(context.recipientPreview.totalEstimatedPayout)} ${currency}` },
+          { label: "Reconciliation", value: context.transferAgentOps?.reconciliationStatus || "Pending" },
+          { label: "Last TA Action", value: context.transferAgentOps?.lastTransferAgentAction || "Pending TA note" },
+        ],
+        previewDetails: [
+          { title: "Payout Preview", kind: "ta", items: topRecipientItems },
+          { title: "TA Control Plane", kind: "ta", items: taStatusItems },
+        ],
+        viewLinks: [{ label: "View Payout", tab: "payout" }],
+      });
+    case "Reconciled":
+      return buildDistributionActionConfig({
+        label: "Mark Complete",
+        nextStatus: "Done",
+        message: `${context.eventLabel} marked complete`,
+        modalTitle: `Complete ${context.eventLabel}`,
+        modalDescription:
+          "Review the reconciled event before closing it out.",
+        reviewTitle: "Review Close-out",
+        reviewDescription:
+          "Confirm reconciliation is complete and the event can be closed.",
+        identityDescription:
+          "Issuer identity and close-out authority are being verified.",
+        workflowTitle: "Close Event",
+        workflowDescription:
+          "The reconciled event is being closed and archived.",
+        successTitle: `${context.eventLabel} completed`,
+        successDescription:
+          "The distribution event is now marked complete.",
+        impactType: "internal",
+        requiresTa: false,
+        requiresOnChain: false,
+        nextStepHint:
+          "This action closes the event after reconciliation has been completed.",
+        affectedObjects: ["Close-out record", "Event archive", "Distribution audit trail"],
+        previewSummary: [
+          { label: "Current Status", value: distribution.status },
+          { label: "Recipients", value: `${context.recipientPreview.totalRecipients}` },
+          { label: "Estimated Payout", value: `${formatDistributionNumber(context.recipientPreview.totalEstimatedPayout)} ${currency}` },
+          { label: "Reconciliation", value: context.transferAgentOps?.reconciliationStatus || "Completed" },
+        ],
+        viewLinks: [
+          { label: "View Overview", tab: "overview" },
+          { label: "View Payout", tab: "payout" },
+        ],
+      });
+    default:
+      return null;
+  }
 }
 
 function buildDistributionEditState(distribution: FundDistribution): DistributionEditState {
@@ -541,11 +1364,10 @@ export function FundDistributionDetail() {
   const [currentStatus, setCurrentStatus] = useState(distribution.status);
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [hasAppliedEditIntent, setHasAppliedEditIntent] = useState(false);
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [showListingModal, setShowListingModal] = useState(false);
-  const [showPendingAllocationModal, setShowPendingAllocationModal] = useState(false);
-  const [showAllocationCompletedModal, setShowAllocationCompletedModal] = useState(false);
-  const [showOpenDistributionModal, setShowOpenDistributionModal] = useState(false);
+  const [detailTab, setDetailTab] = useState<DistributionTab>("overview");
+  const [actionModalOpen, setActionModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<DistributionWorkflowActionConfig | null>(null);
+  const detailSectionRef = useRef<HTMLDivElement | null>(null);
   const isClaimMode = distribution.payoutMode !== "Direct Transfer";
 
   useEffect(() => {
@@ -569,28 +1391,18 @@ export function FundDistributionDetail() {
       "Pending Approval": "bg-amber-100 text-amber-800",
       "Pending Listing": "bg-yellow-100 text-yellow-800",
       "Upcoming": "bg-blue-100 text-blue-800",
+      "Snapshot Locked": "bg-sky-100 text-sky-800",
       "Pending Allocation": "bg-purple-100 text-purple-800",
       "Put On Chain": "bg-indigo-100 text-indigo-800",
       "Open For Distribution": "bg-green-100 text-green-800",
+      "Reconciled": "bg-emerald-100 text-emerald-800",
       "Done": "bg-teal-100 text-teal-800",
     };
     return colors[status] || "bg-gray-100 text-gray-800";
   };
 
-  const actionKeyByStatus: Record<string, string> = {
-    Draft: "submit",
-    "Pending Approval": "approve",
-    "Pending Listing": "list",
-    Upcoming: "open",
-    "Pending Allocation": "put_on_chain",
-    "Put On Chain": "open",
-    "Open For Distribution": "update",
-  };
-
   const getActionPermission = () => {
-    const action = actionKeyByStatus[currentStatus];
-    if (!action) return { allowed: true as const, reason: undefined };
-    return getPermissionResult(action, "distribution");
+    return getPermissionResult(getDistributionPermissionAction(currentStatus), "distribution");
   };
 
   const updatePermission = getPermissionResult("update", "distribution");
@@ -599,46 +1411,29 @@ export function FundDistributionDetail() {
     updatePermission.allowed &&
     getEditableDistributionSections(currentStatus).length > 0;
   const editableFieldLabels = getEditableDistributionFieldLabels(currentStatus);
+  const distributionViewModel = { ...distribution, status: currentStatus };
   const controlChecks = buildDistributionControlChecks(
-    { ...distribution, status: currentStatus },
+    distributionViewModel,
     linkedFund?.status,
   );
-  const recipientPreview = buildDistributionRecipients(
-    { ...distribution, status: currentStatus },
+  const manualExcludedInvestorIds = distribution.manualExcludedInvestorIds || [];
+  const allRecipientPreview = buildDistributionRecipients(
+    { ...distributionViewModel, manualExcludedInvestorIds: [] },
     linkedFund,
     fundOrders,
   );
+  const recipientPreview = buildDistributionRecipients(
+    distributionViewModel,
+    linkedFund,
+    fundOrders,
+  );
+  const manuallyExcludedRecipients = allRecipientPreview.rows.filter((recipient) =>
+    manualExcludedInvestorIds.includes(recipient.investorId),
+  );
   const transferAgentOps = distribution.transferAgentOps;
   const showTransferAgentLayer = isClosedEndDividend || Boolean(transferAgentOps);
-  const responsibilityItems = isClosedEndDividend
-    ? [
-        {
-          label: "1. Draft Dividend",
-          owner: "Issuer / Fund Manager",
-          description: "Define record date, payment date, and dividend economics for approval.",
-        },
-        {
-          label: "2. Lock Snapshot",
-          owner: "Transfer Agent",
-          description: "Freeze the holder register and record-date ownership snapshot.",
-        },
-        {
-          label: "3. Generate Recipient List",
-          owner: "Transfer Agent",
-          description: "Prepare the eligible recipient list and validate distribution destinations.",
-        },
-        {
-          label: "4. Confirm Funding",
-          owner: "Issuer / Fund Manager",
-          description: "Fund the treasury account that will be used for the dividend release.",
-        },
-        {
-          label: `5. Release ${eventLabel}`,
-          owner: "Transfer Agent",
-          description: `Release the ${eventLabelLower} file, monitor settlement, and close reconciliation.`,
-        },
-      ]
-    : [];
+  const distributionCurrency =
+    distribution.payoutToken || distribution.distributionUnit || linkedFund?.assetCurrency || "Unit";
   const transferAgentFields = [
     {
       label: "Register date",
@@ -713,10 +1508,10 @@ export function FundDistributionDetail() {
     {
       label: "Payment execution completed",
       detail:
-        currentStatus === "Done"
-          ? "Dividend release has been marked complete."
+        currentStatus === "Done" || currentStatus === "Reconciled"
+          ? "Dividend release has completed and entered close-out."
           : "Distribution release remains pending until the event moves into the completion stage.",
-      status: currentStatus === "Done" ? "done" : "pending",
+      status: currentStatus === "Done" || currentStatus === "Reconciled" ? "done" : "pending",
     },
     {
       label: "Reconciliation completed",
@@ -732,6 +1527,18 @@ export function FundDistributionDetail() {
             : "pending",
     },
   ] as const;
+  const structuredAction = getStructuredDistributionAction(distributionViewModel, {
+    distribution: distributionViewModel,
+    linkedFund,
+    eventLabel,
+    eventLabelLower,
+    isClaimMode,
+    canManualOverride: userRole === "issuer",
+    recipientPreview,
+    allRecipients: allRecipientPreview,
+    manuallyExcludedRecipients,
+    transferAgentOps,
+  });
 
   useEffect(() => {
     setHasAppliedEditIntent(false);
@@ -744,94 +1551,54 @@ export function FundDistributionDetail() {
     }
   }, [editIntentRequested, canEditSetup, hasAppliedEditIntent]);
 
-  const renderActionButton = () => {
-    const permission = getActionPermission();
-    switch (currentStatus) {
-      case "Draft":
-        return (
-          <Button
-            disabled={!permission.allowed}
-            title={permission.reason}
-            onClick={() => setShowSubmitModal(true)}
-          >
-            Submit {eventLabel} For Approval
-          </Button>
-        );
-      case "Pending Approval":
-        return (
-          <Button
-            disabled={!permission.allowed}
-            title={permission.reason}
-            onClick={() => {
-              setCurrentStatus("Pending Listing");
-              updateDistributionStatus(id || "", "Pending Listing", "approve");
-              toast.success(`${eventLabel} approved and queued for listing`);
-            }}
-          >
-            {isClosedEndDividend ? `Approve ${eventLabel}` : "Approve Listing"}
-          </Button>
-        );
-      case "Pending Listing":
-        return (
-          <Button
-            disabled={!permission.allowed}
-            title={permission.reason}
-            onClick={() => setShowListingModal(true)}
-          >
-            {isClosedEndDividend ? "Prepare Record Date" : "Listing"}
-          </Button>
-        );
-      case "Upcoming":
-        return (
-          <Button
-            disabled={!permission.allowed}
-            title={permission.reason}
-            onClick={() => setShowPendingAllocationModal(true)}
-          >
-            Record of Ownership
-          </Button>
-        );
-      case "Pending Allocation":
-        return (
-          <Button
-            disabled={!permission.allowed}
-            title={permission.reason}
-            onClick={() => setShowAllocationCompletedModal(true)}
-          >
-            Put On Chain
-          </Button>
-        );
-      case "Put On Chain":
-        return (
-          <Button
-            disabled={!permission.allowed}
-            title={permission.reason}
-            onClick={() => setShowOpenDistributionModal(true)}
-          >
-            {isClosedEndDividend
-              ? "Open Dividend"
-              : isClaimMode
-                ? "Open For Claim"
-                : "Start Auto Distribution"}
-          </Button>
-        );
-      case "Open For Distribution":
-        return (
-          <Button
-            disabled={!permission.allowed}
-            title={permission.reason}
-            onClick={() => {
-              setCurrentStatus("Done");
-              updateDistributionStatus(id || "", "Done", "update");
-              toast.success(`${eventLabel} marked complete`);
-            }}
-          >
-            Mark Complete
-          </Button>
-        );
-      default:
-        return null;
+  const openDetailTab = (tab: DistributionTab) => {
+    setDetailTab(tab);
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          detailSectionRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        });
+      });
     }
+  };
+
+  const handleExcludeRecipient = (investorId: string, investorName: string) => {
+    const updated = updateFundDistribution(
+      distribution.id,
+      {
+        manualExcludedInvestorIds: [...manualExcludedInvestorIds, investorId],
+      },
+      "update",
+    );
+    if (!updated) return;
+    toast.success(`${investorName} removed from the active recipient roster`);
+  };
+
+  const handleRestoreRecipient = (investorId: string, investorName: string) => {
+    const updated = updateFundDistribution(
+      distribution.id,
+      {
+        manualExcludedInvestorIds: manualExcludedInvestorIds.filter((id) => id !== investorId),
+      },
+      "update",
+    );
+    if (!updated) return;
+    toast.success(`${investorName} restored to the active recipient roster`);
+  };
+
+  const handleStatusChange = (nextStatus: string, message: string) => {
+    if (!pendingAction) return;
+    const updated = updateDistributionStatus(
+      distribution.id,
+      nextStatus,
+      getDistributionPermissionAction(currentStatus),
+    );
+    if (!updated) return;
+    setCurrentStatus(nextStatus);
+    toast.success(message);
   };
 
   return (
@@ -884,21 +1651,25 @@ export function FundDistributionDetail() {
       <div className="mb-8">
         <FundDistributionWorkflow
           currentStatus={currentStatus}
-          actionSlot={renderActionButton()}
+          actionPanel={
+            structuredAction ? (
+              <DistributionNextActionPanel
+                action={structuredAction}
+                currentStatus={currentStatus}
+                disabled={!getActionPermission().allowed}
+                disabledReason={getActionPermission().reason}
+                onOpen={() => {
+                  setPendingAction(structuredAction);
+                  setActionModalOpen(true);
+                }}
+                onViewMore={(link) => openDetailTab(link.tab)}
+              />
+            ) : undefined
+          }
           workflowModel={isOpenEndDistribution ? "open-end" : "default"}
           distributionLabel={eventLabel}
         />
       </div>
-
-      {showTransferAgentLayer && (
-        <div className="mb-8">
-          <WorkflowResponsibilityCard
-            title="Dividend Responsibility Map"
-            description="Closed-end dividend processing is split across issuer approval, transfer-agent register control, and distribution release."
-            items={responsibilityItems}
-          />
-        </div>
-      )}
 
       {isOpenEndDistribution && (
         <div className="mb-8">
@@ -1142,14 +1913,19 @@ export function FundDistributionDetail() {
         </div>
 
         {/* Main Content - Tabs */}
-        <div className="lg:col-span-2">
-          <Tabs defaultValue="overview" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3">
+        <div ref={detailSectionRef} className="lg:col-span-2 scroll-mt-24">
+          <Tabs
+            value={detailTab}
+            onValueChange={(value) => setDetailTab(value as DistributionTab)}
+            className="space-y-6"
+          >
+            <TabsList className={cn("grid w-full", userRole === "issuer" ? "grid-cols-4" : "grid-cols-3")}>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="recipients">
                 {isClosedEndDividend ? "Recipient List" : "Recipients"}
               </TabsTrigger>
               <TabsTrigger value="payout">Distribution</TabsTrigger>
+              {userRole === "issuer" && <TabsTrigger value="manual">Manual Override</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
@@ -1428,65 +2204,125 @@ export function FundDistributionDetail() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {userRole === "issuer" && (
+              <TabsContent value="manual" className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Active Recipient Roster</div>
+                      <div className="text-2xl font-semibold">{recipientPreview.totalRecipients}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Manual Overrides</div>
+                      <div className="text-2xl font-semibold">{manuallyExcludedRecipients.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-muted-foreground mb-1">Active Estimated Payout</div>
+                      <div className="text-2xl font-semibold">
+                        {formatDistributionNumber(recipientPreview.totalEstimatedPayout)}
+                      </div>
+                      <div className="text-sm text-muted-foreground">{distributionCurrency}</div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Manual Recipient Override</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Recipient</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Eligible Units</TableHead>
+                          <TableHead>Estimated Amount</TableHead>
+                          <TableHead>Recipient Roster</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {allRecipientPreview.rows.length > 0 ? (
+                          allRecipientPreview.rows.map((recipient) => {
+                            const excluded = manualExcludedInvestorIds.includes(recipient.investorId);
+                            return (
+                              <TableRow key={`${recipient.investorId}-manual`}>
+                                <TableCell>
+                                  <div className="font-medium">{recipient.investorName}</div>
+                                  <div className="text-xs text-muted-foreground truncate max-w-[220px]">
+                                    {recipient.investorWallet}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{recipient.category}</TableCell>
+                                <TableCell>
+                                  {formatDistributionNumber(recipient.eligibleUnits, 2)}
+                                </TableCell>
+                                <TableCell>
+                                  {formatDistributionNumber(recipient.estimatedPayout)} {distributionCurrency}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline">{excluded ? "Excluded" : "Included"}</Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      excluded
+                                        ? handleRestoreRecipient(recipient.investorId, recipient.investorName)
+                                        : handleExcludeRecipient(recipient.investorId, recipient.investorName)
+                                    }
+                                  >
+                                    {excluded ? "Restore" : "Exclude"}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                              No recipient records are available for manual override yet.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
           </Tabs>
         </div>
       </div>
 
-      {/* Modals */}
-      <SubmitDistributionApprovalModal
-        open={showSubmitModal}
-        onOpenChange={setShowSubmitModal}
-        eventLabel={eventLabel}
-        onSuccess={() => {
-          setCurrentStatus("Pending Approval");
-          updateDistributionStatus(id || "", "Pending Approval", "submit");
-          toast.success(`${eventLabel} action recorded by ${userRole}`);
-        }}
-      />
-      <ListingDistributionModal
-        open={showListingModal}
-        onOpenChange={setShowListingModal}
-        eventLabel={eventLabel}
-        onSuccess={() => {
-          setCurrentStatus("Upcoming");
-          updateDistributionStatus(id || "", "Upcoming", "list");
-          toast.success(`${eventLabel} listing action recorded by ${userRole}`);
-        }}
-      />
-      <PendingAllocationDistributionModal
-        open={showPendingAllocationModal}
-        onOpenChange={setShowPendingAllocationModal}
-        eventLabel={eventLabel}
-        onSuccess={() => {
-          setCurrentStatus("Pending Allocation");
-          updateDistributionStatus(id || "", "Pending Allocation", "open");
-        }}
-      />
-      <AllocationCompletedDistributionModal
-        open={showAllocationCompletedModal}
-        onOpenChange={setShowAllocationCompletedModal}
-        eventLabel={eventLabel}
-        onSuccess={() => {
-          setCurrentStatus("Put On Chain");
-          updateDistributionStatus(id || "", "Put On Chain", "put_on_chain");
-        }}
-      />
-      <OpenForDistributionModal
-        open={showOpenDistributionModal}
-        onOpenChange={setShowOpenDistributionModal}
-        eventLabel={eventLabel}
-        onSuccess={() => {
-          setCurrentStatus("Open For Distribution");
-          updateDistributionStatus(id || "", "Open For Distribution", "open");
-          toast.success(
-            isClosedEndDividend
-              ? "Dividend opened and distribution is ready for investors"
-              : isClaimMode
-                ? "Distribution is open for claim by investors"
-                : "Distribution opened and system distribution is in progress",
-          );
-        }}
-      />
+      {pendingAction && (
+        <OperationActionModal
+          open={actionModalOpen}
+          onOpenChange={(open) => {
+            setActionModalOpen(open);
+            if (!open) {
+              setPendingAction(null);
+            }
+          }}
+          onSuccess={() => handleStatusChange(pendingAction.nextStatus, pendingAction.message)}
+          title={pendingAction.modalTitle}
+          description={pendingAction.modalDescription}
+          steps={pendingAction.modalSteps}
+          startLabel="Start"
+          completionLabel="Done"
+          summary={pendingAction.previewSummary}
+          impactBadges={pendingAction.impactBadges}
+          detailGroups={pendingAction.previewDetails}
+        />
+      )}
     </div>
   );
 }

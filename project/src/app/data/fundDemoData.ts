@@ -15,6 +15,30 @@ export type FundLifecycleStatus =
   | "Active Dealing"
   | "Paused";
 
+export type RedemptionLifecycleStatus =
+  | "Draft"
+  | "Pending Approval"
+  | "Active"
+  | "Paused"
+  | "Announced"
+  | "Window Open"
+  | "Snapshot Locked"
+  | "Payment List Ready"
+  | "Burn On Chain"
+  | "Window Closed";
+
+export type DistributionLifecycleStatus =
+  | "Draft"
+  | "Pending Approval"
+  | "Pending Listing"
+  | "Upcoming"
+  | "Snapshot Locked"
+  | "Pending Allocation"
+  | "Put On Chain"
+  | "Open For Distribution"
+  | "Reconciled"
+  | "Done";
+
 export type OrderType = "subscription" | "redemption";
 
 export type OrderStatus =
@@ -241,7 +265,7 @@ export interface FundRedemptionConfig {
   fundId: string;
   name: string;
   description: string;
-  status: "Draft" | "Pending Approval" | "Active" | "Paused" | "Announced" | "Window Open" | "Window Closed";
+  status: RedemptionLifecycleStatus;
   assetType: string;
   fundName: string;
   fundToken: string;
@@ -260,6 +284,7 @@ export interface FundRedemptionConfig {
   cutOffTime: string;
   createdTime: string;
   transferAgentOps?: TransferAgentOperations;
+  manualExcludedRequestIds?: string[];
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
@@ -273,7 +298,7 @@ export interface FundDistribution {
   fundToken?: string;
   name: string;
   description: string;
-  status: string;
+  status: DistributionLifecycleStatus | string;
   assetType: string;
   tokenAddress?: string;
   initialNav?: string;
@@ -289,6 +314,7 @@ export interface FundDistribution {
   paymentDate?: string;
   createdTime?: string;
   transferAgentOps?: TransferAgentOperations;
+  manualExcludedInvestorIds?: string[];
   lastAction?: string;
   lastActorRole?: ActorRole;
   lastActionAt?: string;
@@ -979,7 +1005,7 @@ export const initialRedemptions: FundRedemptionConfig[] = [
     fundId: "fund-closed-001",
     name: "Real Estate Fund A Repurchase Event",
     description: "Issuer-led closed-end liquidity event with a cash payment list for accepted holders.",
-    status: "Window Closed",
+    status: "Payment List Ready",
     assetType: "Fund",
     fundName: "Real Estate Fund A",
     fundToken: "RE-FUND-A-2024",
