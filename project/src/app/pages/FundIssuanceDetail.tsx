@@ -746,59 +746,58 @@ function OpenEndDealingCycleCard({ fundData }: { fundData: FundIssuance }) {
   ];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Recurring Dealing Cycle</CardTitle>
-        <p className="text-sm text-muted-foreground">
+    <div className="space-y-6 border-t pt-6">
+      <div>
+        <h3 className="text-base font-semibold">Recurring Dealing Cycle</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
           Once the fund enters active dealing, the same dealing-day cycle repeats. This view uses
           relative time markers so the demo reads as an operating rhythm, not a one-off dated event.
         </p>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Operating state</div>
-            <div className="mt-1 font-medium">{operatingState}</div>
-          </div>
-          <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Dealing frequency</div>
-            <div className="mt-1 font-medium">{fundData.dealingFrequency || "Daily"}</div>
-          </div>
-          <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Settlement convention</div>
-            <div className="mt-1 font-medium">{settlementCycle}</div>
-          </div>
-          <div className="rounded-lg border p-4">
-            <div className="text-sm text-muted-foreground">Booking model</div>
-            <div className="mt-1 font-medium">
-              {fundData.orderConfirmationMethod || "Auto at cut-off"}
-            </div>
-          </div>
-        </div>
+      </div>
 
-        <div className="space-y-0">
-          {timelineSteps.map((step, index) => (
-            <div key={`${step.relativeTime}-${step.title}`} className="relative flex gap-4 pb-6 last:pb-0">
-              <div className="flex w-16 shrink-0 flex-col items-center">
-                <div className="rounded-full border border-[var(--navy-200)] bg-[var(--navy-50)] px-3 py-1 text-xs font-semibold text-[var(--navy-700)]">
-                  {step.relativeTime}
-                </div>
-                {index < timelineSteps.length - 1 && (
-                  <div className="mt-2 h-full w-px bg-border" />
-                )}
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-lg border p-4">
+          <div className="text-sm text-muted-foreground">Operating state</div>
+          <div className="mt-1 font-medium">{operatingState}</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-sm text-muted-foreground">Dealing frequency</div>
+          <div className="mt-1 font-medium">{fundData.dealingFrequency || "Daily"}</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-sm text-muted-foreground">Settlement convention</div>
+          <div className="mt-1 font-medium">{settlementCycle}</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-sm text-muted-foreground">Booking model</div>
+          <div className="mt-1 font-medium">
+            {fundData.orderConfirmationMethod || "Auto at cut-off"}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-0">
+        {timelineSteps.map((step, index) => (
+          <div key={`${step.relativeTime}-${step.title}`} className="relative flex gap-4 pb-6 last:pb-0">
+            <div className="flex w-16 shrink-0 flex-col items-center">
+              <div className="rounded-full border border-[var(--navy-200)] bg-[var(--navy-50)] px-3 py-1 text-xs font-semibold text-[var(--navy-700)]">
+                {step.relativeTime}
               </div>
-              <div className="flex-1 rounded-lg border p-4">
-                <div className="font-medium">{step.title}</div>
-                <div className="mt-1 text-sm text-muted-foreground">{step.detail}</div>
-                <div className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {step.meta}
-                </div>
+              {index < timelineSteps.length - 1 && (
+                <div className="mt-2 h-full w-px bg-border" />
+              )}
+            </div>
+            <div className="flex-1 rounded-lg border p-4">
+              <div className="font-medium">{step.title}</div>
+              <div className="mt-1 text-sm text-muted-foreground">{step.detail}</div>
+              <div className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {step.meta}
               </div>
             </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -2646,11 +2645,6 @@ export function FundIssuanceDetail() {
         </div>
       )}
 
-      {isOpenEnd && (
-        <div className="mb-8">
-          <OpenEndDealingCycleCard fundData={fundData} />
-        </div>
-      )}
       {!isMarketplaceView && (
         <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -3049,10 +3043,10 @@ export function FundIssuanceDetail() {
                         </div>
                       </div>
                     </div>
+
+                    <OpenEndDealingCycleCard fundData={fundData} />
                   </CardContent>
                 </Card>
-
-                <OpenEndDealingCycleCard fundData={fundData} />
 
                 <Card>
                   <CardHeader>
