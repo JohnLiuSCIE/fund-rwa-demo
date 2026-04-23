@@ -1267,6 +1267,7 @@ sequenceDiagram
     participant Stable as Settlement Token
     participant User as User Center
 
+    Note over Issuer,SC: 1. Listing - Prepare listing
     Issuer->>UI: Create Fund Issuance
     UI->>API: Submit issuance form
     API-->>UI: Draft issuance created
@@ -1281,6 +1282,7 @@ sequenceDiagram
     SC-->>API: Listing event
     API-->>UI: Status = Upcoming
 
+    Note over Issuer,Investor: 2. Subscription - Open for subscription
     Issuer->>UI: Open For Subscription
     UI->>Wallet: Personal Sign
     Wallet->>SC: Open subscription
@@ -1298,6 +1300,7 @@ sequenceDiagram
     SC-->>API: Subscription record created
     API-->>UI: Subscription List updated
 
+    Note over Issuer,API: 3. Allocation - Allocation period
     API-->>UI: Subscription period ends
     Issuer->>UI: Pending Allocation
     UI->>Wallet: Personal Sign
@@ -1308,6 +1311,7 @@ sequenceDiagram
     UI->>API: Trigger off-chain allocation
     API-->>UI: Allocation result generated
 
+    Note over Issuer,SC: 4. On-chain Issuance - Issue allocations on-chain
     Issuer->>UI: Allocate On Chain
     UI->>Wallet: Personal Sign + Tx Sign
     Wallet->>SC: Write allocation on chain
@@ -1318,6 +1322,7 @@ sequenceDiagram
     Wallet->>SC: Confirm allocation completion
     SC-->>API: Allocation completed event
 
+    Note over Issuer,User: 5. Completed - Issuance complete
     Issuer->>UI: Accept Fund
     UI->>Wallet: Personal Sign + Tx Sign
     Wallet->>SC: Transfer accepted fund / finalize issuance
@@ -1343,6 +1348,7 @@ sequenceDiagram
     participant SC as Smart Contract
     participant User as User Center
 
+    Note over Issuer,API: 1. Setup - Create and approve event
     Issuer->>UI: Create Fund Redemption
     UI->>API: Submit redemption form
     API-->>UI: Draft redemption created
@@ -1351,6 +1357,7 @@ sequenceDiagram
     UI->>API: Submit approval request
     API-->>UI: Status = Pending Listing
 
+    Note over Issuer,Investor: 2. Notice - Announce or activate module
     Issuer->>UI: Listing Redemption
     UI->>Wallet: Personal Sign + Tx Sign
     Wallet->>SC: Listing redemption
@@ -1363,13 +1370,25 @@ sequenceDiagram
     SC-->>API: Redemption opened
     API-->>UI: Status = Open For Redemption
 
+    Note over Investor,UI: 3. Window - Operate participation window
     Investor->>UI: Open redemption detail in Marketplace
     Investor->>UI: Click Redeem
     UI->>Wallet: Sign redemption tx
-    Wallet->>SC: Redeem fund token
-    SC-->>API: Redemption settled
+    Wallet->>SC: Redeem request submitted
+    SC-->>API: Redemption request recorded
+    API-->>UI: Participation window updated
+
+    Note over Issuer,SC: 4. Settlement - Snapshot, payment list, and burn
+    API-->>UI: Redemption window closes
+    API->>API: Lock snapshot and prepare payment list
+    Issuer->>UI: Confirm settlement close-out
+    UI->>Wallet: Personal Sign + Tx Sign
+    Wallet->>SC: Burn redeemed units and settle cash leg
+    SC-->>API: Settlement completed
+
+    Note over API,User: 5. Completed - Close and reconcile event
     API-->>User: Redemption Record created
-    API-->>UI: Received amount updated
+    API-->>UI: Event reconciled and received amount updated
 ```
 
 ### 17.4 Fund Distribution 时序图
@@ -1384,6 +1403,7 @@ sequenceDiagram
     participant SC as Smart Contract
     participant User as User Center
 
+    Note over Issuer,API: 1. Draft & Approval - Create and authorize event
     Issuer->>UI: Create Fund Distribution
     UI->>API: Submit distribution form
     API-->>UI: Draft distribution created
@@ -1392,12 +1412,14 @@ sequenceDiagram
     UI->>API: Submit approval request
     API-->>UI: Status = Pending Listing
 
+    Note over Issuer,Investor: 2. Notice - Publish record-date notice
     Issuer->>UI: Listing Distribution
     UI->>Wallet: Personal Sign + Tx Sign
     Wallet->>SC: Listing distribution
     SC-->>API: Distribution listed
     API-->>UI: Status = Upcoming
 
+    Note over Issuer,API: 3. Snapshot & Entitlement - Lock snapshot and prepare recipient file
     API-->>UI: Record date reached
     Issuer->>UI: Pending Allocation
     UI->>Wallet: Personal Sign
@@ -1407,6 +1429,7 @@ sequenceDiagram
     API->>API: Calculate distribution amount per holder
     API-->>UI: Distribution List generated
 
+    Note over Issuer,SC: 4. Release - Prepare and open payout
     Issuer->>UI: Allocation Completed
     UI->>Wallet: Personal Sign / Tx Sign if required
     Wallet->>SC: Confirm distribution allocation
@@ -1418,12 +1441,14 @@ sequenceDiagram
     SC-->>API: Distribution opened
     API-->>User: Distribution Record visible with Accept action
 
+    Note over API,User: 5. Completed - Reconcile and close event
     Investor->>User: Open Distribution Record
     Investor->>User: Click Accept
     User->>Wallet: Personal Sign + Tx Sign
     Wallet->>SC: Accept distribution
     SC-->>API: Distribution accepted
     API-->>User: Is Accepted = Yes
+    API-->>UI: Event reconciled and closed
 ```
 
 ### 17.5 推荐使用方式
