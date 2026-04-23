@@ -370,6 +370,7 @@ function buildOpenEndDemoOrders(fund: FundIssuance) {
       confirmTime: formatDateTime(setTime(shiftDate(baseDate, { days: -6 }), 18, 5)),
       settlementTime: formatDateTime(setTime(shiftDate(baseDate, { days: -5 }), 10, 0)),
       status: "Confirmed",
+      distributionElection: "Dividend Reinvestment",
       paymentMethod,
       paymentStatus: "Funds Cleared",
       paymentReference: `${symbol}-DEMO-SUB-1`,
@@ -393,6 +394,7 @@ function buildOpenEndDemoOrders(fund: FundIssuance) {
       estimatedSharesOrCash: `${formatDemoNumber(treasurySubscriptionAmount / navValue, 4)} units`,
       submitTime: formatDateTime(setTime(shiftDate(baseDate, { days: -1 }), 14, 5)),
       status: needsManualReview ? "Pending Review" : "Pending NAV",
+      distributionElection: "Cash Dividend",
       paymentMethod,
       paymentStatus: usesFiatFunding ? "Funds Cleared" : "Funds Cleared",
       paymentReference: `${symbol}-DEMO-SUB-2`,
@@ -416,6 +418,7 @@ function buildOpenEndDemoOrders(fund: FundIssuance) {
       estimatedSharesOrCash: `${formatDemoNumber(harborSubscriptionAmount / navValue, 4)} units`,
       submitTime: formatDateTime(setTime(baseDate, 11, 32)),
       status: usesFiatFunding ? "Submitted" : needsManualReview ? "Pending Review" : "Submitted",
+      distributionElection: "Dividend Reinvestment",
       paymentMethod,
       paymentStatus: usesFiatFunding
         ? fund.paymentProofRequired

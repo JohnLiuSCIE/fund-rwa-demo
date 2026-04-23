@@ -37,7 +37,7 @@ import {
   type ActionModalStep,
   type ActionModalSummaryItem,
 } from "../components/modals/OperationActionModal";
-import { FundDistribution, FundOrder } from "../data/fundDemoData";
+import { FundDistribution, FundOrder, type DistributionElection } from "../data/fundDemoData";
 import { cn } from "../components/ui/utils";
 
 type DistributionTab = "overview" | "recipients" | "payout" | "manual";
@@ -210,6 +210,7 @@ function buildDistributionRecipients(
       shareClass: string;
       eligibleUnits: number;
       estimatedPayout: number;
+      distributionElection?: DistributionElection;
     }
   >();
 
@@ -222,7 +223,12 @@ function buildDistributionRecipients(
       shareClass: linkedFund?.shareClass || "Class A",
       eligibleUnits: 0,
       estimatedPayout: 0,
+      distributionElection: undefined,
     };
+
+    if (!existing.distributionElection && order.distributionElection) {
+      existing.distributionElection = order.distributionElection;
+    }
 
     const units =
       parseLeadingNumber(order.confirmedSharesOrCash) ||
@@ -293,6 +299,22 @@ function formatDistributionNumber(value: number, digits = 2) {
     minimumFractionDigits: 0,
     maximumFractionDigits: digits,
   }).format(value);
+}
+
+function getDistributionElectionLabel(election?: DistributionElection) {
+  return election || "Not set";
+}
+
+function getDistributionElectionBadgeClasses(election?: DistributionElection) {
+  if (election === "Dividend Reinvestment") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (election === "Cash Dividend") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
 function buildDistributionImpactBadges({
@@ -2162,6 +2184,9 @@ export function FundDistributionDetail() {
                         <TableHead>Recipient</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Share Class</TableHead>
+                        <TableHead>
+                          {isClosedEndDividend ? "Dividend Election" : "Distribution Election"}
+                        </TableHead>
                         <TableHead>Eligible Units</TableHead>
                         <TableHead>Estimated Amount</TableHead>
                       </TableRow>
@@ -2177,6 +2202,16 @@ export function FundDistributionDetail() {
                           </TableCell>
                           <TableCell>{recipient.category}</TableCell>
                           <TableCell>{recipient.shareClass}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={getDistributionElectionBadgeClasses(
+                                recipient.distributionElection,
+                              )}
+                            >
+                              {getDistributionElectionLabel(recipient.distributionElection)}
+                            </Badge>
+                          </TableCell>
                           <TableCell>{recipient.eligibleUnits.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
                           <TableCell>
                             {recipient.estimatedPayout.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
@@ -2186,7 +2221,7 @@ export function FundDistributionDetail() {
                       ))}
                       {recipientPreview.rows.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
+                          <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
                             No eligible recipients can be derived from current fund orders yet.
                           </TableCell>
                         </TableRow>

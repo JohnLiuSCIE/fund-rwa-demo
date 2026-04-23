@@ -1,10 +1,38 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { format } from "date-fns";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
+
+function setDateTime(date: Date, hours: number, minutes: number) {
+  const next = new Date(date);
+  next.setHours(hours, minutes, 0, 0);
+  return next;
+}
+
+function shiftDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function toDateTimeLocalValue(date: Date) {
+  return format(date, "yyyy-MM-dd'T'HH:mm");
+}
+
+function buildDefaultDistributionSchedule() {
+  const baseDate = setDateTime(new Date(), 18, 0);
+  const recordDate = setDateTime(shiftDays(baseDate, 7), 18, 0);
+  const paymentDate = setDateTime(shiftDays(recordDate, 5), 10, 0);
+
+  return {
+    recordDate: toDateTimeLocalValue(recordDate),
+    paymentDate: toDateTimeLocalValue(paymentDate),
+  };
+}
 
 export function CreateFundDistribution() {
   const navigate = useNavigate();
@@ -52,14 +80,17 @@ export function CreateFundDistribution() {
       : selectedFund.initialNav
     : "N/A";
 
+  useEffect(() => {
+    const defaults = buildDefaultDistributionSchedule();
+    setDistributionUnit(selectedFund?.assetCurrency || eligibleFunds[0]?.assetCurrency || "HKD");
+    setPayoutToken(selectedFund?.assetCurrency || eligibleFunds[0]?.assetCurrency || "HKD");
+    setPayoutMode(selectedFund?.fundType === "Closed-end" ? "Direct Transfer" : "Claim");
+    setRecordDate(defaults.recordDate);
+    setPaymentDate(defaults.paymentDate);
+  }, [selectedFundId, selectedFund, eligibleFunds]);
+
   const handleFundChange = (value: string) => {
     setSelectedFundId(value);
-    const fund = eligibleFunds.find((item) => item.id === value);
-    if (fund) {
-      setDistributionUnit(fund.assetCurrency);
-      setPayoutToken(fund.assetCurrency);
-      setPayoutMode(fund.fundType === "Closed-end" ? "Direct Transfer" : "Claim");
-    }
   };
 
   const handleCreate = () => {

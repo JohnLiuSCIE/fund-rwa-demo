@@ -8,10 +8,11 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Check } from "lucide-react";
+import { Check, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { FundIssuance } from "../../data/fundDemoData";
+import { LoadingStagePanel } from "./LoadingStagePanel";
 
 interface AcceptAllocationModalProps {
   open: boolean;
@@ -50,31 +51,42 @@ function ProgressSteps({
 }) {
   return (
     <div className="flex items-center justify-between mb-8">
-      {steps.map((step, index) => (
-        <div key={index} className="flex items-center flex-1">
-          <div className="flex flex-col items-center">
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
-                index < currentStep
-                  ? "bg-primary border-primary text-primary-foreground"
-                  : index === currentStep
-                    ? "border-primary text-primary"
-                    : "border-gray-300 text-gray-400"
-              }`}
-            >
-              {index < currentStep ? <Check className="w-5 h-5" /> : <span>{index + 1}</span>}
+      {steps.map((step, index) => {
+        const isActiveLoadingStep =
+          index === currentStep && currentStep > 0 && currentStep < steps.length - 1;
+
+        return (
+          <div key={index} className="flex items-center flex-1">
+            <div className="flex flex-col items-center">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
+                  index < currentStep
+                    ? "bg-primary border-primary text-primary-foreground"
+                    : index === currentStep
+                      ? "border-primary text-primary"
+                      : "border-gray-300 text-gray-400"
+                }`}
+              >
+                {index < currentStep ? (
+                  <Check className="w-5 h-5" />
+                ) : isActiveLoadingStep ? (
+                  <LoaderCircle className="w-5 h-5 animate-spin" />
+                ) : (
+                  <span>{index + 1}</span>
+                )}
+              </div>
+              <div className="text-xs mt-2 text-center max-w-20">{step}</div>
             </div>
-            <div className="text-xs mt-2 text-center max-w-20">{step}</div>
+            {index < steps.length - 1 && (
+              <div
+                className={`h-0.5 flex-1 mx-2 transition-colors ${
+                  index < currentStep ? "bg-primary" : "bg-gray-300"
+                }`}
+              />
+            )}
           </div>
-          {index < steps.length - 1 && (
-            <div
-              className={`h-0.5 flex-1 mx-2 transition-colors ${
-                index < currentStep ? "bg-primary" : "bg-gray-300"
-              }`}
-            />
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -151,23 +163,29 @@ export function AcceptAllocationModal({
         )}
 
         {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Personal Sign</h3>
-            <p className="text-sm text-muted-foreground">Please personal sign to proceed</p>
-          </div>
+          <LoadingStagePanel
+            title="Personal Sign"
+            description="Please personal sign to proceed"
+            items={[
+              "Wallet signature request is ready",
+              "Validating allocation acceptance",
+              "Preparing settlement transfer",
+            ]}
+            tone="slate"
+          />
         )}
 
         {step === 2 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Sign Transaction</h3>
-            <p className="text-sm text-muted-foreground">Please verify the smart contract call</p>
-          </div>
+          <LoadingStagePanel
+            title="Sign Transaction"
+            description="Please verify the smart contract call"
+            items={[
+              "Preparing smart contract payload",
+              "Awaiting wallet confirmation",
+              "Broadcasting allocation acceptance",
+            ]}
+            tone="cyan"
+          />
         )}
 
         {step === 3 && (
@@ -465,32 +483,44 @@ export function SubscribeModal({
               </div>
             </div>
           ) : (
-            <div className="space-y-4 text-center py-8">
-              <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-              <h3>Sign Subscription Order</h3>
-              <p className="text-sm text-muted-foreground">
-                Please approve the subscription request in your wallet.
-              </p>
-            </div>
+            <LoadingStagePanel
+              title="Sign Subscription Order"
+              description="Please approve the subscription request in your wallet."
+              items={[
+                "Wallet approval request is ready",
+                "Validating subscription order details",
+                "Preparing submission for booking",
+              ]}
+              tone="slate"
+            />
           )
         )}
 
         {step === 2 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>{isBankTransferFunding ? "Cash Review In Progress" : "Broadcasting Order"}</h3>
-            <p className="text-sm text-muted-foreground">
-              {isBankTransferFunding
+          <LoadingStagePanel
+            title={isBankTransferFunding ? "Cash Review In Progress" : "Broadcasting Order"}
+            description={
+              isBankTransferFunding
                 ? `${fundData.cashConfirmationOwner || "Issuer"} is reviewing the incoming cash leg. The transfer agent will book units only after funds are confirmed.`
                 : isOpenEnd
                   ? "Your order is being recorded for the next open-end dealing batch."
-                  : "Your order is being recorded for the current closed-end subscription round."}
-            </p>
-          </div>
+                  : "Your order is being recorded for the current closed-end subscription round."
+            }
+            items={
+              isBankTransferFunding
+                ? [
+                    "Matching remittance and payment reference",
+                    "Reviewing settlement evidence",
+                    "Releasing transfer-agent unit booking",
+                  ]
+                : [
+                    "Preparing order broadcast payload",
+                    "Submitting subscription instruction",
+                    "Updating dealing queue status",
+                  ]
+            }
+            tone={isBankTransferFunding ? "teal" : "cyan"}
+          />
         )}
 
         {step === 3 && (
@@ -665,27 +695,29 @@ export function RedeemModal({
         )}
 
         {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Sign Redemption Order</h3>
-            <p className="text-sm text-muted-foreground">
-              Please approve the redemption request in your wallet.
-            </p>
-          </div>
+          <LoadingStagePanel
+            title="Sign Redemption Order"
+            description="Please approve the redemption request in your wallet."
+            items={[
+              "Wallet approval request is ready",
+              "Checking dealing-window eligibility",
+              "Preparing redemption submission",
+            ]}
+            tone="slate"
+          />
         )}
 
         {step === 2 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Broadcasting Redemption</h3>
-            <p className="text-sm text-muted-foreground">
-              Your request has entered the next dealing batch and is waiting for review / NAV confirmation.
-            </p>
-          </div>
+          <LoadingStagePanel
+            title="Broadcasting Redemption"
+            description="Your request has entered the next dealing batch and is waiting for review / NAV confirmation."
+            items={[
+              "Submitting redemption instruction",
+              "Recording dealing batch entry",
+              "Syncing cash settlement workflow",
+            ]}
+            tone="cyan"
+          />
         )}
 
         {step === 3 && (

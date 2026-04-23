@@ -6,8 +6,9 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
-import { Check, AlertCircle } from "lucide-react";
+import { Check, AlertCircle, LoaderCircle } from "lucide-react";
 import { toast } from "sonner";
+import { LoadingStagePanel } from "./LoadingStagePanel";
 
 interface ModalProps {
   open: boolean;
@@ -23,35 +24,42 @@ interface ListingModalProps extends ModalProps {
 function ProgressSteps({ currentStep, steps }: { currentStep: number; steps: string[] }) {
   return (
     <div className="flex items-center justify-between mb-8">
-      {steps.map((step, index) => (
-        <div key={index} className="flex items-center flex-1">
-          <div className="flex flex-col items-center">
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
-                index < currentStep
-                  ? "bg-primary border-primary text-primary-foreground"
-                  : index === currentStep
-                  ? "border-primary text-primary"
-                  : "border-gray-300 text-gray-400"
-              }`}
-            >
-              {index < currentStep ? (
-                <Check className="w-5 h-5" />
-              ) : (
-                <span>{index + 1}</span>
-              )}
+      {steps.map((step, index) => {
+        const isActiveLoadingStep =
+          index === currentStep && currentStep > 0 && currentStep < steps.length - 1;
+
+        return (
+          <div key={index} className="flex items-center flex-1">
+            <div className="flex flex-col items-center">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
+                  index < currentStep
+                    ? "bg-primary border-primary text-primary-foreground"
+                    : index === currentStep
+                    ? "border-primary text-primary"
+                    : "border-gray-300 text-gray-400"
+                }`}
+              >
+                {index < currentStep ? (
+                  <Check className="w-5 h-5" />
+                ) : isActiveLoadingStep ? (
+                  <LoaderCircle className="w-5 h-5 animate-spin" />
+                ) : (
+                  <span>{index + 1}</span>
+                )}
+              </div>
+              <div className="text-xs mt-2 text-center max-w-20">{step}</div>
             </div>
-            <div className="text-xs mt-2 text-center max-w-20">{step}</div>
+            {index < steps.length - 1 && (
+              <div
+                className={`h-0.5 flex-1 mx-2 transition-colors ${
+                  index < currentStep ? "bg-primary" : "bg-gray-300"
+                }`}
+              />
+            )}
           </div>
-          {index < steps.length - 1 && (
-            <div
-              className={`h-0.5 flex-1 mx-2 transition-colors ${
-                index < currentStep ? "bg-primary" : "bg-gray-300"
-              }`}
-            />
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -140,15 +148,16 @@ export function ListingModal({ open, onOpenChange, onSuccess, fundData }: Listin
         )}
 
         {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Personal Sign</h3>
-            <p className="text-sm text-muted-foreground">
-              Please personal sign to proceed
-            </p>
-          </div>
+          <LoadingStagePanel
+            title="Personal Sign"
+            description="Please personal sign to proceed"
+            items={[
+              "Wallet signature request is ready",
+              "Waiting for issuer confirmation",
+              "Preparing listing status update",
+            ]}
+            tone="slate"
+          />
         )}
 
         {step === 2 && (
@@ -206,15 +215,16 @@ export function OpenForSubscriptionModal({ open, onOpenChange, onSuccess }: Moda
         )}
 
         {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Personal Sign</h3>
-            <p className="text-sm text-muted-foreground">
-              Please personal sign to proceed
-            </p>
-          </div>
+          <LoadingStagePanel
+            title="Personal Sign"
+            description="Please personal sign to proceed"
+            items={[
+              "Wallet signature request is ready",
+              "Waiting for issuer confirmation",
+              "Opening subscription status change",
+            ]}
+            tone="slate"
+          />
         )}
 
         {step === 2 && (
@@ -272,15 +282,16 @@ export function PendingAllocationModal({ open, onOpenChange, onSuccess }: ModalP
         )}
 
         {step === 1 && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>Personal Sign</h3>
-            <p className="text-sm text-muted-foreground">
-              Please personal sign to proceed
-            </p>
-          </div>
+          <LoadingStagePanel
+            title="Personal Sign"
+            description="Please personal sign to proceed"
+            items={[
+              "Wallet signature request is ready",
+              "Confirming allocation review transition",
+              "Updating subscription workflow state",
+            ]}
+            tone="slate"
+          />
         )}
 
         {step === 2 && (
@@ -339,17 +350,28 @@ export function AllocateOnChainModal({ open, onOpenChange, onSuccess }: ModalPro
         )}
 
         {(step === 1 || step === 2) && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>{step === 1 ? "Personal Sign" : "Sign Transaction"}</h3>
-            <p className="text-sm text-muted-foreground">
-              {step === 1
+          <LoadingStagePanel
+            title={step === 1 ? "Personal Sign" : "Sign Transaction"}
+            description={
+              step === 1
                 ? "Please personal sign to proceed"
-                : "Please verify the smart contract call"}
-            </p>
-          </div>
+                : "Please verify the smart contract call"
+            }
+            items={
+              step === 1
+                ? [
+                    "Confirming issuer authorization",
+                    "Validating allocation instruction",
+                    "Preparing on-chain execution package",
+                  ]
+                : [
+                    "Preparing smart contract payload",
+                    "Awaiting wallet confirmation",
+                    "Broadcasting allocation transaction",
+                  ]
+            }
+            tone={step === 1 ? "slate" : "cyan"}
+          />
         )}
 
         {step === 3 && (
@@ -408,17 +430,28 @@ export function AllocationCompletedModal({ open, onOpenChange, onSuccess }: Moda
         )}
 
         {(step === 1 || step === 2) && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>{step === 1 ? "Personal Sign" : "Sign Transaction"}</h3>
-            <p className="text-sm text-muted-foreground">
-              {step === 1
+          <LoadingStagePanel
+            title={step === 1 ? "Personal Sign" : "Sign Transaction"}
+            description={
+              step === 1
                 ? "Please personal sign to proceed"
-                : "Please verify the smart contract call"}
-            </p>
-          </div>
+                : "Please verify the smart contract call"
+            }
+            items={
+              step === 1
+                ? [
+                    "Confirming issuer authorization",
+                    "Locking final allocation records",
+                    "Preparing completion instruction",
+                  ]
+                : [
+                    "Preparing smart contract payload",
+                    "Awaiting wallet confirmation",
+                    "Submitting completion transaction",
+                  ]
+            }
+            tone={step === 1 ? "slate" : "cyan"}
+          />
         )}
 
         {step === 3 && (
@@ -477,17 +510,28 @@ export function AcceptFundModal({ open, onOpenChange, onSuccess }: ModalProps) {
         )}
 
         {(step === 1 || step === 2) && (
-          <div className="space-y-4 text-center py-8">
-            <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-            <h3>{step === 1 ? "Personal Sign" : "Sign Transaction"}</h3>
-            <p className="text-sm text-muted-foreground">
-              {step === 1
+          <LoadingStagePanel
+            title={step === 1 ? "Personal Sign" : "Sign Transaction"}
+            description={
+              step === 1
                 ? "Please personal sign to proceed"
-                : "Please verify the smart contract call"}
-            </p>
-          </div>
+                : "Please verify the smart contract call"
+            }
+            items={
+              step === 1
+                ? [
+                    "Confirming issuer authorization",
+                    "Checking settlement prerequisites",
+                    "Preparing fund acceptance instruction",
+                  ]
+                : [
+                    "Preparing smart contract payload",
+                    "Awaiting wallet confirmation",
+                    "Submitting fund acceptance transaction",
+                  ]
+            }
+            tone={step === 1 ? "slate" : "cyan"}
+          />
         )}
 
         {step === 3 && (

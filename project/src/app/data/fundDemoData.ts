@@ -39,6 +39,8 @@ export type DistributionLifecycleStatus =
   | "Reconciled"
   | "Done";
 
+export type DistributionElection = "Dividend Reinvestment" | "Cash Dividend";
+
 export type OrderType = "subscription" | "redemption";
 
 export type OrderStatus =
@@ -222,6 +224,7 @@ export interface FundOrder {
   confirmTime?: string;
   settlementTime?: string;
   status: OrderStatus;
+  distributionElection?: DistributionElection;
   paymentMethod?: "Fiat" | "Stablecoin" | "Tokenized Deposit";
   paymentStatus?:
     | "Pending Instruction"
@@ -717,6 +720,7 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "243,997.66 units",
     submitTime: "2026-04-16 11:18:00",
     status: "Pending NAV",
+    distributionElection: "Dividend Reinvestment",
     paymentMethod: "Tokenized Deposit",
     paymentStatus: "Funds Cleared",
     paymentReference: "TX-OPEN-HKD-001",
@@ -741,6 +745,7 @@ export const initialFundOrders: FundOrder[] = [
     confirmTime: "2026-04-15 18:10:00",
     settlementTime: "2026-04-16 10:05:00",
     status: "Confirmed",
+    distributionElection: "Dividend Reinvestment",
     paymentMethod: "Tokenized Deposit",
     paymentStatus: "Funds Cleared",
     paymentReference: "TX-OPEN-HKD-002",
@@ -763,6 +768,7 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "1,171,189.54 units",
     submitTime: "2026-04-16 14:05:00",
     status: "Submitted",
+    distributionElection: "Cash Dividend",
     paymentMethod: "Tokenized Deposit",
     paymentStatus: "Funds Cleared",
     paymentReference: "TX-OPEN-HKD-003",
@@ -833,6 +839,7 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "42,105.26 units",
     submitTime: "2026-04-18 10:15:00",
     status: "Pending Review",
+    distributionElection: "Dividend Reinvestment",
     paymentMethod: "Fiat",
     paymentStatus: "Payment Proof Uploaded",
     paymentReference: "REA-FO-20260418-001",
@@ -855,6 +862,7 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "52,631.58 units",
     submitTime: "2026-04-18 11:40:00",
     status: "Submitted",
+    distributionElection: "Cash Dividend",
     paymentMethod: "Fiat",
     paymentStatus: "Awaiting Payment",
     paymentReference: "REA-IF-20260418-002",
@@ -875,6 +883,7 @@ export const initialFundOrders: FundOrder[] = [
     estimatedSharesOrCash: "47,368.42 units",
     submitTime: "2026-04-18 14:05:00",
     status: "Pending Review",
+    distributionElection: "Cash Dividend",
     paymentMethod: "Fiat",
     paymentStatus: "Funds Cleared",
     paymentReference: "REA-SPC-20260418-003",

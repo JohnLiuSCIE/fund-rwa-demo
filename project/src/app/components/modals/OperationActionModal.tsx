@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, LoaderCircle } from "lucide-react";
 
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { cn } from "../ui/utils";
+import { LoadingStagePanel, type LoadingStageTone } from "./LoadingStagePanel";
 
 type ActionModalStepKind = "review" | "identity" | "ta" | "onchain" | "success";
 
@@ -124,6 +125,63 @@ function getToneClasses(kind: ActionModalStepKind) {
   }
 }
 
+function getLoadingTone(kind: ActionModalStepKind): LoadingStageTone {
+  switch (kind) {
+    case "ta":
+      return "teal";
+    case "onchain":
+      return "cyan";
+    case "review":
+    case "identity":
+    case "success":
+    default:
+      return "slate";
+  }
+}
+
+function getDefaultLoadingItems(kind: ActionModalStepKind, title: string) {
+  switch (kind) {
+    case "ta":
+      return [
+        "Packaging transfer-agent instruction",
+        "Dispatching operating request",
+        "Recording register update checkpoint",
+      ];
+    case "onchain":
+      return [
+        "Preparing smart contract payload",
+        "Awaiting wallet confirmation",
+        "Broadcasting on-chain update",
+      ];
+    case "review":
+    case "identity":
+    case "success":
+    default:
+      return [
+        `${title} request is in progress`,
+        "Waiting for secure approval",
+        "Syncing workflow status",
+      ];
+  }
+}
+
+function getLoadingItems(
+  kind: ActionModalStepKind,
+  title: string,
+  detailGroups: ActionModalDetailGroup[],
+) {
+  const scopedItems = detailGroups
+    .filter((group) => !group.kind || group.kind === kind)
+    .flatMap((group) => group.items)
+    .filter(Boolean);
+
+  if (scopedItems.length > 0) {
+    return scopedItems.slice(0, 3);
+  }
+
+  return getDefaultLoadingItems(kind, title);
+}
+
 function ProgressSteps({
   currentStep,
   steps,
@@ -135,6 +193,7 @@ function ProgressSteps({
     <div className="mb-8 flex items-center justify-between">
       {steps.map((step, index) => {
         const tone = getToneClasses(resolveStepKind(step));
+        const isActiveLoadingStep = index === currentStep && step.state === "loading";
 
         return (
           <div key={index} className="flex flex-1 items-center">
@@ -147,7 +206,13 @@ function ProgressSteps({
                   index > currentStep && "border-gray-300 text-gray-400",
                 )}
               >
-                {index < currentStep ? <Check className="h-5 w-5" /> : <span>{index + 1}</span>}
+                {index < currentStep ? (
+                  <Check className="h-5 w-5" />
+                ) : isActiveLoadingStep ? (
+                  <LoaderCircle className="h-5 w-5 animate-spin" />
+                ) : (
+                  <span>{index + 1}</span>
+                )}
               </div>
               <div className="mt-2 max-w-20 text-center text-xs">{step.label}</div>
             </div>
@@ -184,7 +249,8 @@ export function OperationActionModal({
   const current = steps[step];
   const isLastStep = step === steps.length - 1;
   const currentKind = resolveStepKind(current);
-  const currentTone = getToneClasses(currentKind);
+  const loadingTone = getLoadingTone(currentKind);
+  const loadingItems = getLoadingItems(currentKind, current.title, detailGroups);
 
   useEffect(() => {
     if (!open) return;
@@ -293,27 +359,12 @@ export function OperationActionModal({
         )}
 
         {current.state === "loading" && (
-          <div className="space-y-4 py-8 text-center">
-            <div
-              className={cn(
-                "mx-auto flex h-16 w-16 items-center justify-center rounded-full",
-                currentTone.iconWrap,
-              )}
-            >
-              <div
-                className={cn(
-                  "h-8 w-8 animate-spin rounded-full border-4 border-t-transparent",
-                  currentKind === "ta" && "border-teal-600",
-                  currentKind === "onchain" && "border-cyan-600",
-                  currentKind === "identity" && "border-slate-600",
-                  currentKind === "review" && "border-slate-600",
-                  currentKind === "success" && "border-green-600",
-                )}
-              />
-            </div>
-            <h3>{current.title}</h3>
-            <p className="text-sm text-muted-foreground">{current.description}</p>
-          </div>
+          <LoadingStagePanel
+            title={current.title}
+            description={current.description}
+            items={loadingItems}
+            tone={loadingTone}
+          />
         )}
 
         {current.state === "success" && (

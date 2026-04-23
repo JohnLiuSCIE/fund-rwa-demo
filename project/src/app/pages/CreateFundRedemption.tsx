@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -17,6 +17,44 @@ import {
 } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 import { useApp } from "../context/AppContext";
+
+function setDateTime(date: Date, hours: number, minutes: number) {
+  const next = new Date(date);
+  next.setHours(hours, minutes, 0, 0);
+  return next;
+}
+
+function shiftDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function toDateTimeLocalValue(date: Date) {
+  return format(date, "yyyy-MM-dd'T'HH:mm");
+}
+
+function buildDefaultRedemptionSchedule(
+  noticePeriodDays: number,
+  redemptionMode: "Daily dealing" | "Window-based",
+) {
+  const today = setDateTime(new Date(), 9, 0);
+  const effectiveDate = setDateTime(shiftDays(today, 1), 9, 0);
+  const announcementDate = today;
+  const noticeDays = Math.max(noticePeriodDays, 1);
+  const windowStart =
+    redemptionMode === "Window-based"
+      ? setDateTime(shiftDays(announcementDate, noticeDays), 9, 0)
+      : setDateTime(shiftDays(effectiveDate, 1), 9, 0);
+  const windowEnd = setDateTime(shiftDays(windowStart, 2), 17, 0);
+
+  return {
+    effectiveDate: toDateTimeLocalValue(effectiveDate),
+    announcementDate: toDateTimeLocalValue(announcementDate),
+    windowStart: toDateTimeLocalValue(windowStart),
+    windowEnd: toDateTimeLocalValue(windowEnd),
+  };
+}
 
 export function CreateFundRedemption() {
   const navigate = useNavigate();
@@ -37,10 +75,10 @@ export function CreateFundRedemption() {
   const [redemptionMode, setRedemptionMode] = useState<"Daily dealing" | "Window-based">(
     contextFund?.fundType === "Closed-end" ? "Window-based" : "Daily dealing",
   );
-  const [effectiveDate, setEffectiveDate] = useState("2026-04-17T09:00");
+  const [effectiveDate, setEffectiveDate] = useState("");
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
-  const [announcementDate, setAnnouncementDate] = useState("2026-04-16T09:00");
+  const [announcementDate, setAnnouncementDate] = useState("");
   const [noticePeriodDays, setNoticePeriodDays] = useState("0");
   const [maxRedemptionQuantityPerInvestor, setMaxRedemptionQuantityPerInvestor] = useState("500000");
   const [manualApprovalRequired, setManualApprovalRequired] = useState(false);
@@ -56,6 +94,15 @@ export function CreateFundRedemption() {
       ? selectedFund.currentNav
       : selectedFund.initialNav
     : "N/A";
+
+  useEffect(() => {
+    const defaults = buildDefaultRedemptionSchedule(minimumNoticePeriodDays, redemptionMode);
+    setEffectiveDate(defaults.effectiveDate);
+    setAnnouncementDate(defaults.announcementDate);
+    setWindowStart(defaults.windowStart);
+    setWindowEnd(defaults.windowEnd);
+    setNoticePeriodDays(String(minimumNoticePeriodDays));
+  }, [minimumNoticePeriodDays, redemptionMode, selectedFundId]);
 
   const parseDateTime = (value: string) => {
     if (!value) return undefined;

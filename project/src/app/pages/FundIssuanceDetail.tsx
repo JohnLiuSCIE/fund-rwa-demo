@@ -3856,6 +3856,7 @@ export function FundIssuanceDetail() {
           : fundData.orderConfirmationMethod === "Issuer review then confirm"
             ? "Pending Review"
             : "Pending NAV",
+      distributionElection: "Dividend Reinvestment",
       paymentMethod: fundingMethod,
       paymentStatus: awaitingFiatConfirmation ? (
         fundData.paymentProofRequired ? "Payment Proof Uploaded" : "Awaiting Payment"
