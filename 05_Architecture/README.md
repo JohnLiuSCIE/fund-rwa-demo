@@ -19,3 +19,6 @@
 - `ARCH - Fund Issuance Sequence.md`
 - `ARCH - Distribution Claim State Machine.md`
 - `SPEC - Wallet Signature Points.md`
+
+当前已有：
+- `Diagrams/ARCH - Fund Lifecycle Sequence Diagrams.md`
