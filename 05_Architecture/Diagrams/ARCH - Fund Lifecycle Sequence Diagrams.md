@@ -10,6 +10,8 @@ This note gives developers one place to review the sequence diagrams for the thr
 
 Each module is shown in both `Closed-end` and `Open-end` form where the product currently models both.
 
+For `Open-end` products, the diagrams below should be read as `module + recurring cycle` flows rather than one-off event flows. The numbering still follows the current UI so developers can map the diagrams back to the product.
+
 These diagrams follow three rules:
 
 - actor names use `Maker` and `Checker`
@@ -123,34 +125,35 @@ sequenceDiagram
     participant Register as Holder Register
 
     note over Maker,UI: 1.1 Draft
-    Maker->>UI: Create fund setup\nfund terms + token setup + dealing rules
-    UI-->>Maker: Draft saved
+    Maker->>UI: Create issuance module draft\nfund terms + token setup + dealing rules
+    UI-->>Maker: Module draft saved
 
     note over Checker,UI: 1.2 Approval
-    Maker->>UI: Submit launch setup
+    Maker->>UI: Submit issuance module for approval
     UI-->>Checker: Pending Approval task created
-    Checker->>UI: Approve launch
-    UI-->>Maker: Status -> Pending Listing
+    Checker->>UI: Approve module activation
+    UI-->>Maker: Module ready for launch calendar setup
 
     note over Maker,UI: 1.3 Launch Ready
-    Maker->>UI: Queue launch window\nlaunch calendar + investor access rules
+    Maker->>UI: Configure launch cycle\nlaunch calendar + investor access rules
     UI-->>Maker: Status -> Upcoming Launch
 
     note over Maker,Chain: 2.1 Open Window
-    Maker->>Chain: Open launch subscription gate
-    Chain-->>UI: Initial Subscription enabled
+    Maker->>Chain: Open first dealing window
+    Chain-->>UI: Initial Subscription cycle enabled
 
     note over Investor,TA: 2.2 Accept Orders
-    Investor->>UI: Submit initial subscriptions
-    UI->>TA: Forward subscription book\nonboarding pack + initial register draft
-    TA-->>UI: Intake acknowledged
+    Investor->>UI: Submit initial-cycle subscriptions
+    UI->>TA: Forward cycle order book\nonboarding pack + initial register draft
+    TA-->>UI: Cycle intake acknowledged
 
     note over TA,Register: 3.1 Active
-    TA->>Register: Run daily dealing batches\nNAV confirmation + register delta
-    UI-->>Maker: Fund enters Active Dealing
+    TA->>Register: Post first-cycle allocation and register baseline
+    UI-->>Maker: Module enters Active Dealing
+    UI-->>Investor: Future dealing cycles can recur under the same module
 
     note over Maker,UI: 3.2 Pause Control
-    Maker->>UI: Pause or resume daily dealing
+    Maker->>UI: Pause or resume the standing issuance module
     UI-->>TA: Operating control updated
 ```
 
@@ -236,42 +239,42 @@ sequenceDiagram
     participant Register as Holder Register
     participant Treasury as Settlement Treasury
 
-    note over Maker,UI: 1.1 Setup
-    Maker->>UI: Create redemption module\nmodule setup + gate configuration
+    note right of UI: 1.1 Setup
+    Maker->>UI: Create redemption module\nmodule rules + dealing cut-off + gate configuration
     UI-->>Maker: Module draft saved
 
-    note over Checker,UI: 2.1 Approval
+    note right of UI: 2.1 Approval
     Maker->>UI: Submit module launch
     UI-->>Checker: Approval task created
     Checker->>UI: Authorize module launch
     UI-->>Maker: Module approved
 
-    note over Maker,UI: 3.1 Activate
+    note right of UI: 3.1 Activate
     Maker->>UI: Enable redemption module
-    UI-->>TA: Operating calendar updated
+    UI-->>Maker: Standing redemption capability is active
 
-    note over Investor,TA: 3.2 Operate
-    Investor->>UI: Submit redemption orders
-    UI->>TA: Forward dealing batch\nholdings validation + register update file
-    TA-->>UI: Batch processing in progress
+    note right of UI: 3.2 Operate
+    Investor->>UI: Submit redemption orders for current cycle
+    UI->>TA: Forward current-cycle dealing batch\nholdings validation + request roster
+    TA-->>UI: Cycle processing in progress
 
-    note over Maker,UI: 3.3 Close-out
-    Maker->>UI: Close current redemption cycle
-    UI-->>TA: Cycle close-out requested
+    note right of UI: 3.3 Close Out
+    Maker->>UI: Close current dealing cut-off
+    UI-->>TA: Current cycle close-out requested
 
-    note over TA,Register: 4.1 Snapshot
-    TA->>Register: Lock accepted dealing batch
-    TA-->>UI: Register cut-off complete
+    note right of UI: 4.1 Snapshot
+    TA->>Register: Lock accepted cycle snapshot
+    TA-->>UI: Current-cycle register cut-off complete
 
-    note over TA,Treasury: 4.2 Payment Prep
-    TA-->>UI: Payment file + burn instruction ready
-    UI-->>Treasury: Settlement funding request created
+    note right of UI: 4.2 Payment Prep
+    TA-->>UI: Payment file + burn instruction for current cycle ready
+    UI-->>Treasury: Current-cycle settlement funding request created
 
-    note over TA,Chain: 4.3 Close Cycle
+    note right of UI: 4.3 Close Cycle
     Treasury-->>Maker: Funding confirmed
-    Maker->>Chain: Execute burn or settlement-close transaction
-    TA-->>UI: Reconciliation memo posted
-    UI-->>Maker: Cycle closed
+    Maker->>Chain: Execute current-cycle burn or settlement-close transaction
+    TA-->>UI: Reconciliation memo posted for current cycle
+    UI-->>Maker: Cycle closed and module stays active
 ```
 
 ## 3. Distribution / Dividend
@@ -356,54 +359,54 @@ sequenceDiagram
     participant Register as Holder Register
     participant Treasury as Payout Source
 
-    note over Maker,UI: 1.1 Draft
-    Maker->>UI: Create distribution event draft\npayout assumptions + timing
-    UI-->>Maker: Draft saved
+    note right of UI: 1.1 Draft
+    Maker->>UI: Create distribution module draft\npayout policy + cycle timing
+    UI-->>Maker: Module draft saved
 
-    note over Checker,UI: 1.2 Approve
-    Maker->>UI: Submit distribution event
+    note right of UI: 1.2 Approve
+    Maker->>UI: Submit distribution module
     UI-->>Checker: Approval task created
-    Checker->>UI: Approve event
-    UI-->>Maker: Status -> Pending Listing
+    Checker->>UI: Approve module
+    UI-->>Maker: Module approved for recurring record-date cycles
 
-    note over Maker,UI: 2.1 Listing Prep
-    Maker->>UI: Prepare event listing\nrecord-date notice + distribution calendar
-    UI-->>Investor: Event calendar visible
+    note right of UI: 2.1 Listing Prep
+    Maker->>UI: Configure current payout cycle\nrecord-date notice + distribution calendar
+    UI-->>Investor: Current cycle calendar visible
 
-    note over TA,Register: 2.2 Record Date
-    TA->>Register: Reach holder snapshot cut-off
-    TA-->>UI: Record date confirmed
+    note right of UI: 2.2 Record Date
+    TA->>Register: Reach current-cycle holder cut-off
+    TA-->>UI: Record date for current cycle confirmed
 
-    note over TA,Register: 3.3 Snapshot Locked
-    TA->>Register: Freeze payout base
-    TA-->>UI: Locked snapshot available
+    note right of UI: 3.3 Snapshot Locked
+    TA->>Register: Freeze current-cycle payout base
+    TA-->>UI: Locked cycle snapshot available
 
-    note over TA,UI: 3.4 Recipient List
-    TA-->>UI: Recipient payout file\nrecipient list + funding request
-    UI-->>Maker: Pending Allocation
+    note right of UI: 3.4 Recipient List
+    TA-->>UI: Current-cycle recipient payout file\nrecipient list + funding request
+    UI-->>Maker: Current cycle pending allocation
 
-    note over TA,Treasury: 4.1 On-chain Prep
+    note right of UI: 4.1 On-chain Prep
     Treasury-->>Maker: Funding confirmed
-    Maker->>TA: Confirm payout data package
-    TA-->>Maker: Release package approved
+    Maker->>TA: Confirm current-cycle payout package
+    TA-->>Maker: Current-cycle release package approved
 
-    note over Maker,Chain: 4.2 Open Payout
-    Maker->>Chain: Open claim or auto-transfer flow
+    note right of UI: 4.2 Open Payout
+    Maker->>Chain: Open claim or auto-transfer flow for current cycle
     alt Claim mode
-        Chain-->>Investor: Claimable distribution available
+        Chain-->>Investor: Current-cycle claimable distribution available
     else Direct transfer mode
-        Chain-->>Investor: Automated transfer starts
+        Chain-->>Investor: Current-cycle automated transfer starts
     end
     Chain-->>UI: Status -> Open For Distribution
 
-    note over TA,Register: 5.1 Reconcile
-    UI->>TA: Submit payout completion evidence
-    TA->>Register: Reconcile payout event
+    note right of UI: 5.1 Reconcile
+    UI->>TA: Submit current-cycle payout completion evidence
+    TA->>Register: Reconcile current-cycle payout
     TA-->>UI: Status -> Reconciled
 
-    note over TA,UI: 5.2 Closed
-    Maker->>UI: Close event record
-    UI-->>Maker: Status -> Done
+    note right of UI: 5.2 Closed
+    Maker->>UI: Archive current cycle
+    UI-->>Maker: Cycle closed and module remains available
 ```
 
 ## Developer Notes
@@ -411,4 +414,5 @@ sequenceDiagram
 - These diagrams are intended as developer-facing target semantics, not as exact backend implementation traces
 - the stage numbering is intentionally aligned with the numbered sub-stages already shown in the product UI
 - stage annotations use Mermaid note banners only; do not convert them into full-width colored background blocks
+- open-end diagrams should be read as `module + cycle` flows, even when the current UI still uses event-like labels
 - where the current UI and the target semantics still diverge, this file should be treated as the intended workflow reference
