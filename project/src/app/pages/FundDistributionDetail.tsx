@@ -601,6 +601,7 @@ function getDistributionPermissionAction(status: string) {
 
 function buildDistributionActionConfig({
   label,
+  actionOwner,
   nextStatus,
   message,
   variant = "default",

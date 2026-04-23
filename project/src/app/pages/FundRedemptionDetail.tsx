@@ -478,6 +478,12 @@ function parseLeadingNumber(value?: string) {
   return match ? Number(match[0]) : 0;
 }
 
+function getTrailingUnit(value?: string) {
+  if (!value) return "";
+  const lastToken = value.trim().split(/\s+/).slice(-1)[0];
+  return lastToken || "";
+}
+
 function getPaymentStatusLabel(status: FundOrder["status"]) {
   switch (status) {
     case "Completed":
@@ -500,8 +506,8 @@ function buildRedemptionPaymentRows(requests: FundOrder[]) {
     const pricePerUnitValue =
       parseLeadingNumber(grossAmount) / Math.max(parseLeadingNumber(request.requestQuantity), 1);
     const pricePerUnitCurrency =
-      request.confirmedNav?.split(" ").slice(-1)[0] ||
-      request.estimatedNav.split(" ").slice(-1)[0] ||
+      getTrailingUnit(request.confirmedNav) ||
+      getTrailingUnit(request.estimatedNav) ||
       "";
 
     return {
@@ -878,6 +884,7 @@ interface RedemptionActionContext {
 
 function buildRedemptionActionConfig({
   label,
+  actionOwner,
   nextStatus,
   message,
   icon,
@@ -1944,9 +1951,11 @@ export function FundRedemptionDetail() {
     (batch) => batch.fundId === redemption.fundId && batch.type === "redemption",
   );
   const redemptionCurrency =
-    requests[0]?.estimatedSharesOrCash.split(" ").slice(-1)[0] ||
-    requests[0]?.confirmedSharesOrCash?.split(" ").slice(-1)[0] ||
-    redemption.latestNav.split(" ").slice(-1)[0] ||
+    getTrailingUnit(requests[0]?.estimatedSharesOrCash) ||
+    getTrailingUnit(requests[0]?.confirmedSharesOrCash) ||
+    getTrailingUnit(redemption.latestNav) ||
+    fund?.navCurrency ||
+    fund?.assetCurrency ||
     "";
   const setupActions = getStructuredRedemptionActions(redemption, {
     fund,
@@ -2608,7 +2617,7 @@ export function FundRedemptionDetail() {
                       <div className="text-muted-foreground">Estimated Cash Out</div>
                       <div className="mt-1 font-medium">
                         {totalEstimatedCash.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
-                        {requests[0]?.estimatedSharesOrCash.split(" ").slice(-1)[0] || ""}
+                        {getTrailingUnit(requests[0]?.estimatedSharesOrCash) || redemptionCurrency}
                       </div>
                     </div>
                     <div className="rounded-lg border p-4">
