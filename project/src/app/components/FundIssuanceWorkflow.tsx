@@ -9,6 +9,11 @@ export interface WorkflowStep {
   owner?: string;
 }
 
+export interface WorkflowStepTiming {
+  planned?: string;
+  actual?: string;
+}
+
 type IssuanceFundType = "Open-end" | "Closed-end";
 
 const CLOSED_END_ISSUANCE_STEPS: WorkflowStep[] = [
@@ -16,52 +21,52 @@ const CLOSED_END_ISSUANCE_STEPS: WorkflowStep[] = [
     id: "step-1",
     label: "Listing",
     description: "Prepare listing",
-    owner: "Issuer / Approver",
+    owner: "Maker / Checker",
   },
   {
     id: "step-2",
     label: "Subscription",
     description: "Open for subscription",
-    owner: "Investor / Issuer",
+    owner: "Investor / Maker",
   },
   {
     id: "step-3",
     label: "Allocation",
     description: "Allocation period",
-    owner: "Issuer / Transfer Agent",
+    owner: "Maker / TA",
   },
   {
     id: "step-4",
     label: "On-chain Issuance",
     description: "Issue allocations on-chain",
-    owner: "Transfer Agent / System",
+    owner: "TA / System",
   },
   {
     id: "step-5",
     label: "Completed",
     description: "Issuance complete",
-    owner: "Transfer Agent / System",
+    owner: "TA / System",
   },
 ];
 
 const OPEN_END_ISSUANCE_STEPS: WorkflowStep[] = [
   {
     id: "step-1",
-    label: "Launch",
-    description: "Prepare launch",
-    owner: "Issuer / Approver",
+    label: "Module Launch",
+    description: "Approve and configure launch module",
+    owner: "Maker / Checker",
   },
   {
     id: "step-2",
-    label: "Initial Subscription",
-    description: "Open initial subscription",
-    owner: "Investor / Transfer Agent",
+    label: "First Cycle",
+    description: "Open and collect launch-cycle orders",
+    owner: "Investor / TA",
   },
   {
     id: "step-3",
-    label: "Active Dealing",
-    description: "Ongoing dealing operations",
-    owner: "Transfer Agent / System",
+    label: "Recurring Dealing",
+    description: "Operate standing module and daily cycles",
+    owner: "TA / System",
   },
 ];
 
@@ -108,31 +113,31 @@ export const FUND_REDEMPTION_STEPS: WorkflowStep[] = [
     id: "step-1",
     label: "Setup",
     description: "Create and approve event",
-    owner: "Issuer / Approver",
+    owner: "Maker / Checker",
   },
   {
     id: "step-2",
     label: "Notice",
     description: "Announce or activate module",
-    owner: "Issuer / Transfer Agent",
+    owner: "Maker / TA",
   },
   {
     id: "step-3",
     label: "Window",
     description: "Operate participation window",
-    owner: "Investor / Transfer Agent",
+    owner: "Investor / TA",
   },
   {
     id: "step-4",
     label: "Settlement",
     description: "Snapshot, payment list, and burn",
-    owner: "Transfer Agent / System",
+    owner: "TA / System",
   },
   {
     id: "step-5",
     label: "Completed",
     description: "Close and reconcile event",
-    owner: "Transfer Agent",
+    owner: "TA",
   },
 ];
 
@@ -152,27 +157,27 @@ const STATUS_TO_REDEMPTION_STEP: Record<string, number> = {
 const OPEN_END_REDEMPTION_STEPS: WorkflowStep[] = [
   {
     id: "step-1",
-    label: "Setup",
-    description: "Create module",
-    owner: "Issuer",
+    label: "Module Setup",
+    description: "Create recurring redemption module",
+    owner: "Maker",
   },
   {
     id: "step-2",
     label: "Approval",
     description: "Authorize module",
-    owner: "Issuer / Approver",
+    owner: "Checker",
   },
   {
     id: "step-3",
     label: "Operating",
-    description: "Operate redemption",
-    owner: "Transfer Agent / System",
+    description: "Run current dealing cycle",
+    owner: "Investor / TA",
   },
   {
     id: "step-4",
     label: "Close-out",
-    description: "Close and reconcile cycle",
-    owner: "Transfer Agent / System",
+    description: "Settle and archive current cycle",
+    owner: "TA / System",
   },
 ];
 
@@ -194,31 +199,31 @@ export const FUND_DISTRIBUTION_STEPS: WorkflowStep[] = [
     id: "step-1",
     label: "Draft & Approval",
     description: "Create and authorize event",
-    owner: "Issuer / Approver",
+    owner: "Maker / Checker",
   },
   {
     id: "step-2",
     label: "Notice",
     description: "Publish record-date notice",
-    owner: "Issuer",
+    owner: "Maker",
   },
   {
     id: "step-3",
     label: "Snapshot & Entitlement",
     description: "Lock snapshot and prepare recipient file",
-    owner: "Transfer Agent",
+    owner: "TA",
   },
   {
     id: "step-4",
     label: "Release",
     description: "Prepare and open payout",
-    owner: "Transfer Agent / System",
+    owner: "TA / System",
   },
   {
     id: "step-5",
     label: "Completed",
     description: "Reconcile and close event",
-    owner: "Transfer Agent",
+    owner: "TA",
   },
 ];
 
@@ -238,33 +243,33 @@ const STATUS_TO_DISTRIBUTION_STEP: Record<string, number> = {
 const OPEN_END_DISTRIBUTION_STEPS: WorkflowStep[] = [
   {
     id: "step-1",
-    label: "Draft & Approval",
-    description: "Create and authorize event",
-    owner: "Issuer / Approver",
+    label: "Module Setup",
+    description: "Approve standing distribution module",
+    owner: "Maker / Checker",
   },
   {
     id: "step-2",
-    label: "Notice",
-    description: "Prepare record-date event",
-    owner: "Issuer",
+    label: "Cycle Setup",
+    description: "Configure current record-date cycle",
+    owner: "Maker / TA",
   },
   {
     id: "step-3",
     label: "Snapshot & Entitlement",
-    description: "Lock holder snapshot",
-    owner: "Transfer Agent",
+    description: "Freeze cycle snapshot and recipient list",
+    owner: "TA",
   },
   {
     id: "step-4",
     label: "Release",
     description: "Prepare and open payout",
-    owner: "Transfer Agent / System",
+    owner: "TA / System",
   },
   {
     id: "step-5",
-    label: "Completed",
-    description: "Close event",
-    owner: "Transfer Agent",
+    label: "Cycle Closed",
+    description: "Reconcile and archive current cycle",
+    owner: "TA / System",
   },
 ];
 
@@ -312,6 +317,7 @@ interface FundWorkflowProps {
   variant?: "full" | "compact";
   type?: WorkflowType;
   fundType?: IssuanceFundType;
+  stepTimings?: WorkflowStepTiming[];
   actionSlot?: ReactNode;
   actionPanel?: ReactNode;
   workflowModel?: WorkflowModel;
@@ -331,7 +337,7 @@ function getWorkflowConfig(
           steps: OPEN_END_REDEMPTION_STEPS,
           statusToStepMap: STATUS_TO_OPEN_END_REDEMPTION_STEP,
           title: "Open-end Redemption Module",
-          description: "Track redemption setup approval and module activation under the active fund.",
+          description: "Track module approval first, then follow the current redemption cycle through operation and close-out.",
         };
       }
       return {
@@ -345,8 +351,8 @@ function getWorkflowConfig(
         return {
           steps: OPEN_END_DISTRIBUTION_STEPS,
           statusToStepMap: STATUS_TO_OPEN_END_DISTRIBUTION_STEP,
-          title: "Open-end Distribution Event",
-          description: "Track a point-in-time distribution event without mixing it into the fund's main lifecycle.",
+          title: "Open-end Distribution Module",
+          description: "Track the standing distribution module and the currently active payout cycle without mixing it into the fund's main lifecycle.",
         };
       }
       return {
@@ -360,8 +366,12 @@ function getWorkflowConfig(
       return {
         steps: ISSUANCE_STEPS_BY_FUND_TYPE[fundType],
         statusToStepMap: STATUS_TO_ISSUANCE_STEP_BY_FUND_TYPE[fundType],
-        title: "Fund Issuance Workflow",
-        description: "Track your fund from creation to activation through the complete lifecycle",
+        title:
+          fundType === "Open-end" ? "Open-end Issuance Module" : "Fund Issuance Workflow",
+        description:
+          fundType === "Open-end"
+            ? "Track module launch first, then the first subscription cycle, before the fund moves into recurring dealing."
+            : "Track your fund from creation to activation through the complete lifecycle",
       };
   }
 }
@@ -370,14 +380,11 @@ interface FundIssuanceWorkflowProps {
   currentStatus?: string;
   variant?: "full" | "compact";
   fundType?: IssuanceFundType;
+  stepTimings?: WorkflowStepTiming[];
   actionSlot?: ReactNode;
   actionPanel?: ReactNode;
   workflowModel?: WorkflowModel;
   distributionLabel?: "Distribution" | "Dividend";
-}
-
-function getIssuanceStepStageCounts(fundType: IssuanceFundType) {
-  return fundType === "Open-end" ? [3, 2, 2] : [3, 2, 3, 2, 2];
 }
 
 function getOpenEndSubsteps(currentStatus?: string) {
@@ -388,19 +395,19 @@ function getOpenEndSubsteps(currentStatus?: string) {
     case "Upcoming Launch":
       return {
         title: "Step 1 Breakdown",
-        description: "Launch preparation moves through draft, approval, and readiness before the initial window opens.",
+        description: "Module launch moves through draft, checker approval, and first-cycle readiness before the initial window opens.",
         steps: [
-          stage("1.1 Draft", "Create the fund setup", "Issuer", [
+          stage("1.1 Draft", "Create the issuance module", "Maker", [
             "Fund terms",
             "Token setup",
             "Dealing rule pack",
           ]),
-          stage("1.2 Approval", "Submit and approve launch", "Issuer / Approver", [
+          stage("1.2 Approval", "Checker reviews module launch", "Checker", [
             "Approval memo",
             "Launch checklist",
           ]),
-          stage("1.3 Launch Ready", "Queue the launch window", "Issuer", [
-            "Launch calendar",
+          stage("1.3 Launch Ready", "Configure the first dealing cycle", "Maker", [
+            "Launch cycle calendar",
             "Investor access rules",
           ]),
         ],
@@ -414,14 +421,14 @@ function getOpenEndSubsteps(currentStatus?: string) {
     case "Initial Subscription":
       return {
         title: "Step 2 Breakdown",
-        description: "The initial subscription step includes opening the launch window and collecting first subscriptions.",
+        description: "The first cycle opens the launch window and collects the initial dealing orders.",
         steps: [
-          stage("2.1 Open Window", "Activate the launch subscription window", "Issuer", [
+          stage("2.1 Open Window", "Activate the first dealing window", "Maker", [
             "Subscription notice",
             "Launch window parameters",
           ]),
-          stage("2.2 Accept Orders", "Collect initial subscriptions", "Investor / Transfer Agent", [
-            "Subscription order book",
+          stage("2.2 Accept Orders", "Collect first-cycle subscriptions", "Investor / TA", [
+            "Cycle order book",
             "Investor onboarding pack",
             "Initial holder register draft",
           ]),
@@ -432,14 +439,14 @@ function getOpenEndSubsteps(currentStatus?: string) {
     case "Paused":
       return {
         title: "Step 3 Breakdown",
-        description: "Daily dealing runs as an active operating stage with pause and resume controls.",
+        description: "After launch, the standing module stays active while dealing cycles recur and can be paused or resumed.",
         steps: [
-          stage("3.1 Active", "Run daily dealing", "Transfer Agent / System", [
-            "Daily dealing batch",
+          stage("3.1 Active", "Run recurring dealing cycles", "TA / System", [
+            "Current dealing batch",
             "NAV confirmation file",
             "Register delta file",
           ]),
-          stage("3.2 Pause Control", "Pause or resume operations", "Issuer", [
+          stage("3.2 Pause Control", "Pause or resume the standing module", "Maker", [
             "Operating control log",
             "Pause / resume approval",
           ]),
@@ -460,15 +467,15 @@ function getClosedEndSubsteps(currentStatus?: string) {
         title: "Step 1 Breakdown",
         description: "Listing preparation unfolds through draft, approval, and listing readiness.",
         steps: [
-          stage("1.1 Draft", "Create issuance draft", "Issuer", [
+          stage("1.1 Draft", "Create issuance draft", "Maker", [
             "Issuance term sheet",
             "Subscription window setup",
           ]),
-          stage("1.2 Approval", "Submit and approve", "Issuer / Approver", [
+          stage("1.2 Approval", "Checker reviews issuance draft", "Checker", [
             "Approval packet",
             "Investor rule pack",
           ]),
-          stage("1.3 Listing Prep", "Prepare listing", "Issuer", [
+          stage("1.3 Listing Prep", "Prepare listing", "Maker", [
             "Listing readiness checklist",
             "Offering summary",
           ]),
@@ -486,7 +493,7 @@ function getClosedEndSubsteps(currentStatus?: string) {
         title: "Step 2 Breakdown",
         description: "Subscription moves from readiness into the live investor window.",
         steps: [
-          stage("2.1 Upcoming", "Await opening", "Issuer", [
+          stage("2.1 Upcoming", "Await opening", "Maker", [
             "Subscription notice",
             "Public notice timetable",
           ]),
@@ -504,16 +511,16 @@ function getClosedEndSubsteps(currentStatus?: string) {
         title: "Step 3 Breakdown",
         description: "Allocation starts after subscription closes and ends with calculation.",
         steps: [
-          stage("3.1 Close Book", "Close subscription", "Issuer / System", [
+          stage("3.1 Close Book", "Close subscription", "Maker / System", [
             "Final subscription book",
             "Investor acceptance list",
             "Closed subscription gate",
           ]),
-          stage("3.2 Allocation", "Run allocation period", "Issuer / Transfer Agent", [
+          stage("3.2 Allocation", "Run allocation period", "Maker / TA", [
             "Allocation workbook",
             "Cap table draft",
           ]),
-          stage("3.3 Calculated", "Finalize result", "Transfer Agent", [
+          stage("3.3 Calculated", "Finalize result", "TA", [
             "Final allocation file",
             "Register delta approval",
           ]),
@@ -526,11 +533,11 @@ function getClosedEndSubsteps(currentStatus?: string) {
         title: "Step 4 Breakdown",
         description: "Move allocation on chain, then confirm execution completion.",
         steps: [
-          stage("4.1 On-chain", "Execute issuance", "Transfer Agent / System", [
+          stage("4.1 On-chain", "Execute issuance", "TA / System", [
             "Mint instruction file",
             "Wallet allocation list",
           ]),
-          stage("4.2 Completed", "Confirm allocation", "Transfer Agent", [
+          stage("4.2 Completed", "Confirm allocation", "TA", [
             "Booked holder register",
             "Issuance execution confirmation",
           ]),
@@ -543,11 +550,11 @@ function getClosedEndSubsteps(currentStatus?: string) {
         title: "Step 5 Breakdown",
         description: "Completion is explicit: issuance completion first, then fund activation.",
         steps: [
-          stage("5.1 Issuance Done", "Close issuance workflow", "Transfer Agent", [
+          stage("5.1 Issuance Done", "Close issuance workflow", "TA", [
             "Initial holder register baseline",
             "TA close-out memo",
           ]),
-          stage("5.2 Fund Active", "Activate fund", "Issuer / System", [
+          stage("5.2 Fund Active", "Activate fund", "Maker / System", [
             "Active fund ledger baseline",
             "Post-issuance operating handoff",
           ]),
@@ -567,11 +574,11 @@ function getRedemptionSubsteps(currentStatus?: string) {
         title: "Step 1 Breakdown",
         description: "Draft and approval sit together as the event setup stage.",
         steps: [
-          stage("1.1 Draft", "Create redemption setup", "Issuer", [
+          stage("1.1 Draft", "Create redemption setup", "Maker", [
             "Redemption event terms",
             "Participation limits",
           ]),
-          stage("1.2 Approval", "Send for approval", "Issuer / Approver", [
+          stage("1.2 Approval", "Checker reviews redemption setup", "Checker", [
             "Approval request",
             "Liquidity event memo",
           ]),
@@ -584,11 +591,11 @@ function getRedemptionSubsteps(currentStatus?: string) {
         title: "Step 2 Breakdown",
         description: "After approval, the event is either announced or activated for the operating window.",
         steps: [
-          stage("2.1 Activate", "Turn setup on", "Issuer", [
+          stage("2.1 Activate", "Turn setup on", "Maker", [
             "Settlement account setup",
             "Window activation record",
           ]),
-          stage("2.2 Notice", "Run notice period", "Issuer / Transfer Agent", [
+          stage("2.2 Notice", "Run notice period", "System / Investor", [
             "Investor notice",
             "Record-date communication",
           ]),
@@ -601,12 +608,12 @@ function getRedemptionSubsteps(currentStatus?: string) {
         title: "Step 3 Breakdown",
         description: "Operate the redemption window and pause/resume when needed.",
         steps: [
-          stage("3.1 Open", "Accept redemption requests", "Investor / Transfer Agent", [
+          stage("3.1 Open", "Accept redemption requests", "Investor / TA", [
             "Participation order book",
             "Holder validation file",
             "Snapshot lock instruction",
           ]),
-          stage("3.2 Pause", "Temporarily halt", "Issuer", [
+          stage("3.2 Pause", "Temporarily halt", "Maker", [
             "Pause control log",
             "Window halt record",
           ]),
@@ -621,15 +628,15 @@ function getRedemptionSubsteps(currentStatus?: string) {
         description:
           "Close-out moves through TA snapshot control, payment-list preparation, and the on-chain burn leg.",
         steps: [
-          stage("4.1 Snapshot", "Lock holder snapshot", "Transfer Agent", [
+          stage("4.1 Snapshot", "Lock holder snapshot", "TA", [
             "Locked holder snapshot",
             "Accepted unit ledger",
           ]),
-          stage("4.2 Payment List", "Prepare redemption payment list", "Transfer Agent", [
+          stage("4.2 Payment List", "Prepare redemption payment list", "TA", [
             "Redemption payment file",
             "Funding confirmation pack",
           ]),
-          stage("4.3 Burn On Chain", "Execute unit burn leg", "Transfer Agent / System", [
+          stage("4.3 Burn On Chain", "Execute unit burn leg", "TA / System", [
             "On-chain burn instruction",
             "Register delta confirmation",
           ]),
@@ -647,11 +654,11 @@ function getRedemptionSubsteps(currentStatus?: string) {
         description:
           "Close the operating window after redemption processing and reconciliation are finished.",
         steps: [
-          stage("5.1 Close Window", "Stop new requests", "Transfer Agent", [
+          stage("5.1 Close Window", "Stop new requests", "TA", [
             "Released payment list",
             "Burn confirmation",
           ]),
-          stage("5.2 Complete", "Wrap up setup cycle", "Transfer Agent", [
+          stage("5.2 Complete", "Wrap up setup cycle", "TA", [
             "Funding confirmation",
             "Cash and units reconciliation",
           ]),
@@ -669,13 +676,13 @@ function getOpenEndRedemptionSubsteps(currentStatus?: string) {
     case "Pending Approval":
       return {
         title: "Step 1-2 Breakdown",
-        description: "Open-end redemption begins with setup and approval before recurring dealing starts.",
+        description: "Open-end redemption begins with module setup and checker approval before any cycle can run.",
         steps: [
-          stage("1.1 Setup", "Create redemption module", "Issuer", [
+          stage("1.1 Setup", "Create redemption module", "Maker", [
             "Redemption module setup",
             "Gate configuration",
           ]),
-          stage("2.1 Approval", "Authorize module launch", "Issuer / Approver", [
+          stage("2.1 Approval", "Authorize module launch", "Checker", [
             "Approval request",
             "Liquidity control memo",
           ]),
@@ -691,17 +698,17 @@ function getOpenEndRedemptionSubsteps(currentStatus?: string) {
         description:
           "Once active, the module runs daily-dealing or window-based redemption operations and can then be handed into close-out.",
         steps: [
-          stage("3.1 Activate", "Enable redemption module", "Issuer", [
+          stage("3.1 Activate", "Enable redemption module", "Maker", [
             "Module activation log",
             "Operating calendar",
           ]),
-          stage("3.2 Operate", "Run windows or daily dealing controls", "Transfer Agent / System", [
-            "Redemption batch file",
+          stage("3.2 Operate", "Run the current redemption cycle", "Investor / TA", [
+            "Current-cycle request file",
             "Holdings validation",
             "Register update file",
           ]),
-          stage("3.3 Close-out", "Close the current redemption cycle", "Transfer Agent / System", [
-            "Window close record",
+          stage("3.3 Close-out", "Close the current redemption cycle", "Maker / TA", [
+            "Cycle cut-off record",
             "Cycle completion confirmation",
           ]),
         ],
@@ -716,15 +723,15 @@ function getOpenEndRedemptionSubsteps(currentStatus?: string) {
         description:
           "Close-out covers register lock, payment-file preparation, and final cycle reconciliation.",
         steps: [
-          stage("4.1 Snapshot", "Lock accepted dealing batch", "Transfer Agent", [
+          stage("4.1 Snapshot", "Lock accepted dealing batch", "TA", [
             "Register cut-off",
             "Accepted dealing roster",
           ]),
-          stage("4.2 Payment Prep", "Prepare settlement and burn instructions", "Transfer Agent / System", [
+          stage("4.2 Payment Prep", "Prepare settlement and burn instructions", "TA / System", [
             "Payment file",
             "Burn instruction",
           ]),
-          stage("4.3 Close Cycle", "Finalize current dealing cycle", "Transfer Agent / System", [
+          stage("4.3 Close Cycle", "Finalize current dealing cycle", "TA / System", [
             "Cycle completion confirmation",
             "Reconciliation memo",
           ]),
@@ -749,11 +756,11 @@ function getDistributionSubsteps(currentStatus?: string) {
         title: "Step 1 Breakdown",
         description: "Draft and approval sit together as the event setup stage.",
         steps: [
-          stage("1.1 Draft", "Create distribution draft", "Issuer", [
+          stage("1.1 Draft", "Create distribution draft", "Maker", [
             "Dividend terms",
             "Record and payment dates",
           ]),
-          stage("1.2 Approval", "Approve distribution", "Issuer / Approver", [
+          stage("1.2 Approval", "Approve distribution", "Checker", [
             "Approved dividend memo",
           ]),
         ],
@@ -765,11 +772,11 @@ function getDistributionSubsteps(currentStatus?: string) {
         title: "Step 2 Breakdown",
         description: "Publish the event notice and wait for the record-date cycle to begin.",
         steps: [
-          stage("2.1 Notice", "Prepare distribution notice", "Issuer", [
+          stage("2.1 Notice", "Prepare distribution notice", "Maker", [
             "Record-date notice",
             "Payment timetable",
           ]),
-          stage("2.2 Upcoming", "Await record date", "Issuer / Transfer Agent", [
+          stage("2.2 Upcoming", "Await record date", "System / TA", [
             "Upcoming record date",
             "TA operating calendar",
           ]),
@@ -782,11 +789,11 @@ function getDistributionSubsteps(currentStatus?: string) {
         title: "Step 3 Breakdown",
         description: "The transfer agent locks the holder snapshot and prepares the recipient entitlement file.",
         steps: [
-          stage("3.1 Snapshot Locked", "Freeze holder list", "Transfer Agent", [
+          stage("3.1 Snapshot Locked", "Freeze holder list", "TA", [
             "Record-date snapshot",
             "Dividend entitlement base",
           ]),
-          stage("3.2 Recipient List", "Prepare payout batch", "Transfer Agent", [
+          stage("3.2 Recipient List", "Prepare payout batch", "TA", [
             "Recipient list",
             "Funding request file",
           ]),
@@ -800,11 +807,11 @@ function getDistributionSubsteps(currentStatus?: string) {
         description:
           "Prepare the release package and then move the payout into the on-chain/open state.",
         steps: [
-          stage("4.1 Prepare", "Review payout data", "Transfer Agent", [
+          stage("4.1 Prepare", "Review payout data", "TA", [
             "Approved payout file",
             "Funding confirmation",
           ]),
-          stage("4.2 Release", "Execute payout setup", "Transfer Agent / System", [
+          stage("4.2 Release", "Execute payout setup", "TA / System", [
             "On-chain payout instruction",
           ]),
         ],
@@ -816,10 +823,10 @@ function getDistributionSubsteps(currentStatus?: string) {
         title: "Step 5 Breakdown",
         description: "Reconcile the payout event and close the distribution cycle.",
         steps: [
-          stage("5.1 Reconcile", "Confirm payout completion", "Transfer Agent", [
+          stage("5.1 Reconcile", "Confirm payout completion", "TA", [
             "Payout reconciliation report",
           ]),
-          stage("5.2 Done", "Close distribution cycle", "Transfer Agent", [
+          stage("5.2 Done", "Close distribution cycle", "TA", [
             "Closed dividend event record",
           ]),
         ],
@@ -836,15 +843,15 @@ function getOpenEndDistributionSubsteps(currentStatus?: string) {
     case "Pending Approval":
       return {
         title: "Step 1 Breakdown",
-        description: "Draft and approval define the event before record-date preparation starts.",
+        description: "Open-end distribution starts by approving the standing module before a current payout cycle is configured.",
         steps: [
-          stage("1.1 Draft", "Create event draft", "Issuer", [
-            "Distribution terms",
+          stage("1.1 Draft", "Create distribution module", "Maker", [
+            "Distribution policy",
             "Payout assumptions",
           ]),
-          stage("1.2 Approve", "Authorize distribution event", "Issuer / Approver", [
+          stage("1.2 Approve", "Authorize distribution module", "Checker", [
             "Approval request",
-            "Distribution memo",
+            "Module governance memo",
           ]),
         ],
         currentIndex: currentStatus === "Draft" ? 0 : 1,
@@ -855,20 +862,20 @@ function getOpenEndDistributionSubsteps(currentStatus?: string) {
     case "Pending Allocation":
       return {
         title: "Step 2-3 Breakdown",
-        description: "Prepare event notice, reach the record date, and lock the entitlement snapshot.",
+        description: "Configure the current payout cycle, reach record date, and lock the entitlement snapshot for this cycle.",
         steps: [
-          stage("2.1 Listing Prep", "Prepare event listing", "Issuer", [
+          stage("2.1 Listing Prep", "Configure current payout cycle", "Maker", [
             "Record-date notice",
             "Distribution calendar",
           ]),
-          stage("2.2 Record Date", "Reach holder snapshot date", "Transfer Agent", [
+          stage("2.2 Record Date", "Reach holder snapshot date", "TA", [
             "Holder register cut-off",
           ]),
-          stage("3.3 Snapshot Locked", "Freeze payout base", "Transfer Agent", [
+          stage("3.3 Snapshot Locked", "Freeze payout base", "TA", [
             "Locked snapshot",
             "Entitlement file",
           ]),
-          stage("3.4 Recipient List", "Prepare recipient payout file", "Transfer Agent", [
+          stage("3.4 Recipient List", "Prepare recipient payout file", "TA", [
             "Recipient list",
             "Funding request",
           ]),
@@ -888,11 +895,11 @@ function getOpenEndDistributionSubsteps(currentStatus?: string) {
         title: "Step 4 Breakdown",
         description: "Move payout on chain and open the event for claim or transfer execution.",
         steps: [
-          stage("4.1 On-chain Prep", "Prepare payout data", "Transfer Agent", [
+          stage("4.1 On-chain Prep", "Prepare payout data", "TA", [
             "Recipient list",
             "Funding confirmation",
           ]),
-          stage("4.2 Open Payout", "Open claim or auto-transfer", "Transfer Agent / System", [
+          stage("4.2 Open Payout", "Open claim or auto-transfer", "TA / System", [
             "Released payout instruction",
           ]),
         ],
@@ -904,11 +911,11 @@ function getOpenEndDistributionSubsteps(currentStatus?: string) {
         title: "Step 5 Breakdown",
         description: "Reconcile the payout event and close the distribution cycle.",
         steps: [
-          stage("5.1 Reconcile", "Confirm payout completion", "Transfer Agent", [
+          stage("5.1 Reconcile", "Confirm payout completion", "TA", [
             "Payout reconciliation",
           ]),
-          stage("5.2 Closed", "Close event record", "Transfer Agent", [
-            "Closed event register",
+          stage("5.2 Closed", "Archive current cycle", "TA / System", [
+            "Closed cycle register",
           ]),
         ],
         currentIndex: currentStatus === "Reconciled" ? 0 : 1,
@@ -948,6 +955,7 @@ export function FundIssuanceWorkflow({
   currentStatus,
   variant = "full",
   fundType = "Closed-end",
+  stepTimings,
   actionSlot,
   actionPanel,
   workflowModel = "default",
@@ -958,6 +966,7 @@ export function FundIssuanceWorkflow({
       variant={variant}
       type="issuance"
       fundType={fundType}
+      stepTimings={stepTimings}
       actionSlot={actionSlot}
       actionPanel={actionPanel}
       workflowModel={workflowModel}
@@ -968,6 +977,7 @@ export function FundIssuanceWorkflow({
 export function FundRedemptionWorkflow({
   currentStatus,
   variant = "full",
+  stepTimings,
   actionSlot,
   actionPanel,
   workflowModel = "default",
@@ -977,6 +987,7 @@ export function FundRedemptionWorkflow({
       currentStatus={currentStatus}
       variant={variant}
       type="redemption"
+      stepTimings={stepTimings}
       actionSlot={actionSlot}
       actionPanel={actionPanel}
       workflowModel={workflowModel}
@@ -987,6 +998,7 @@ export function FundRedemptionWorkflow({
 export function FundDistributionWorkflow({
   currentStatus,
   variant = "full",
+  stepTimings,
   actionSlot,
   actionPanel,
   workflowModel = "default",
@@ -997,6 +1009,7 @@ export function FundDistributionWorkflow({
       currentStatus={currentStatus}
       variant={variant}
       type="distribution"
+      stepTimings={stepTimings}
       actionSlot={actionSlot}
       actionPanel={actionPanel}
       workflowModel={workflowModel}
@@ -1010,6 +1023,7 @@ function FundWorkflow({
   variant = "full",
   type = "issuance",
   fundType = "Closed-end",
+  stepTimings,
   actionSlot,
   actionPanel,
   workflowModel = "default",
@@ -1018,16 +1032,15 @@ function FundWorkflow({
   const config = getWorkflowConfig(type, fundType, workflowModel, distributionLabel);
   const steps = config.steps;
   const substepConfig = getWorkflowSubsteps(type, fundType, workflowModel, currentStatus);
-  const issuanceStepStageCounts =
-    type === "issuance" ? getIssuanceStepStageCounts(fundType) : null;
 
   // Find the current step index based on status
   const currentStepIndex = currentStatus
     ? (config.statusToStepMap[currentStatus] ?? -1)
     : -1;
-  const currentOwner =
-    currentStatus && currentStepIndex >= 0 ? steps[currentStepIndex]?.owner : undefined;
   const currentSubstep = substepConfig?.steps[substepConfig.currentIndex];
+  const currentOwner =
+    currentSubstep?.owner ||
+    (currentStatus && currentStepIndex >= 0 ? steps[currentStepIndex]?.owner : undefined);
 
   if (variant === "compact") {
     return (
@@ -1111,6 +1124,9 @@ function FundWorkflow({
             const isCompleted = currentStepIndex > index;
             const isCurrent = currentStepIndex === index;
             const isPending = currentStepIndex < index;
+            const timing = stepTimings?.[index];
+            const resolvedActual = timing?.actual || (isCompleted ? timing?.planned : undefined);
+            const hasTiming = Boolean(timing?.planned || resolvedActual);
 
             return (
               <div key={step.id} className="flex flex-col items-center">
@@ -1154,29 +1170,23 @@ function FundWorkflow({
                   >
                     {step.description}
                   </div>
-                  {step.owner && (
+                  {hasTiming && (
                     <div
                       className={cn(
-                        "mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                        step.owner.toLowerCase().includes("transfer agent")
-                          ? "border-teal-200 bg-teal-50 text-teal-700"
-                          : "border-slate-200 bg-slate-50 text-slate-600",
-                      )}
-                    >
-                      {step.owner}
-                    </div>
-                  )}
-                  {issuanceStepStageCounts && (
-                    <div
-                      className={cn(
-                        "mt-1 text-[11px] font-medium",
+                        "mt-1.5 space-y-0.5 text-[11px]",
                         isCurrent && "text-blue-700",
                         isCompleted && "text-green-700",
                         isPending && "text-slate-500",
                       )}
                     >
-                      {issuanceStepStageCounts[index]}{" "}
-                      {issuanceStepStageCounts[index] === 1 ? "sub-stage" : "sub-stages"}
+                      <div>
+                        <span className="font-medium">Target:</span>{" "}
+                        <span>{timing?.planned || "Pending"}</span>
+                      </div>
+                      <div>
+                        <span className="font-medium">Actual:</span>{" "}
+                        <span>{resolvedActual || "Pending"}</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1198,7 +1208,8 @@ function FundWorkflow({
                 <div
                   className={cn(
                     "mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-medium",
-                    currentOwner.toLowerCase().includes("transfer agent")
+                    currentOwner.toLowerCase().includes("transfer agent") ||
+                      currentOwner.toLowerCase().includes("ta")
                       ? "border-teal-200 bg-teal-50 text-teal-700"
                       : "border-blue-200 bg-white text-blue-700",
                   )}
@@ -1265,25 +1276,13 @@ function FundWorkflow({
 
               {currentSubstep && (
                 <div className="rounded-lg border border-slate-200 bg-white p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div className="text-xs font-medium text-slate-700">Current sub-stage</div>
-                      <div className="mt-1 text-sm font-medium text-foreground">
-                        {currentSubstep.label}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {currentSubstep.description}
-                      </div>
+                  <div>
+                    <div className="text-xs font-medium text-slate-700">Current sub-stage</div>
+                    <div className="mt-1 text-sm font-medium text-foreground">
+                      {currentSubstep.label}
                     </div>
-                    <div
-                      className={cn(
-                        "inline-flex rounded-full border px-2.5 py-1 text-xs font-medium",
-                        currentSubstep.owner.toLowerCase().includes("transfer agent")
-                          ? "border-teal-200 bg-teal-50 text-teal-700"
-                          : "border-slate-200 bg-slate-50 text-slate-700",
-                      )}
-                    >
-                      Owner: {currentSubstep.owner}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {currentSubstep.description}
                     </div>
                   </div>
                 </div>

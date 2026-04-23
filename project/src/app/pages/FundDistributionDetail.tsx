@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { CheckCircle2, ChevronRight, CircleDashed, Copy, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
-import { FundDistributionWorkflow } from "../components/FundIssuanceWorkflow";
+import { FundDistributionWorkflow, type WorkflowStepTiming } from "../components/FundIssuanceWorkflow";
 import {
   Table,
   TableBody,
@@ -42,6 +42,7 @@ import { cn } from "../components/ui/utils";
 
 type DistributionTab = "overview" | "recipients" | "payout" | "manual";
 type DistributionActionImpactType = "internal" | "ta" | "onchain" | "hybrid";
+type WorkflowActionOwner = "maker" | "checker";
 
 interface DistributionViewLink {
   label: string;
@@ -50,6 +51,7 @@ interface DistributionViewLink {
 
 interface DistributionWorkflowActionConfig {
   label: string;
+  actionOwner: WorkflowActionOwner;
   nextStatus: string;
   message: string;
   variant: "default" | "outline";
@@ -88,6 +90,15 @@ function toDateTimeLocal(value?: string) {
 
 function fromDateTimeLocal(value: string) {
   return value ? `${value.replace("T", " ")}:00` : undefined;
+}
+
+function formatWorkflowTiming(value?: string) {
+  const match = value?.match(/\d{4}-\d{2}-\d{2}/);
+  if (!match) return undefined;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(`${match[0]}T00:00:00`));
 }
 
 function getEditableDistributionSections(status: string): DistributionEditableSection[] {
@@ -304,6 +315,22 @@ function buildDistributionImpactBadges({
   return badges;
 }
 
+function getActionOwnerBadgeClasses(actionOwner: WorkflowActionOwner) {
+  return actionOwner === "checker"
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function getActionButtonClasses(
+  actionOwner: WorkflowActionOwner,
+  variant: "default" | "outline",
+) {
+  if (actionOwner !== "checker") return "";
+  return variant === "outline"
+    ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+    : "bg-amber-500 text-white hover:bg-amber-600";
+}
+
 function buildDistributionModalFlow({
   reviewTitle,
   reviewDescription,
@@ -458,6 +485,12 @@ function DistributionNextActionPanel({
                 {badge.label}
               </Badge>
             ))}
+            <Badge
+              variant="outline"
+              className={getActionOwnerBadgeClasses(action.actionOwner)}
+            >
+              {action.actionOwner === "checker" ? "Checker Action" : "Maker Action"}
+            </Badge>
           </div>
 
           <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
@@ -515,8 +548,11 @@ function DistributionNextActionPanel({
         <div className="xl:w-56 xl:shrink-0">
           <Button
             type="button"
-            className="w-full"
             variant={action.variant}
+            className={cn(
+              "w-full",
+              getActionButtonClasses(action.actionOwner, action.variant),
+            )}
             disabled={disabled}
             title={disabled ? disabledReason : undefined}
             onClick={onOpen}
@@ -591,6 +627,7 @@ function buildDistributionActionConfig({
   viewLinks = [],
 }: {
   label: string;
+  actionOwner?: WorkflowActionOwner;
   nextStatus: string;
   message: string;
   variant?: "default" | "outline";
@@ -618,6 +655,7 @@ function buildDistributionActionConfig({
 }): DistributionWorkflowActionConfig {
   return {
     label,
+    actionOwner: actionOwner || "maker",
     nextStatus,
     message,
     variant,
@@ -731,16 +769,17 @@ function getStructuredDistributionAction(
     case "Pending Approval":
       return buildDistributionActionConfig({
         label: context.eventLabel === "Dividend" ? `Approve ${context.eventLabel}` : "Approve Distribution",
+        actionOwner: "checker",
         nextStatus: "Pending Listing",
         message: `${context.eventLabel} approved and moved into notice preparation`,
         modalTitle: `Approve ${context.eventLabel}`,
         modalDescription:
-          "Verify issuer identity before moving the approved event into notice preparation.",
+          "Verify checker identity before moving the approved event into notice preparation.",
         reviewTitle: "Review Approved Event",
         reviewDescription:
           "Confirm the event economics, dates, and payout route are ready for notice preparation.",
         identityDescription:
-          "Issuer identity and approval authority are being verified.",
+          "Checker identity and approval authority are being verified.",
         workflowTitle: "Advance To Notice Preparation",
         workflowDescription:
           "The event is being advanced into the notice-preparation stage.",
@@ -1103,10 +1142,11 @@ function OpenEndDistributionContextCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Distribution Event Context</CardTitle>
+        <CardTitle>Distribution Module / Current Cycle</CardTitle>
         <p className="text-sm text-muted-foreground">
-          For open-end funds, distribution is a point-in-time distribution event under an already active
-          fund. It should be read as an event lifecycle, not as another fund issuance pipeline.
+          For open-end funds, distribution should be read as a standing module plus the currently
+          configured payout cycle. The cycle closes after payout, but the module remains available
+          for the next record date.
         </p>
       </CardHeader>
       <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1123,7 +1163,7 @@ function OpenEndDistributionContextCard({
           <div className="mt-1 font-medium">{distribution.payoutMode || "Claim"}</div>
         </div>
         <div className="rounded-lg border p-4">
-          <div className="text-sm text-muted-foreground">Current Event State</div>
+          <div className="text-sm text-muted-foreground">Current Cycle State</div>
           <div className="mt-1 font-medium">{distribution.status}</div>
         </div>
       </CardContent>
@@ -1539,6 +1579,83 @@ export function FundDistributionDetail() {
     manuallyExcludedRecipients,
     transferAgentOps,
   });
+  const distributionWorkflowTimings: WorkflowStepTiming[] = isOpenEndDistribution
+    ? [
+        {
+          planned: formatWorkflowTiming(distribution.createdTime),
+          actual:
+            currentStatus !== "Draft" ? formatWorkflowTiming(distribution.createdTime) : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(distribution.recordDate),
+          actual:
+            ["Snapshot Locked", "Pending Allocation", "Put On Chain", "Open For Distribution", "Reconciled", "Done"].includes(
+              currentStatus,
+            )
+              ? formatWorkflowTiming(distribution.recordDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(distribution.recordDate),
+          actual:
+            ["Pending Allocation", "Put On Chain", "Open For Distribution", "Reconciled", "Done"].includes(
+              currentStatus,
+            )
+              ? formatWorkflowTiming(distribution.recordDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(distribution.paymentDate),
+          actual:
+            ["Open For Distribution", "Reconciled", "Done"].includes(currentStatus)
+              ? formatWorkflowTiming(distribution.paymentDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(distribution.paymentDate),
+          actual:
+            ["Reconciled", "Done"].includes(currentStatus)
+              ? formatWorkflowTiming(distribution.lastActionAt || distribution.paymentDate)
+              : undefined,
+        },
+      ]
+    : [
+        {
+          planned: formatWorkflowTiming(distribution.createdTime),
+          actual:
+            currentStatus !== "Draft" ? formatWorkflowTiming(distribution.createdTime) : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(distribution.recordDate),
+          actual:
+            !["Draft", "Pending Approval"].includes(currentStatus)
+              ? formatWorkflowTiming(distribution.recordDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(distribution.recordDate),
+          actual:
+            ["Pending Allocation", "Put On Chain", "Open For Distribution", "Reconciled", "Done"].includes(
+              currentStatus,
+            )
+              ? formatWorkflowTiming(distribution.recordDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(distribution.paymentDate),
+          actual:
+            ["Open For Distribution", "Reconciled", "Done"].includes(currentStatus)
+              ? formatWorkflowTiming(distribution.paymentDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(distribution.paymentDate),
+          actual:
+            ["Reconciled", "Done"].includes(currentStatus)
+              ? formatWorkflowTiming(distribution.lastActionAt || distribution.paymentDate)
+              : undefined,
+        },
+      ];
 
   useEffect(() => {
     setHasAppliedEditIntent(false);
@@ -1651,6 +1768,7 @@ export function FundDistributionDetail() {
       <div className="mb-8">
         <FundDistributionWorkflow
           currentStatus={currentStatus}
+          stepTimings={distributionWorkflowTimings}
           actionPanel={
             structuredAction ? (
               <DistributionNextActionPanel

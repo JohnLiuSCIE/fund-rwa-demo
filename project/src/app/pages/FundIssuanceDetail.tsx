@@ -47,7 +47,7 @@ import { ChartContainer, ChartTooltip } from "../components/ui/chart";
 import { InfoAlert } from "../components/InfoAlert";
 import { MetricCard } from "../components/MetricCard";
 import { StatusBadge } from "../components/StatusBadge";
-import { FundIssuanceWorkflow } from "../components/FundIssuanceWorkflow";
+import { FundIssuanceWorkflow, type WorkflowStepTiming } from "../components/FundIssuanceWorkflow";
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
@@ -400,6 +400,11 @@ function formatDateTag(dateTag: string, options?: Intl.DateTimeFormatOptions) {
     day: "numeric",
     ...(options || {}),
   }).format(toDateFromTag(dateTag));
+}
+
+function formatWorkflowTiming(value?: string | null) {
+  const dateTag = toDateTag(value);
+  return dateTag ? formatDateTag(dateTag) : undefined;
 }
 
 function buildExtendedNavHistory(fund: FundIssuance): NavRecord[] {
@@ -1283,6 +1288,7 @@ function buildIssuanceLedgerRows(
 }
 
 type IssuanceActionImpactType = "internal" | "ta" | "onchain" | "hybrid";
+type WorkflowActionOwner = "maker" | "checker";
 type IssuanceActionPreviewKey =
   | "submit-open-end"
   | "approve-open-end"
@@ -1311,6 +1317,7 @@ interface IssuanceActionContext {
 interface IssuanceActionBaseConfig {
   previewKey: IssuanceActionPreviewKey;
   label: string;
+  actionOwner?: WorkflowActionOwner;
   nextStatus: string;
   message: string;
   icon: LucideIcon;
@@ -1389,6 +1396,22 @@ function buildActionImpactBadges(action: IssuanceActionBaseConfig): ActionModalI
   }
 
   return badges;
+}
+
+function getActionOwnerBadgeClasses(actionOwner: WorkflowActionOwner) {
+  return actionOwner === "checker"
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function getActionButtonClasses(
+  actionOwner: WorkflowActionOwner,
+  variant: "default" | "outline",
+) {
+  if (actionOwner !== "checker") return "";
+  return variant === "outline"
+    ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+    : "bg-amber-500 text-white hover:bg-amber-600";
 }
 
 function buildIssuanceModalSteps(action: IssuanceActionBaseConfig): ActionModalStep[] {
@@ -1678,6 +1701,7 @@ function finalizeIssuanceAction(
 
   return {
     ...action,
+    actionOwner: action.actionOwner || "maker",
     impactBadges: buildActionImpactBadges(action),
     modalSteps: buildIssuanceModalSteps(action),
     previewSummary: preview.previewSummary,
@@ -2674,26 +2698,27 @@ function getFundAction(
         return finalizeIssuanceAction({
           previewKey: "approve-open-end",
           label: "Approve Launch",
+          actionOwner: "checker",
           nextStatus: "Upcoming Launch",
           message: "Approval completed. Fund is queued for launch",
           icon: ShieldCheck,
           variant: "default" as const,
           modalTitle: "Approve Open-end Launch",
           modalDescription:
-            "Verify the approver identity and release the fund into the launch preparation stage.",
+            "Verify checker identity and release the open-end module into launch preparation.",
           reviewTitle: "Review Approval Decision",
           reviewDescription:
-            "Confirm the fund is ready to move from approval review into launch preparation.",
+            "Confirm the module is ready to move from approval review into launch preparation.",
           identityDescription:
-            "Approver identity and issuer authorization are being verified.",
+            "Checker identity and launch authorization are being verified.",
           operationLabel: "Approve",
           operationTitle: "Approve Launch",
           operationDescription:
-            "The approval signature is being recorded for the fund launch decision.",
+            "The checker approval signature is being recorded for the launch decision.",
           operationKind: "identity",
           successTitle: "Launch approved",
           successDescription:
-            "The fund has moved into the upcoming launch stage.",
+            "The module has moved into the upcoming launch stage.",
           impactType: "internal",
           requiresTa: false,
           requiresOnChain: false,
@@ -2703,36 +2728,36 @@ function getFundAction(
       case "Upcoming Launch":
         return finalizeIssuanceAction({
           previewKey: "open-initial-subscription",
-          label: "Open Initial Subscription",
+          label: "Open First Cycle",
           nextStatus: "Initial Subscription",
           message: "Initial subscription window is now open",
           icon: PlayCircle,
           variant: "default" as const,
-          modalTitle: "Open Initial Subscription",
+          modalTitle: "Open First Subscription Cycle",
           modalDescription:
-            "Verify issuer identity and activate the initial subscription window for the open-end fund.",
-          reviewTitle: "Review Subscription Opening",
+            "Verify maker identity and activate the first launch-cycle subscription window for the open-end fund.",
+          reviewTitle: "Review First Cycle Opening",
           reviewDescription:
-            "Confirm the launch window, subscription terms, and investor access before opening.",
+            "Confirm the first cycle window, subscription terms, and investor access before opening.",
           identityDescription:
-            "Issuer identity and subscription-opening authority are being verified.",
+            "Maker identity and cycle-opening authority are being verified.",
           taNotificationTitle: "Notify Transfer Agent",
           taNotificationDescription:
-            "The launch package, onboarding controls, and settlement route are being sent to the transfer agent.",
+            "The first-cycle launch package, onboarding controls, and settlement route are being sent to the transfer agent.",
           taConfirmationTitle: "Transfer Agent Confirmation",
           taConfirmationDescription:
-            "Transfer Agent confirmation has been received for the initial subscription opening package.",
+            "Transfer Agent confirmation has been received for the first subscription cycle package.",
           onChainTitle: "Execute On-chain Update",
           onChainDescription:
-            "The initial subscription window is being activated on chain for eligible investors.",
-          successTitle: "Initial subscription opened",
+            "The first subscription cycle is being activated on chain for eligible investors.",
+          successTitle: "First cycle opened",
           successDescription:
-            "Investors can now enter the initial subscription stage.",
+            "Investors can now enter the first launch cycle.",
           impactType: "hybrid",
           requiresTa: true,
           requiresOnChain: true,
-          nextStepHint: "This action will notify TA and update the fund's subscription state on chain.",
-          affectedObjects: ["Launch window", "Investor onboarding pack", "Subscription access rule", "Settlement route"],
+          nextStepHint: "This action will notify TA and open the first subscription cycle on chain under the standing issuance module.",
+          affectedObjects: ["First-cycle window", "Investor onboarding pack", "Subscription access rule", "Settlement route"],
         }, fund, context);
       case "Initial Subscription":
         return finalizeIssuanceAction({
@@ -2744,18 +2769,18 @@ function getFundAction(
           variant: "default" as const,
           modalTitle: "Activate Daily Dealing",
           modalDescription:
-            "Verify issuer identity and activate ongoing daily dealing for the open-end fund.",
+            "Verify maker identity and transition the open-end module from launch cycle into recurring daily dealing.",
           reviewTitle: "Review Daily Dealing Activation",
           reviewDescription:
-            "Check the launch readiness, NAV cycle, and settlement settings before activation.",
+            "Check the module is ready to leave the launch cycle and enter recurring daily dealing.",
           identityDescription:
-            "Issuer identity and dealing activation authority are being verified.",
+            "Maker identity and dealing activation authority are being verified.",
           taNotificationTitle: "Notify Transfer Agent",
           taNotificationDescription:
-            "The daily dealing cut-off and register-servicing package are being handed over to the transfer agent.",
+            "The recurring dealing calendar and register-servicing package are being handed over to the transfer agent.",
           taConfirmationTitle: "Transfer Agent Confirmation",
           taConfirmationDescription:
-            "Transfer Agent confirmation has been received for the active dealing operating package.",
+            "Transfer Agent confirmation has been received for the recurring dealing operating package.",
           onChainTitle: "Execute On-chain Update",
           onChainDescription:
             "The fund is being switched into daily dealing mode on chain.",
@@ -2766,7 +2791,7 @@ function getFundAction(
           requiresTa: true,
           requiresOnChain: true,
           nextStepHint: "This action will hand over the operating package to TA and activate daily dealing on chain.",
-          affectedObjects: ["Daily dealing controls", "NAV cycle", "Settlement calendar", "Register servicing pack"],
+          affectedObjects: ["Recurring dealing controls", "NAV cycle", "Settlement calendar", "Register servicing pack"],
         }, fund, context);
       case "Active Dealing":
         return finalizeIssuanceAction({
@@ -2864,6 +2889,7 @@ function getFundAction(
       return finalizeIssuanceAction({
         previewKey: "approve-closed-end",
         label: "Approve Listing",
+        actionOwner: "checker",
         nextStatus: "Pending Listing",
         message: "Approval completed. Ready for listing",
         icon: ShieldCheck,
@@ -3210,6 +3236,12 @@ function IssuanceNextActionPanel({
                 {badge.label}
               </Badge>
             ))}
+            <Badge
+              variant="outline"
+              className={getActionOwnerBadgeClasses(action.actionOwner || "maker")}
+            >
+              {(action.actionOwner || "maker") === "checker" ? "Checker Action" : "Maker Action"}
+            </Badge>
           </div>
 
           <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
@@ -3267,10 +3299,13 @@ function IssuanceNextActionPanel({
         <div className="xl:w-56 xl:shrink-0">
           <Button
             type="button"
-            className="w-full"
             variant={action.variant}
             disabled={disabled}
             title={disabled ? disabledReason : undefined}
+            className={cn(
+              "w-full",
+              getActionButtonClasses(action.actionOwner || "maker", action.variant),
+            )}
             onClick={onOpen}
           >
             <action.icon className="mr-2 h-4 w-4" />
@@ -3900,6 +3935,78 @@ export function FundIssuanceDetail() {
   const issuerActionPermission = issuerAction
     ? getPermissionResult(getIssuerPermissionAction(issuerAction.label), "issuance")
     : { allowed: true as const };
+  const issuanceWorkflowTimings: WorkflowStepTiming[] = isOpenEnd
+    ? [
+        {
+          planned: formatWorkflowTiming(fundData.subscriptionStartDate),
+          actual:
+            ["Initial Subscription", "Active Dealing", "Paused"].includes(fundData.status)
+              ? formatWorkflowTiming(fundData.subscriptionStartDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(fundData.subscriptionEndDate),
+          actual:
+            ["Active Dealing", "Paused"].includes(fundData.status)
+              ? formatWorkflowTiming(fundData.subscriptionEndDate)
+              : undefined,
+        },
+        {
+          planned:
+            formatWorkflowTiming(fundData.issueDate) ||
+            formatWorkflowTiming(fundData.nextSettlementTime),
+          actual:
+            fundData.status === "Active Dealing" || fundData.status === "Paused"
+              ? formatWorkflowTiming(fundData.lastNavUpdateTime || fundData.issueDate)
+              : undefined,
+        },
+      ]
+    : [
+        {
+          planned: formatWorkflowTiming(fundData.subscriptionStartDate),
+          actual:
+            !["Draft", "Pending Approval", "Pending Listing"].includes(fundData.status)
+              ? formatWorkflowTiming(fundData.subscriptionStartDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(fundData.subscriptionEndDate),
+          actual:
+            [
+              "Allocation Period",
+              "Calculated",
+              "Allocate On Chain",
+              "Allocation Completed",
+              "Issuance Completed",
+              "Issuance Active",
+            ].includes(fundData.status)
+              ? formatWorkflowTiming(fundData.subscriptionEndDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(fundData.issueDate),
+          actual:
+            ["Calculated", "Allocate On Chain", "Allocation Completed", "Issuance Completed", "Issuance Active"].includes(
+              fundData.status,
+            )
+              ? formatWorkflowTiming(fundData.issueDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(fundData.issueDate),
+          actual:
+            ["Allocation Completed", "Issuance Completed", "Issuance Active"].includes(fundData.status)
+              ? formatWorkflowTiming(fundData.issueDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(fundData.issueDate),
+          actual:
+            ["Issuance Completed", "Issuance Active"].includes(fundData.status)
+              ? formatWorkflowTiming(fundData.lastActionAt || fundData.issueDate)
+              : undefined,
+        },
+      ];
   const manageOrderPermission = getPermissionResult("review", "order");
   const canEditSetup =
     !isMarketplaceView &&
@@ -3987,10 +4094,10 @@ export function FundIssuanceDetail() {
 
         {isOpenEnd ? (
           <InfoAlert variant="info" title="Open-end Operating Flow">
-            For open-end funds, the main progress bar tracks only the fund lifecycle:
-            launch, initial subscription, and entry into active dealing. NAV and settlement
-            stay visible below as recurring operating checkpoints rather than extra fund
-            lifecycle steps.
+            For open-end funds, this workflow should be read as a standing issuance module plus the
+            first launch cycle. Once the launch cycle completes, the fund stays in recurring dealing
+            and NAV / settlement continue below as operating checkpoints rather than new lifecycle
+            steps.
           </InfoAlert>
         ) : (
           <InfoAlert variant="info" title="Closed-end Issuance Flow">
@@ -4004,24 +4111,9 @@ export function FundIssuanceDetail() {
         <FundIssuanceWorkflow
           currentStatus={fundData.status}
           fundType={fundData.fundType}
-          actionSlot={
-            !isMarketplaceView && issuerAction && isOpenEnd ? (
-              <Button
-                variant={issuerAction.variant}
-                disabled={!issuerActionPermission.allowed}
-                title={issuerActionPermission.reason}
-                onClick={() => {
-                  setPendingIssuerAction(issuerAction);
-                  setIssuerActionModalOpen(true);
-                }}
-              >
-                <issuerAction.icon className="mr-2 h-4 w-4" />
-                {issuerAction.label}
-              </Button>
-            ) : undefined
-          }
+          stepTimings={issuanceWorkflowTimings}
           actionPanel={
-            !isMarketplaceView && issuerAction && !isOpenEnd ? (
+            !isMarketplaceView && issuerAction ? (
               <IssuanceNextActionPanel
                 action={issuerAction}
                 currentStatus={fundData.status}

@@ -38,7 +38,7 @@ import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
 import { InfoAlert } from "../components/InfoAlert";
 import { StatusBadge } from "../components/StatusBadge";
-import { FundRedemptionWorkflow } from "../components/FundIssuanceWorkflow";
+import { FundRedemptionWorkflow, type WorkflowStepTiming } from "../components/FundIssuanceWorkflow";
 import {
   OperationActionModal,
   type ActionModalDetailGroup,
@@ -63,6 +63,7 @@ type RedemptionTab =
   | "manual";
 
 type RedemptionActionImpactType = "internal" | "ta" | "onchain" | "hybrid";
+type WorkflowActionOwner = "maker" | "checker";
 
 interface RedemptionViewLink {
   label: string;
@@ -71,6 +72,7 @@ interface RedemptionViewLink {
 
 interface RedemptionWorkflowActionConfig {
   label: string;
+  actionOwner: WorkflowActionOwner;
   nextStatus: FundRedemptionConfig["status"];
   message: string;
   icon: LucideIcon;
@@ -460,6 +462,15 @@ function fromDateTimeLocal(value: string) {
   return value ? `${value.replace("T", " ")}:00` : undefined;
 }
 
+function formatWorkflowTiming(value?: string) {
+  const match = value?.match(/\d{4}-\d{2}-\d{2}/);
+  if (!match) return undefined;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(`${match[0]}T00:00:00`));
+}
+
 function parseLeadingNumber(value?: string) {
   if (!value) return 0;
   const normalized = value.replace(/,/g, "");
@@ -548,6 +559,22 @@ function buildRedemptionImpactBadges({
   }
 
   return badges;
+}
+
+function getActionOwnerBadgeClasses(actionOwner: WorkflowActionOwner) {
+  return actionOwner === "checker"
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function getActionButtonClasses(
+  actionOwner: WorkflowActionOwner,
+  variant: "default" | "outline",
+) {
+  if (actionOwner !== "checker") return "";
+  return variant === "outline"
+    ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+    : "bg-amber-500 text-white hover:bg-amber-600";
 }
 
 function buildStructuredRedemptionModalFlow({
@@ -708,6 +735,12 @@ function RedemptionNextActionPanel({
                 {badge.label}
               </Badge>
             ))}
+            <Badge
+              variant="outline"
+              className={getActionOwnerBadgeClasses(action.actionOwner)}
+            >
+              {action.actionOwner === "checker" ? "Checker Action" : "Maker Action"}
+            </Badge>
           </div>
 
           <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
@@ -773,7 +806,10 @@ function RedemptionNextActionPanel({
                     type="button"
                     size="sm"
                     variant={secondaryAction.variant}
-                    className="bg-white/90"
+                    className={cn(
+                      "bg-white/90",
+                      getActionButtonClasses(secondaryAction.actionOwner, secondaryAction.variant),
+                    )}
                     onClick={() => onOpenSecondary(secondaryAction)}
                   >
                     <secondaryAction.icon className="mr-2 h-4 w-4" />
@@ -788,8 +824,11 @@ function RedemptionNextActionPanel({
         <div className="xl:w-56 xl:shrink-0">
           <Button
             type="button"
-            className="w-full"
             variant={action.variant}
+            className={cn(
+              "w-full",
+              getActionButtonClasses(action.actionOwner, action.variant),
+            )}
             disabled={disabled}
             title={disabled ? disabledReason : undefined}
             onClick={onOpen}
@@ -866,6 +905,7 @@ function buildRedemptionActionConfig({
   viewLinks = [],
 }: {
   label: string;
+  actionOwner?: WorkflowActionOwner;
   nextStatus: FundRedemptionConfig["status"];
   message: string;
   icon: LucideIcon;
@@ -894,6 +934,7 @@ function buildRedemptionActionConfig({
 }): RedemptionWorkflowActionConfig {
   return {
     label,
+    actionOwner: actionOwner || "maker",
     nextStatus,
     message,
     icon,
@@ -1008,6 +1049,7 @@ function getStructuredRedemptionActions(
       return [
         buildRedemptionActionConfig({
           label: config.pauseRedemptionAfterListing ? "Launch Notice Period" : "Activate Module",
+          actionOwner: "checker",
           nextStatus: config.pauseRedemptionAfterListing ? "Announced" : "Active",
           message: config.pauseRedemptionAfterListing
             ? "Redemption notice period launched"
@@ -1017,40 +1059,34 @@ function getStructuredRedemptionActions(
             ? "Launch Redemption Notice Period"
             : "Activate Redemption Module",
           modalDescription:
-            "Verify issuer identity and move the approved redemption setup into its next operating state.",
+            "Verify checker identity and move the approved redemption setup into its next operating state.",
           reviewTitle: "Review Activation",
           reviewDescription:
             "Confirm the approved redemption setup is ready to move into its notice or active operating stage.",
           identityDescription:
-            "Issuer identity and redemption activation authority are being verified.",
+            "Checker identity and redemption activation authority are being verified.",
           workflowTitle: config.pauseRedemptionAfterListing
             ? "Launch Notice Period"
             : "Activate Redemption Module",
           workflowDescription:
             "The approved redemption setup is being advanced to its next operating stage.",
-          taTitle: "Notify Transfer Agent",
-          taDescription:
-            "Transfer-agent and registry teams are being notified to align the redemption calendar and holder controls.",
           successTitle: config.pauseRedemptionAfterListing
             ? "Notice period started"
             : "Redemption activated",
           successDescription: config.pauseRedemptionAfterListing
             ? "The redemption event has moved into its notice period."
             : "The redemption module is now active.",
-          impactType: "ta",
-          requiresTa: true,
+          impactType: "internal",
+          requiresTa: false,
           requiresOnChain: false,
           nextStepHint:
-            "This action will notify TA and move the redemption setup into its notice or active operating stage.",
-          affectedObjects: ["Redemption operating calendar", "TA work queue", "Settlement account setup"],
+            "This action completes checker approval and moves the redemption setup into its notice or active operating stage.",
+          affectedObjects: ["Redemption operating calendar", "Module activation record", "Settlement account setup"],
           previewSummary: [
             { label: "Current Status", value: config.status },
             { label: "Next Status", value: config.pauseRedemptionAfterListing ? "Announced" : "Active" },
-            { label: "Transfer Agent", value: context.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
             { label: "Linked Fund", value: context.fund?.status || "Linked fund pending" },
-          ],
-          previewDetails: [
-            { title: "TA Intake", kind: "ta", items: taStatusItems },
+            { label: "Cut-off", value: config.cutOffTime },
           ],
           viewLinks: [{ label: "View Requests", tab: "requests" }],
         }),
@@ -1073,25 +1109,22 @@ function getStructuredRedemptionActions(
           workflowTitle: "Open Redemption Window",
           workflowDescription:
             "The redemption window opening request is being processed.",
-          taTitle: "Notify Transfer Agent",
-          taDescription:
-            "The transfer agent is being asked to activate the participation roster and monitor holder requests.",
           successTitle: "Window opened",
           successDescription:
             "The redemption window is now open for investors.",
-          impactType: "ta",
-          requiresTa: true,
+          impactType: "internal",
+          requiresTa: false,
           requiresOnChain: false,
           nextStepHint:
-            "This action will notify TA and move the redemption event from notice into the live participation window.",
-          affectedObjects: ["Participation order book", "TA operating roster", "Window activation record"],
+            "This action moves the redemption event from notice into the live participation window without sending a TA settlement package yet.",
+          affectedObjects: ["Participation order book", "Window activation record", "Investor notice status"],
           previewSummary: [
             { label: "Announcement Date", value: config.announcementDate || "Pending" },
             { label: "Window", value: `${config.windowStart || "N/A"} to ${config.windowEnd || "N/A"}` },
             { label: "Active Requests", value: `${context.activeSettlementRequests.length}` },
-            { label: "Transfer Agent", value: context.transferAgentOps?.transferAgentName || "Transfer Agent pending" },
+            { label: "Cut-off", value: config.cutOffTime },
           ],
-          previewDetails: [{ title: "Request Roster", kind: "ta", items: topRequestItems }],
+          previewDetails: [{ title: "Request Roster", items: topRequestItems }],
           viewLinks: [
             { label: "View Requests", tab: "requests" },
             ...(canShowSnapshot ? [{ label: "View Snapshot", tab: "snapshot" as const }] : []),
@@ -1928,6 +1961,74 @@ export function FundRedemptionDetail() {
   });
   const primarySetupAction = setupActions.find((action) => action.variant === "default") || null;
   const secondarySetupActions = setupActions.filter((action) => action !== primarySetupAction);
+  const redemptionWorkflowTimings: WorkflowStepTiming[] = isOpenEndFund
+    ? [
+        {
+          planned: formatWorkflowTiming(redemption.createdTime),
+          actual:
+            redemption.status !== "Draft" ? formatWorkflowTiming(redemption.createdTime) : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(redemption.effectiveDate),
+          actual:
+            redemption.status !== "Draft" && redemption.status !== "Pending Approval"
+              ? formatWorkflowTiming(redemption.effectiveDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(redemption.windowEnd || redemption.effectiveDate),
+          actual:
+            ["Snapshot Locked", "Payment List Ready", "Burn On Chain", "Window Closed"].includes(
+              redemption.status,
+            )
+              ? formatWorkflowTiming(redemption.windowEnd || redemption.effectiveDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(redemption.windowEnd || redemption.effectiveDate),
+          actual:
+            redemption.status === "Window Closed"
+              ? formatWorkflowTiming(redemption.lastActionAt || redemption.windowEnd || redemption.effectiveDate)
+              : undefined,
+        },
+      ]
+    : [
+        {
+          planned: formatWorkflowTiming(redemption.createdTime),
+          actual:
+            redemption.status !== "Draft" ? formatWorkflowTiming(redemption.createdTime) : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(redemption.announcementDate || redemption.effectiveDate),
+          actual:
+            !["Draft", "Pending Approval"].includes(redemption.status)
+              ? formatWorkflowTiming(redemption.announcementDate || redemption.effectiveDate)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(redemption.windowEnd || redemption.windowStart),
+          actual:
+            ["Snapshot Locked", "Payment List Ready", "Burn On Chain", "Window Closed"].includes(
+              redemption.status,
+            )
+              ? formatWorkflowTiming(redemption.windowEnd || redemption.windowStart)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(redemption.windowEnd || redemption.effectiveDate),
+          actual:
+            ["Window Closed"].includes(redemption.status)
+              ? formatWorkflowTiming(redemption.windowEnd || redemption.lastActionAt)
+              : undefined,
+        },
+        {
+          planned: formatWorkflowTiming(redemption.lastActionAt || redemption.windowEnd),
+          actual:
+            redemption.status === "Window Closed"
+              ? formatWorkflowTiming(redemption.lastActionAt || redemption.windowEnd)
+              : undefined,
+        },
+      ];
   const updatePermission = getPermissionResult("update", "redemption");
   const editableSections = getEditableRedemptionSections(redemption);
   const canEditSetup = userRole === "issuer" && updatePermission.allowed && editableSections.length > 0;
@@ -2153,7 +2254,7 @@ export function FundRedemptionDetail() {
           title={isOpenEndFund ? "Open-end Redemption Module" : "Redemption Operations"}
         >
           {isOpenEndFund
-            ? "For open-end funds, redemption is a module under the active fund. The top progress bar tracks approval and activation, while the operating state below shows the live window or daily-dealing mode."
+            ? "For open-end funds, redemption should be read as a standing module plus the current dealing cycle. The top progress bar tracks module setup and current-cycle close-out rather than a one-off event."
             : "This page tracks a one-off holder cash-out workflow, including request review, payment-list preparation, and final cash settlement."}
         </InfoAlert>
       </div>
@@ -2161,6 +2262,7 @@ export function FundRedemptionDetail() {
       <div className="mb-8">
         <FundRedemptionWorkflow
           currentStatus={redemption.status}
+          stepTimings={redemptionWorkflowTimings}
           workflowModel={isOpenEndFund ? "open-end" : "default"}
           actionPanel={
             primarySetupAction ? (
