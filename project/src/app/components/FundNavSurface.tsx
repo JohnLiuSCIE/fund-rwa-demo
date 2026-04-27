@@ -61,6 +61,7 @@ function formatBucketFullLabel(value: string, viewMode: NavViewMode) {
 function buildPresentedTimeline(
   timeline: ReturnType<typeof buildFundNavTimeline>,
   viewMode: NavViewMode,
+  defaultPhaseLabel: string,
 ) {
   const pointMap = new Map<
     string,
@@ -140,9 +141,9 @@ function buildPresentedTimeline(
 
     const currentLabel = matchingWindow
       ? matchingWindow.type === "subscription"
-        ? "Subscription period"
+        ? matchingWindow.label
         : "Redemption window"
-      : "Closed operation period";
+      : defaultPhaseLabel;
     const currentType = matchingWindow ? matchingWindow.type : "default";
 
     const previous = phases[phases.length - 1];
@@ -184,8 +185,15 @@ export function FundNavEventsCard({
 }) {
   const timeline = buildFundNavTimeline(fundData, relatedRedemptions, relatedDistributions);
   const [viewMode, setViewMode] = useState<NavViewMode>("day");
-  const presented = useMemo(() => buildPresentedTimeline(timeline, viewMode), [timeline, viewMode]);
+  const defaultPhaseLabel =
+    fundData.fundType === "Open-end" ? "Daily dealing period" : "Closed operation period";
+  const presented = useMemo(
+    () => buildPresentedTimeline(timeline, viewMode, defaultPhaseLabel),
+    [defaultPhaseLabel, timeline, viewMode],
+  );
   const latestNavRecord = timeline.navHistory[timeline.navHistory.length - 1];
+  const hasSubscriptionWindow = presented.windows.some((window) => window.type === "subscription");
+  const hasRedemptionWindow = presented.windows.some((window) => window.type === "redemption");
   const chartConfig = {
     nav: { label: "NAV", color: "#1d4ed8" },
     subscription: { label: FUND_EVENT_META.subscription.label, color: FUND_EVENT_META.subscription.dotColor },
@@ -316,7 +324,7 @@ export function FundNavEventsCard({
                   fill={window.type === "subscription" ? "#bfdbfe" : "#fde68a"}
                   fillOpacity={0.3}
                   label={{
-                    value: window.type === "subscription" ? "Subscription period" : "Redemption window",
+                    value: window.type === "subscription" ? window.label : "Redemption window",
                     position: "insideTop",
                     fill: window.type === "subscription" ? "#1d4ed8" : "#b45309",
                     fontSize: 11,
@@ -381,9 +389,15 @@ export function FundNavEventsCard({
         </div>
 
         <div className="flex flex-wrap gap-2 text-xs">
-          <Badge className="border border-blue-200 bg-blue-50 text-blue-700">Subscription period</Badge>
-          <Badge className="border border-amber-200 bg-amber-50 text-amber-700">Redemption window</Badge>
-          <Badge className="border border-slate-200 bg-slate-50 text-slate-700">Closed operation period</Badge>
+          {hasSubscriptionWindow && (
+            <Badge className="border border-blue-200 bg-blue-50 text-blue-700">
+              {fundData.fundType === "Open-end" ? "Initial subscription window" : "Subscription period"}
+            </Badge>
+          )}
+          {hasRedemptionWindow && (
+            <Badge className="border border-amber-200 bg-amber-50 text-amber-700">Redemption window</Badge>
+          )}
+          <Badge className="border border-slate-200 bg-slate-50 text-slate-700">{defaultPhaseLabel}</Badge>
           <Badge className="border border-violet-200 bg-violet-50 text-violet-700">Distribution milestone</Badge>
           <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">Oracle update</Badge>
           <Badge className="border border-slate-300 bg-white text-slate-700">Manual NAV update</Badge>

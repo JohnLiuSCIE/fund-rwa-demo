@@ -407,6 +407,14 @@ function formatWorkflowTiming(value?: string | null) {
   return dateTag ? formatDateTag(dateTag) : undefined;
 }
 
+function shouldShowSubscriptionWindow(fund: FundIssuance) {
+  return fund.fundType === "Closed-end" || fund.status === "Initial Subscription";
+}
+
+function getSubscriptionWindowLabel(fund: FundIssuance) {
+  return fund.fundType === "Open-end" ? "Initial subscription window" : "Subscription period";
+}
+
 function buildExtendedNavHistory(fund: FundIssuance): NavRecord[] {
   const fallbackDateTag = toDateTag(fund.lastNavUpdateTime) || toDateTag(fund.issueDate) || toDateTag(nowString())!;
   const fallbackHistory =
@@ -471,7 +479,7 @@ function buildFundTimelineEvents(
 
   const subscriptionStart = toDateTag(fund.subscriptionStartDate);
   const subscriptionEnd = toDateTag(fund.subscriptionEndDate);
-  if (subscriptionStart) {
+  if (shouldShowSubscriptionWindow(fund) && subscriptionStart) {
     events.push({
       id: `${fund.id}-subscription-open`,
       dateTag: subscriptionStart,
@@ -480,7 +488,7 @@ function buildFundTimelineEvents(
       type: "subscription",
     });
   }
-  if (subscriptionEnd) {
+  if (shouldShowSubscriptionWindow(fund) && subscriptionEnd) {
     events.push({
       id: `${fund.id}-subscription-close`,
       dateTag: subscriptionEnd,
@@ -565,12 +573,12 @@ function buildFundWindowOverlays(
   const subscriptionStart = toDateTag(fund.subscriptionStartDate);
   const subscriptionEnd = toDateTag(fund.subscriptionEndDate);
 
-  if (subscriptionStart && subscriptionEnd) {
+  if (shouldShowSubscriptionWindow(fund) && subscriptionStart && subscriptionEnd) {
     overlays.push({
       id: `${fund.id}-subscription-window`,
       startDateTag: subscriptionStart,
       endDateTag: subscriptionEnd,
-      label: "Initial subscription window",
+      label: getSubscriptionWindowLabel(fund),
       type: "subscription",
     });
   }
