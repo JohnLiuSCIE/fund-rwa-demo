@@ -30,7 +30,7 @@ const getStatusColor = (status: string) => {
 };
 
 export function MarketplaceFundDistribution() {
-  const { fundDistributions, fundIssuances } = useApp();
+  const { fundDistributions } = useApp();
 
   const openForClaimCount = useMemo(
     () =>
@@ -46,7 +46,7 @@ export function MarketplaceFundDistribution() {
       <div className="mb-8">
         <h1 style={{ fontFamily: "var(--font-heading)" }}>Fund Payout Events</h1>
         <p className="text-muted-foreground mt-2">
-          View open-end distribution schedules and closed-end dividend events in one investor-facing list.
+          View open-end and closed-end distribution events in one investor-facing list.
         </p>
       </div>
 
@@ -96,15 +96,11 @@ export function MarketplaceFundDistribution() {
             {fundDistributions.map((distribution) => {
               const claimable =
                 distribution.status === "Open For Distribution" && distribution.payoutMode !== "Direct Transfer";
-              const linkedFund = fundIssuances.find((fund) => fund.id === distribution.fundId);
-              const eventLabel =
-                linkedFund?.fundType === "Closed-end" ? "Dividend" : "Distribution";
-
               return (
                 <TableRow key={distribution.id}>
                   <TableCell className="font-mono text-xs">{distribution.id}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">{eventLabel}</Badge>
+                    <Badge variant="outline">Distribution</Badge>
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">{distribution.name}</div>

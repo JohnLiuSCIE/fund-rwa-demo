@@ -306,11 +306,11 @@ function getDistributionElectionLabel(election?: DistributionElection) {
 }
 
 function getDistributionElectionBadgeClasses(election?: DistributionElection) {
-  if (election === "Dividend Reinvestment") {
+  if (election === "Distribution Reinvestment") {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
 
-  if (election === "Cash Dividend") {
+  if (election === "Cash Distribution") {
     return "border-blue-200 bg-blue-50 text-blue-700";
   }
 
@@ -791,7 +791,7 @@ function getStructuredDistributionAction(
       });
     case "Pending Approval":
       return buildDistributionActionConfig({
-        label: context.eventLabel === "Dividend" ? `Approve ${context.eventLabel}` : "Approve Distribution",
+        label: "Approve Distribution",
         actionOwner: "checker",
         nextStatus: "Pending Listing",
         message: `${context.eventLabel} approved and moved into notice preparation`,
@@ -825,7 +825,7 @@ function getStructuredDistributionAction(
       });
     case "Pending Listing":
       return buildDistributionActionConfig({
-        label: context.eventLabel === "Dividend" ? "Publish Dividend Notice" : "Publish Notice",
+        label: "Publish Notice",
         nextStatus: "Upcoming",
         message: `${context.eventLabel} notice published`,
         modalTitle: `Publish ${context.eventLabel} Notice`,
@@ -1006,9 +1006,7 @@ function getStructuredDistributionAction(
     case "Put On Chain":
       return buildDistributionActionConfig({
         label:
-          context.eventLabel === "Dividend"
-            ? "Open Dividend"
-            : context.isClaimMode
+          context.isClaimMode
               ? "Open For Claim"
               : "Start Auto Distribution",
         nextStatus: "Open For Distribution",
@@ -1438,10 +1436,10 @@ export function FundDistributionDetail() {
   }, [distribution.status]);
 
   const isOpenEndDistribution = linkedFund?.fundType === "Open-end";
-  const isClosedEndDividend = linkedFund?.fundType === "Closed-end";
-  const eventLabel = isClosedEndDividend ? "Dividend" : "Distribution";
+  const isClosedEndDistribution = linkedFund?.fundType === "Closed-end";
+  const eventLabel = "Distribution";
   const eventLabelLower = eventLabel.toLowerCase();
-  const eventLabelPlural = isClosedEndDividend ? "Dividends" : "Distributions";
+  const eventLabelPlural = "Distributions";
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -1494,7 +1492,7 @@ export function FundDistributionDetail() {
     manualExcludedInvestorIds.includes(recipient.investorId),
   );
   const transferAgentOps = distribution.transferAgentOps;
-  const showTransferAgentLayer = isClosedEndDividend || Boolean(transferAgentOps);
+  const showTransferAgentLayer = isClosedEndDistribution || Boolean(transferAgentOps);
   const distributionCurrency =
     distribution.payoutToken || distribution.distributionUnit || linkedFund?.assetCurrency || "Unit";
   const transferAgentFields = [
@@ -1572,7 +1570,7 @@ export function FundDistributionDetail() {
       label: "Payment execution completed",
       detail:
         currentStatus === "Done" || currentStatus === "Reconciled"
-          ? "Dividend release has completed and entered close-out."
+          ? "Distribution release has completed and entered close-out."
           : "Distribution release remains pending until the event moves into the completion stage.",
       status: currentStatus === "Done" || currentStatus === "Reconciled" ? "done" : "pending",
     },
@@ -1987,7 +1985,7 @@ export function FundDistributionDetail() {
               operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
               status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
               fields={transferAgentFields}
-              note="Eligibility logic for this dividend is fixed: all holders on the record date are included in the recipient list."
+              note="Eligibility logic for this distribution is fixed: all holders on the record date are included in the recipient list."
             />
           )}
 
@@ -2063,20 +2061,20 @@ export function FundDistributionDetail() {
             <TabsList className={cn("grid w-full", userRole === "issuer" ? "grid-cols-4" : "grid-cols-3")}>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="recipients">
-                {isClosedEndDividend ? "Recipient List" : "Recipients"}
+                {isClosedEndDistribution ? "Recipient List" : "Recipients"}
               </TabsTrigger>
               <TabsTrigger value="payout">Distribution</TabsTrigger>
               {userRole === "issuer" && <TabsTrigger value="manual">Manual Override</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
-              {isClosedEndDividend && (
+              {isClosedEndDistribution && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Eligibility Logic</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3 text-sm text-muted-foreground">
-                    <p>All holders on the record date are eligible for this dividend event.</p>
+                    <p>All holders on the record date are eligible for this distribution event.</p>
                     <p>
                       The transfer agent freezes the snapshot first and then generates the recipient
                       list from the verified holder register instead of applying investor rules.
@@ -2098,8 +2096,8 @@ export function FundDistributionDetail() {
                       {eventLabel} Process
                     </div>
                     <div className="text-xs text-blue-600">
-                      {isClosedEndDividend
-                        ? "Cash dividend is paid to holders recorded on the record date."
+                      {isClosedEndDistribution
+                        ? "Cash distribution is paid to holders recorded on the record date."
                         : "Income distribution is paid to fund holders based on their shareholding at the record date."}{" "}
                       {distribution.payoutMode === "Direct Transfer"
                         ? `After opening, the system starts ${eventLabelLower} transfer automatically.`
@@ -2111,7 +2109,7 @@ export function FundDistributionDetail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>{isClosedEndDividend ? "Dividend Controls" : "Manager Controls"}</CardTitle>
+                  <CardTitle>{isClosedEndDistribution ? "Distribution Controls" : "Manager Controls"}</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2 text-sm">
                   <div className="rounded-lg border p-4">
@@ -2145,7 +2143,7 @@ export function FundDistributionDetail() {
                 <Card>
                   <CardContent className="pt-6">
                     <div className="text-sm text-muted-foreground mb-1">
-                      {isClosedEndDividend ? "Eligible Dividend Recipients" : "Eligible Recipients"}
+                      {isClosedEndDistribution ? "Eligible Distribution Recipients" : "Eligible Recipients"}
                     </div>
                     <div className="text-2xl font-semibold">{recipientPreview.totalRecipients}</div>
                   </CardContent>
@@ -2175,7 +2173,7 @@ export function FundDistributionDetail() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>{isClosedEndDividend ? "Dividend Recipient List" : "Recipient Preview"}</CardTitle>
+                  <CardTitle>{isClosedEndDistribution ? "Distribution Recipient List" : "Recipient Preview"}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -2185,7 +2183,7 @@ export function FundDistributionDetail() {
                         <TableHead>Category</TableHead>
                         <TableHead>Share Class</TableHead>
                         <TableHead>
-                          {isClosedEndDividend ? "Dividend Election" : "Distribution Election"}
+                          Distribution Election
                         </TableHead>
                         <TableHead>Eligible Units</TableHead>
                         <TableHead>Estimated Amount</TableHead>
@@ -2282,15 +2280,15 @@ export function FundDistributionDetail() {
                 <Card>
                   <CardContent className="pt-6">
                     <div className="text-sm text-muted-foreground mb-1">
-                      {isClosedEndDividend ? "Recipient Count" : "Ready for Distribution"}
+                      {isClosedEndDistribution ? "Recipient Count" : "Ready for Distribution"}
                     </div>
                     <div className="text-2xl font-semibold">
-                      {isClosedEndDividend
+                      {isClosedEndDistribution
                         ? recipientPreview.totalRecipients
                         : recipientPreview.rows.filter(() => currentStatus === "Open For Distribution" || currentStatus === "Done").length}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {isClosedEndDividend ? eventLabelPlural : "recipients"}
+                      {isClosedEndDistribution ? eventLabelPlural : "recipients"}
                     </div>
                   </CardContent>
                 </Card>

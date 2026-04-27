@@ -72,8 +72,8 @@ export function CreateFundDistribution() {
     eligibleFunds.find((fund) => fund.id === selectedFundId) ||
     (inFundContext ? undefined : eligibleFunds[0]);
   const isClosedEndSelected = selectedFund?.fundType === "Closed-end";
-  const eventLabel = isClosedEndSelected ? "Dividend" : "Distribution";
-  const eventLabelLower = isClosedEndSelected ? "dividend" : "distribution";
+  const eventLabel = "Distribution";
+  const eventLabelLower = "distribution";
   const displayedNav = selectedFund
     ? selectedFund.fundType === "Open-end"
       ? selectedFund.currentNav
@@ -176,8 +176,8 @@ export function CreateFundDistribution() {
         </h1>
         <p className="mt-2 text-muted-foreground">
           {inFundContext && selectedFund
-            ? `Configure a distribution operation for this fund. ${isClosedEndSelected ? "This fund will create a dividend event." : "This fund will create a distribution event."}`
-            : `Select an existing fund from the demo pool, then configure the linked income${isClosedEndSelected ? " dividend event." : " distribution request."}`}
+            ? "Configure a distribution operation for this fund. This fund will create a distribution event."
+            : "Select an existing fund from the demo pool, then configure the linked income distribution request."}
         </p>
       </div>
 
@@ -267,7 +267,7 @@ export function CreateFundDistribution() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="mb-2 block text-sm font-medium">
-                    * {isClosedEndSelected ? "Dividend method" : "Distribution rate type"}
+                    * {isClosedEndSelected ? "Distribution method" : "Distribution rate type"}
                   </label>
                   <select
                     className="w-full rounded-md border px-3 py-2"
@@ -281,7 +281,7 @@ export function CreateFundDistribution() {
 
                 <div>
                   <label className="mb-2 block text-sm font-medium">
-                    * {isClosedEndSelected ? "Dividend amount" : "Distribution rate"}
+                    * {isClosedEndSelected ? "Distribution amount" : "Distribution rate"}
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -341,7 +341,7 @@ export function CreateFundDistribution() {
 
               <div>
                 <label className="mb-2 block text-sm font-medium">
-                  * {isClosedEndSelected ? "Dividend currency" : "Distribution unit"}
+                  * {isClosedEndSelected ? "Distribution currency" : "Distribution unit"}
                 </label>
                 <select
                   className="w-full rounded-md border px-3 py-2"
@@ -457,8 +457,8 @@ export function CreateFundDistribution() {
                   <div>
                     <div className="text-sm font-medium">Eligibility Logic</div>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      All holders on the record date are eligible for this dividend. No
-                      additional investor rules are required for this dividend event.
+                      All holders on the record date are eligible for this distribution. No
+                      additional investor rules are required for this distribution event.
                     </p>
                   </div>
                   <div>
@@ -475,7 +475,7 @@ export function CreateFundDistribution() {
                     <div className="text-sm font-medium">Recipient Determination</div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {isClosedEndSelected
-                        ? "All holders on the record date are eligible for this dividend. No additional investor admission checks are required at the event stage."
+                        ? "All holders on the record date are eligible for this distribution. No additional investor admission checks are required at the event stage."
                         : "Distribution recipients are determined from the linked fund holder register on the record date. No investor admission threshold is configured at the distribution stage."}
                     </p>
                   </div>

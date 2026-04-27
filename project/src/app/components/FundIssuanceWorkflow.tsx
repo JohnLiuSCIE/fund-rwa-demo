@@ -321,14 +321,14 @@ interface FundWorkflowProps {
   actionSlot?: ReactNode;
   actionPanel?: ReactNode;
   workflowModel?: WorkflowModel;
-  distributionLabel?: "Distribution" | "Dividend";
+  distributionLabel?: "Distribution";
 }
 
 function getWorkflowConfig(
   type: WorkflowType,
   fundType: IssuanceFundType,
   workflowModel: WorkflowModel,
-  distributionLabel: "Distribution" | "Dividend",
+  distributionLabel: "Distribution",
 ) {
   switch (type) {
     case "redemption":
@@ -384,7 +384,7 @@ interface FundIssuanceWorkflowProps {
   actionSlot?: ReactNode;
   actionPanel?: ReactNode;
   workflowModel?: WorkflowModel;
-  distributionLabel?: "Distribution" | "Dividend";
+  distributionLabel?: "Distribution";
 }
 
 function getOpenEndSubsteps(currentStatus?: string) {
@@ -757,11 +757,11 @@ function getDistributionSubsteps(currentStatus?: string) {
         description: "Draft and approval sit together as the event setup stage.",
         steps: [
           stage("1.1 Draft", "Create distribution draft", "Maker", [
-            "Dividend terms",
+            "Distribution terms",
             "Record and payment dates",
           ]),
           stage("1.2 Approval", "Approve distribution", "Checker", [
-            "Approved dividend memo",
+            "Approved distribution memo",
           ]),
         ],
         currentIndex: currentStatus === "Draft" ? 0 : 1,
@@ -791,7 +791,7 @@ function getDistributionSubsteps(currentStatus?: string) {
         steps: [
           stage("3.1 Snapshot Locked", "Freeze holder list", "TA", [
             "Record-date snapshot",
-            "Dividend entitlement base",
+            "Distribution entitlement base",
           ]),
           stage("3.2 Recipient List", "Prepare payout batch", "TA", [
             "Recipient list",
@@ -827,7 +827,7 @@ function getDistributionSubsteps(currentStatus?: string) {
             "Payout reconciliation report",
           ]),
           stage("5.2 Done", "Close distribution cycle", "TA", [
-            "Closed dividend event record",
+            "Closed distribution event record",
           ]),
         ],
         currentIndex: currentStatus === "Reconciled" ? 0 : 1,

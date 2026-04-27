@@ -121,7 +121,7 @@ function getDistributionModuleDescription(
 ) {
   if (!distribution) {
     return fund.fundType === "Closed-end"
-      ? "No dividend event has been scheduled yet."
+      ? "No distribution event has been scheduled yet."
       : "No distribution event has been scheduled yet.";
   }
 

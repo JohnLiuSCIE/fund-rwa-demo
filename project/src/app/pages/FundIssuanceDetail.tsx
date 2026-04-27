@@ -3856,7 +3856,7 @@ export function FundIssuanceDetail() {
           : fundData.orderConfirmationMethod === "Issuer review then confirm"
             ? "Pending Review"
             : "Pending NAV",
-      distributionElection: "Dividend Reinvestment",
+      distributionElection: "Distribution Reinvestment",
       paymentMethod: fundingMethod,
       paymentStatus: awaitingFiatConfirmation ? (
         fundData.paymentProofRequired ? "Payment Proof Uploaded" : "Awaiting Payment"
@@ -4363,7 +4363,7 @@ export function FundIssuanceDetail() {
                   <div>
                     <div className="font-medium">Distributions</div>
                     <div className="mt-1 text-muted-foreground">
-                      Manage this fund's distribution and dividend events as child objects of the fund.
+                      Manage this fund's distribution events as child objects of the fund.
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">

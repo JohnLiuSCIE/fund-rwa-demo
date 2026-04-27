@@ -219,7 +219,7 @@ export function OpenForDistributionModal({
       open={open}
       onOpenChange={onOpenChange}
       onSuccess={onSuccess}
-      title={eventLabel === "Dividend" ? "Open Dividend" : "Open For Distribution"}
+      title="Open For Distribution"
       description={`Verify issuer identity and complete the wallet actions required to open the ${eventLabelLower} window.`}
       startLabel="Start"
       completionLabel="Close"
@@ -247,19 +247,13 @@ export function OpenForDistributionModal({
         {
           label: "Open",
           title: "Sign Open",
-          description:
-            eventLabel === "Dividend"
-              ? "Open the dividend payout flow for investors."
-              : "Open the distribution claim window for investors.",
+          description: "Open the distribution claim window for investors.",
           state: "loading",
         },
         {
           label: "Completed",
           title: `${eventLabel} opened`,
-          description:
-            eventLabel === "Dividend"
-              ? "Investors can now receive their dividends."
-              : "Investors can now accept their distributions.",
+          description: "Investors can now accept their distributions.",
           state: "success",
         },
       ]}

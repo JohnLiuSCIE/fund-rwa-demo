@@ -80,8 +80,8 @@ export function ManageFundDistribution() {
           </h1>
           <p className="text-muted-foreground mt-2">
             {inFundContext
-              ? `Manage distribution and dividend events for ${linkedFund?.name || "this fund"}.`
-              : "Manage open-end distributions and closed-end dividends from one global operations queue."}
+              ? `Manage distribution events for ${linkedFund?.name || "this fund"}.`
+              : "Manage open-end and closed-end distributions from one global operations queue."}
           </p>
         </div>
         <Button onClick={handleCreateNew}>
@@ -136,10 +136,6 @@ export function ManageFundDistribution() {
               visibleDistributions.map((distribution) => (
                 <TableRow key={distribution.id}>
                   {(() => {
-                    const linkedFund = fundIssuances.find((fund) => fund.id === distribution.fundId);
-                    const eventLabel =
-                      linkedFund?.fundType === "Closed-end" ? "Dividend" : "Distribution";
-
                     return (
                       <>
                   <TableCell className="font-mono text-xs">
@@ -148,7 +144,7 @@ export function ManageFundDistribution() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{eventLabel}</Badge>
+                    <Badge variant="outline">Distribution</Badge>
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">{distribution.name}</div>
@@ -190,7 +186,7 @@ export function ManageFundDistribution() {
                   <div className="text-muted-foreground">
                     {inFundContext
                       ? "No distribution events have been created for this fund yet."
-                      : "No distribution events found. Create your first distribution or dividend to get started."}
+                      : "No distribution events found. Create your first distribution to get started."}
                   </div>
                   <Button className="mt-4" onClick={handleCreateNew}>
                     <Plus className="w-4 h-4 mr-2" />
