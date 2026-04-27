@@ -7,7 +7,7 @@
 
 来源：
 - 当前 Fund demo review
-- [2026-04-16 | 链上基金发行、赎回与分红流程讨论.md](/Users/xingjianliu/Library/Mobile%20Documents/com~apple~CloudDocs/WeBank/2604%20CCBA/既有Bond%20issue%20procedure/02_Meeting_Notes/Inbox/2026-04-16%20%7C%20链上基金发行、赎回与分红流程讨论.md)
+- [2026-04-16 - 链上基金发行、赎回与分红流程讨论.md](/Users/xingjianliu/Library/Mobile%20Documents/com~apple~CloudDocs/WeBank/2604%20CCBA/既有Bond%20issue%20procedure/02_Meeting_Notes/Inbox/2026-04-16%20-%20链上基金发行、赎回与分红流程讨论.md)
 
 ## Scope
 

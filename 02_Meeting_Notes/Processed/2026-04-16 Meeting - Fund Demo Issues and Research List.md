@@ -3,7 +3,7 @@
 ## 背景
 
 本文件基于以下原始会议纪要整理：
-- [2026-04-16 | 链上基金发行、赎回与分红流程讨论.md](/Users/xingjianliu/Library/Mobile%20Documents/com~apple~CloudDocs/WeBank/2604%20CCBA/既有Bond%20issue%20procedure/02_Meeting_Notes/Inbox/2026-04-16%20%7C%20链上基金发行、赎回与分红流程讨论.md)
+- [2026-04-16 - 链上基金发行、赎回与分红流程讨论.md](/Users/xingjianliu/Library/Mobile%20Documents/com~apple~CloudDocs/WeBank/2604%20CCBA/既有Bond%20issue%20procedure/02_Meeting_Notes/Inbox/2026-04-16%20-%20链上基金发行、赎回与分红流程讨论.md)
 
 本次整理目标不是复述完整转写，而是提炼出：
 - 当前 demo / Ticket 已识别的问题
