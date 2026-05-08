@@ -114,3 +114,4 @@
 - `04_User_Flows/FLOW - Fund Full Lifecycle Overview.md`
 - `05_Architecture/Diagrams/ARCH - Fund Platform Sequence Diagrams.md`
 - `06_Product_Decisions/DECISION - Lifecycle Scope Boundary.md`
+- `06_Product_Decisions/SOW - Fund RWA Platform Scope of Work.md` ← 新增（2026-04-27）

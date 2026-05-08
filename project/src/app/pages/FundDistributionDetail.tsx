@@ -39,6 +39,7 @@ import {
 } from "../components/modals/OperationActionModal";
 import { FundDistribution, FundOrder, type DistributionElection } from "../data/fundDemoData";
 import { cn } from "../components/ui/utils";
+import { buildIssuerDistributionTaProjection } from "../lib/transferAgency";
 
 type DistributionTab = "overview" | "recipients" | "payout" | "manual";
 type DistributionActionImpactType = "internal" | "ta" | "onchain" | "hybrid";
@@ -1396,6 +1397,15 @@ export function FundDistributionDetail() {
     updateFundDistribution,
     getPermissionResult,
     userRole,
+    transferAgencyInstructions,
+    holderSnapshots,
+    holderSnapshotPositions,
+    settlementLists,
+    settlementListLines,
+    evidenceRecords,
+    workflowState,
+    createTransferAgencyInstructionFromIssuer,
+    workflowAcknowledgeTask,
   } = useApp();
 
   const distribution = fundDistributions.find(
@@ -1483,15 +1493,90 @@ export function FundDistributionDetail() {
     linkedFund,
     fundOrders,
   );
-  const recipientPreview = buildDistributionRecipients(
+  const localRecipientPreview = buildDistributionRecipients(
     distributionViewModel,
     linkedFund,
     fundOrders,
   );
+  const distributionTaProjection = buildIssuerDistributionTaProjection(distribution, {
+    instructions: transferAgencyInstructions,
+    holderSnapshots,
+    holderSnapshotPositions,
+    settlementLists,
+    settlementListLines,
+    evidenceRecords,
+  });
+  const distributionWorkflow = workflowState.instances.find(
+    (workflow) => workflow.sourceType === "Distribution" && workflow.sourceReference === distribution.id,
+  );
+  const distributionWorkflowTask = distributionWorkflow
+    ? workflowState.tasks.find((task) => task.workflowId === distributionWorkflow.workflowId)
+    : undefined;
+  const recipientPreview =
+    distributionTaProjection.lines.length > 0
+      ? {
+          ...localRecipientPreview,
+          rows: distributionTaProjection.lines.map((line) => {
+            const position = distributionTaProjection.positions.find(
+              (item) => item.positionId === line.holderSnapshotPositionId,
+            );
+            return {
+              investorId: line.registerAccountId,
+              investorName: line.holderName,
+              investorWallet: line.destination,
+              category: "Register holder",
+              shareClass: distributionTaProjection.snapshot?.classId || linkedFund?.shareClass || "Class A",
+              eligibleUnits: parseLeadingNumber(position?.units),
+              estimatedPayout: parseLeadingNumber(line.amount),
+              distributionElection: undefined as DistributionElection | undefined,
+            };
+          }),
+          categoryBreakdown: [
+            {
+              category: "Register holder",
+              holderCount: distributionTaProjection.lines.length,
+              eligibleUnits: distributionTaProjection.positions.reduce(
+                (sum, position) => sum + parseLeadingNumber(position.units),
+                0,
+              ),
+              estimatedPayout: distributionTaProjection.lines.reduce(
+                (sum, line) => sum + parseLeadingNumber(line.amount),
+                0,
+              ),
+            },
+          ],
+          totalRecipients: distributionTaProjection.lines.length,
+          totalEligibleUnits: distributionTaProjection.positions.reduce(
+            (sum, position) => sum + parseLeadingNumber(position.units),
+            0,
+          ),
+          totalEstimatedPayout: distributionTaProjection.lines.reduce(
+            (sum, line) => sum + parseLeadingNumber(line.amount),
+            0,
+          ),
+        }
+      : localRecipientPreview;
   const manuallyExcludedRecipients = allRecipientPreview.rows.filter((recipient) =>
     manualExcludedInvestorIds.includes(recipient.investorId),
   );
-  const transferAgentOps = distribution.transferAgentOps;
+  const transferAgentOps = {
+    ...distribution.transferAgentOps,
+    transferAgentName: distribution.transferAgentOps?.transferAgentName || "Harbor Registry Services",
+    transferAgentStatus: distributionTaProjection.status,
+    holderRegisterDate: distributionTaProjection.snapshot?.recordDate || distribution.transferAgentOps?.holderRegisterDate,
+    holderSnapshotId: distributionTaProjection.snapshot?.snapshotId || distribution.transferAgentOps?.holderSnapshotId,
+    holderSnapshotLockedAt: distributionTaProjection.snapshot?.lockedAt || distribution.transferAgentOps?.holderSnapshotLockedAt,
+    recipientListStatus: distributionTaProjection.list?.status || distribution.transferAgentOps?.recipientListStatus,
+    recipientListGeneratedAt: distributionTaProjection.list?.generatedAt || distribution.transferAgentOps?.recipientListGeneratedAt,
+    reconciliationStatus:
+      distributionTaProjection.status === "Reconciled"
+        ? "Reconciled"
+        : distribution.transferAgentOps?.reconciliationStatus,
+    lastTransferAgentAction:
+      distributionTaProjection.instruction
+        ? `${distributionTaProjection.nextActionLabel} (${distributionTaProjection.status})`
+        : distribution.transferAgentOps?.lastTransferAgentAction,
+  };
   const showTransferAgentLayer = isClosedEndDistribution || Boolean(transferAgentOps);
   const distributionCurrency =
     distribution.payoutToken || distribution.distributionUnit || linkedFund?.assetCurrency || "Unit";
@@ -1739,6 +1824,24 @@ export function FundDistributionDetail() {
     toast.success(message);
   };
 
+  const runTaCommand = (result: { success: boolean; message?: string }) => {
+    if (result.success) {
+      toast.success(result.message || "Transfer-agent action completed.");
+    } else {
+      toast.error(result.message || "Transfer-agent action could not be completed.");
+    }
+  };
+
+  const handleDistributionTaAction = () => {
+    if (!distributionWorkflow) {
+      runTaCommand(createTransferAgencyInstructionFromIssuer("Distribution", distribution.id));
+      return;
+    }
+    if (distributionWorkflow?.status === "SubmittedToIssuer" && distributionWorkflowTask) {
+      runTaCommand(workflowAcknowledgeTask(distributionWorkflowTask.taskId));
+    }
+  };
+
   return (
     <div className="container mx-auto px-6 py-8 max-w-7xl">
       {/* Breadcrumbs */}
@@ -1979,14 +2082,56 @@ export function FundDistributionDetail() {
           </Card>
 
           {showTransferAgentLayer && (
-            <TransferAgentOperationsCard
-              className="mt-6"
-              description="Use the transfer-agent operating layer to prove who locked the snapshot, who generated the recipient list, and whether funding is ready."
-              operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
-              status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
-              fields={transferAgentFields}
-              note="Eligibility logic for this distribution is fixed: all holders on the record date are included in the recipient list."
-            />
+            <>
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle>TA Handoff</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-muted-foreground">Status</div>
+                      <div className="mt-1 font-medium">
+                        {distributionWorkflow?.status || "Not sent to TA workflow"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-muted-foreground">Included holders</div>
+                      <div className="mt-1 font-medium">{distributionTaProjection.includedCount}</div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-muted-foreground">Register version</div>
+                      <div className="mt-1 truncate font-mono text-xs">
+                        {distributionTaProjection.registerVersionId || "Pending"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-muted-foreground">Projected payout</div>
+                      <div className="mt-1 font-medium">{distributionTaProjection.totalAmount}</div>
+                    </div>
+                  </div>
+                  <Button
+                    className="w-full"
+                    disabled={Boolean(distributionWorkflow) && distributionWorkflow.status !== "SubmittedToIssuer"}
+                    onClick={handleDistributionTaAction}
+                  >
+                    {distributionWorkflow?.status === "SubmittedToIssuer"
+                      ? "Acknowledge TA Output"
+                      : distributionWorkflow
+                        ? "Await Transfer Agent"
+                        : "Send To Transfer Agent"}
+                  </Button>
+                </CardContent>
+              </Card>
+              <TransferAgentOperationsCard
+                className="mt-6"
+                description="Use the transfer-agent operating layer to prove who locked the snapshot, who generated the recipient list, and whether funding is ready."
+                operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
+                status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
+                fields={transferAgentFields}
+                note="Eligibility logic for this distribution is fixed: all holders on the record date are included in the recipient list."
+              />
+            </>
           )}
 
           {linkedFund && (

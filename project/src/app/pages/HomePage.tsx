@@ -5,6 +5,15 @@ import { useApp } from "../context/AppContext";
 
 export function HomePage() {
   const { userRole } = useApp();
+  const primaryPath = userRole === "transferAgent" ? "/ta" : "/funds";
+  const secondaryPath =
+    userRole === "issuer"
+      ? "/create/fund-issuance"
+      : userRole === "transferAgent"
+        ? "/ta/queue"
+        : "/marketplace/fund-issuance";
+  const secondaryLabel =
+    userRole === "issuer" ? "Create New Fund" : userRole === "transferAgent" ? "Open Work Queue" : "Explore Marketplace";
 
   return (
     <div className="container mx-auto px-6 py-20">
@@ -30,17 +39,17 @@ export function HomePage() {
           className="flex gap-4 justify-center"
         >
           <Link
-            to="/funds"
+            to={primaryPath}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity"
           >
-            Open Funds Workspace
+            {userRole === "transferAgent" ? "Open TA Console" : "Open Funds Workspace"}
             <ArrowRight className="w-4 h-4" />
           </Link>
           <Link
-            to={userRole === "issuer" ? "/create/fund-issuance" : "/marketplace/fund-issuance"}
+            to={secondaryPath}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-border bg-white font-medium hover:bg-secondary transition-colors"
           >
-            {userRole === "issuer" ? "Create New Fund" : "Explore Marketplace"}
+            {secondaryLabel}
           </Link>
         </motion.div>
 

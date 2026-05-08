@@ -68,6 +68,7 @@ import {
   FundRedemptionConfig,
   NavRecord,
 } from "../data/fundDemoData";
+import { buildIssuerLifecycleProjection } from "../lib/transferAgency";
 import {
   ComposedChart,
   CartesianGrid,
@@ -3466,6 +3467,10 @@ export function FundIssuanceDetail() {
     updateFundStatus,
     getPermissionResult,
     userRole,
+    registerDeltas,
+    registerVersions,
+    reconciliationBreaks,
+    cashMovements,
   } = useApp();
 
   const fundData = fundIssuances.find((fund) => fund.id === id);
@@ -3537,7 +3542,39 @@ export function FundIssuanceDetail() {
         order.status,
       ),
   ).length;
-  const issuanceTaOps = fundData.transferAgentOps;
+  const issuerTaProjection = buildIssuerLifecycleProjection({
+    fund: fundData,
+    registerDeltas,
+    registerVersions,
+    reconciliationBreaks,
+    cashMovements,
+  });
+  const projectedTaStatusLabel = {
+    NotStarted: "Register Not Started",
+    PendingReview: "Register Pending Review",
+    DeltaPrepared: "Register Delta Prepared",
+    Posted: "Register Posted",
+    Blocked: "Register Blocked",
+  }[issuerTaProjection.taRegisterStatus];
+  const issuanceTaOps = {
+    ...fundData.transferAgentOps,
+    holderRegisterDate:
+      issuerTaProjection.latestRegisterVersion?.releasedAt ||
+      issuerTaProjection.latestRegisterVersion?.effectiveAt ||
+      fundData.transferAgentOps?.holderRegisterDate,
+    registerVersion:
+      issuerTaProjection.latestRegisterVersion?.registerVersionId ||
+      fundData.transferAgentOps?.registerVersion,
+    transferAgentStatus: projectedTaStatusLabel,
+    ledgerApprovalStatus:
+      issuerTaProjection.openBreakCount > 0
+        ? `${projectedTaStatusLabel} / ${issuerTaProjection.openBreakCount} open break(s)`
+        : projectedTaStatusLabel,
+    lastTransferAgentAction:
+      issuerTaProjection.latestRegisterVersion
+        ? `Register projection released ${issuerTaProjection.latestRegisterVersion.registerVersionId}.`
+        : fundData.transferAgentOps?.lastTransferAgentAction,
+  };
   const ledgerOrders = isMarketplaceView ? visibleOrders : allFundOrders;
   const issuanceLedgerRows = buildIssuanceLedgerRows(ledgerOrders, fundData, allocationPreview);
   const issuanceApprovalObjects = buildIssuanceApprovalObjects(

@@ -52,6 +52,7 @@ import {
 } from "../components/TransferAgentPanels";
 import { useApp } from "../context/AppContext";
 import { FundIssuance, FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
+import { buildIssuerRedemptionTaProjection } from "../lib/transferAgency";
 import { cn } from "../components/ui/utils";
 
 type RedemptionTab =
@@ -1910,6 +1911,15 @@ export function FundRedemptionDetail() {
     updateFundRedemption,
     updateRedemptionStatus,
     updateFundOrderStatus,
+    transferAgencyInstructions,
+    holderSnapshots,
+    holderSnapshotPositions,
+    settlementLists,
+    settlementListLines,
+    evidenceRecords,
+    workflowState,
+    createTransferAgencyInstructionFromIssuer,
+    workflowAcknowledgeTask,
     getPermissionResult,
     userRole,
   } = useApp();
@@ -1945,8 +1955,8 @@ export function FundRedemptionDetail() {
   const manuallyExcludedRequests = requests.filter((request) =>
     manualExcludedRequestIds.includes(request.id),
   );
-  const paymentRows = buildRedemptionPaymentRows(activeSettlementRequests);
-  const holderSnapshotRows = buildHolderSnapshotRows(activeSettlementRequests);
+  const localPaymentRows = buildRedemptionPaymentRows(activeSettlementRequests);
+  const localHolderSnapshotRows = buildHolderSnapshotRows(activeSettlementRequests);
   const batches = fundBatches.filter(
     (batch) => batch.fundId === redemption.fundId && batch.type === "redemption",
   );
@@ -1957,6 +1967,77 @@ export function FundRedemptionDetail() {
     fund?.navCurrency ||
     fund?.assetCurrency ||
     "";
+  const redemptionTaProjection = buildIssuerRedemptionTaProjection(redemption, {
+    instructions: transferAgencyInstructions,
+    holderSnapshots,
+    holderSnapshotPositions,
+    settlementLists,
+    settlementListLines,
+    evidenceRecords,
+  });
+  const redemptionWorkflow = workflowState.instances.find(
+    (workflow) => workflow.sourceType === "Redemption" && workflow.sourceReference === redemption.id,
+  );
+  const redemptionWorkflowTask = redemptionWorkflow
+    ? workflowState.tasks.find((task) => task.workflowId === redemptionWorkflow.workflowId)
+    : undefined;
+  const holderSnapshotRows =
+    redemptionTaProjection.positions.length > 0
+      ? redemptionTaProjection.positions.map((position) => ({
+          id: position.positionId,
+          investorName: position.holderName,
+          destinationAccount: position.walletAddress,
+          snapshotUnits: position.units,
+          estimatedCash: position.cashAmount || "Pending",
+          requestStatus: position.included ? "Confirmed" : position.exclusionReason || "Excluded",
+        }))
+      : localHolderSnapshotRows;
+  const paymentRows =
+    redemptionTaProjection.lines.length > 0
+      ? redemptionTaProjection.lines.map((line) => {
+          const position = redemptionTaProjection.positions.find(
+            (item) => item.positionId === line.holderSnapshotPositionId,
+          );
+
+          return {
+            id: line.lineId,
+            investorName: line.holderName,
+            destinationAccount: line.destination,
+            unitsAccepted: position?.units || "N/A",
+            pricePerUnit: redemption.latestNav,
+            grossAmount: line.amount,
+            netAmount: line.amount,
+            paymentStatus: line.status,
+            paymentReference: line.lineId,
+          };
+        })
+      : localPaymentRows;
+  const transferAgentOps = {
+    ...redemption.transferAgentOps,
+    transferAgentName: redemption.transferAgentOps?.transferAgentName || "Harbor Registry Services",
+    transferAgentStatus: redemptionTaProjection.status,
+    holderRegisterDate:
+      redemptionTaProjection.snapshot?.recordDate || redemption.transferAgentOps?.holderRegisterDate,
+    holderSnapshotId:
+      redemptionTaProjection.snapshot?.snapshotId || redemption.transferAgentOps?.holderSnapshotId,
+    holderSnapshotLockedAt:
+      redemptionTaProjection.snapshot?.lockedAt || redemption.transferAgentOps?.holderSnapshotLockedAt,
+    paymentListStatus:
+      redemptionTaProjection.list?.status || redemption.transferAgentOps?.paymentListStatus,
+    paymentListGeneratedAt:
+      redemptionTaProjection.list?.generatedAt || redemption.transferAgentOps?.paymentListGeneratedAt,
+    reconciliationStatus:
+      redemptionTaProjection.status === "Reconciled"
+        ? "Reconciled"
+        : redemption.transferAgentOps?.reconciliationStatus,
+    reconciledAt:
+      redemptionTaProjection.status === "Reconciled"
+        ? redemptionTaProjection.snapshot?.lastActionAt
+        : redemption.transferAgentOps?.reconciledAt,
+    lastTransferAgentAction: redemptionTaProjection.instruction
+      ? `${redemptionTaProjection.nextActionLabel} (${redemptionTaProjection.status})`
+      : redemption.transferAgentOps?.lastTransferAgentAction,
+  };
   const setupActions = getStructuredRedemptionActions(redemption, {
     fund,
     requests,
@@ -1964,7 +2045,7 @@ export function FundRedemptionDetail() {
     manuallyExcludedRequests,
     holderSnapshotRows,
     paymentRows,
-    transferAgentOps: redemption.transferAgentOps,
+    transferAgentOps,
     currencyLabel: redemptionCurrency,
     batchesCount: batches.length,
   });
@@ -2044,8 +2125,8 @@ export function FundRedemptionDetail() {
   const editableFieldLabels = getEditableRedemptionFieldLabels(redemption);
   const controlChecks = buildRedemptionControlChecks(redemption, fund);
   const editIntentRequested = new URLSearchParams(location.search).get("mode") === "edit";
-  const transferAgentOps = redemption.transferAgentOps;
-  const showTransferAgentLayer = !isOpenEndFund || Boolean(transferAgentOps);
+  const showTransferAgentLayer =
+    !isOpenEndFund || Boolean(redemption.transferAgentOps) || Boolean(redemptionTaProjection.instruction);
   const totalSnapshotUnits = holderSnapshotRows.reduce(
     (sum, row) => sum + parseLeadingNumber(row.snapshotUnits),
     0,
@@ -2214,6 +2295,26 @@ export function FundRedemptionDetail() {
     );
     if (!updated) return;
     toast.success(message);
+  };
+
+  const runTaCommand = (result: { success: boolean; message?: string }) => {
+    if (result.success) {
+      toast.success(result.message || "Transfer-agent action completed.");
+      return;
+    }
+
+    toast.error(result.message || "Transfer-agent action could not be completed.");
+  };
+
+  const handleRedemptionTaAction = () => {
+    if (!redemptionWorkflow) {
+      runTaCommand(createTransferAgencyInstructionFromIssuer("Redemption", redemption.id));
+      return;
+    }
+
+    if (redemptionWorkflow?.status === "SubmittedToIssuer" && redemptionWorkflowTask) {
+      runTaCommand(workflowAcknowledgeTask(redemptionWorkflowTask.taskId));
+    }
   };
 
   return (
@@ -2407,13 +2508,58 @@ export function FundRedemptionDetail() {
           </Card>
 
           {showTransferAgentLayer && (
-            <TransferAgentOperationsCard
-              description="This panel makes the transfer-agent operating role explicit: holder snapshot, payment-list generation, funding check, and close-out."
-              operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
-              status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
-              fields={transferAgentFields}
-              note="For this closed-end redemption event, the transfer agent controls the holder snapshot and publishes the payment list after the participation window closes."
-            />
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>TA Handoff</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-muted-foreground">Status</div>
+                      <div className="mt-1 font-medium">
+                        {redemptionWorkflow?.status || "Not sent to TA workflow"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-muted-foreground">Included Holders</div>
+                      <div className="mt-1 font-medium">{redemptionTaProjection.includedCount}</div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-muted-foreground">Register Version</div>
+                      <div className="mt-1 font-medium break-all">
+                        {redemptionTaProjection.registerVersionId || "Pending"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-muted-foreground">Payment Amount</div>
+                      <div className="mt-1 font-medium">{redemptionTaProjection.totalAmount}</div>
+                    </div>
+                  </div>
+                  {userRole === "issuer" && (
+                    <Button
+                      className="w-full"
+                      disabled={Boolean(redemptionWorkflow) && redemptionWorkflow.status !== "SubmittedToIssuer"}
+                      onClick={handleRedemptionTaAction}
+                    >
+                      {redemptionWorkflow?.status === "SubmittedToIssuer"
+                        ? "Acknowledge TA Output"
+                        : redemptionWorkflow
+                          ? "Await Transfer Agent"
+                          : "Send To Transfer Agent"}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+
+              <TransferAgentOperationsCard
+                description="This panel makes the transfer-agent operating role explicit: holder snapshot, payment-list generation, funding check, and close-out."
+                operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
+                status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
+                fields={transferAgentFields}
+                note="For this closed-end redemption event, the transfer agent controls the holder snapshot and publishes the payment list after the participation window closes."
+              />
+            </>
           )}
 
           {fund && (

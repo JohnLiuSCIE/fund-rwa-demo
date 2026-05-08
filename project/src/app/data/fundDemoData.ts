@@ -54,7 +54,7 @@ export type OrderStatus =
   | "Rejected";
 
 export type BatchStatus = "Scheduled" | "Processing" | "Confirmed" | "Settled";
-export type ActorRole = "issuer" | "investor";
+export type ActorRole = "issuer" | "investor" | "transferAgent";
 export type NavUpdateMode = "Manual" | "Oracle Feed";
 
 export interface NavRecord {
@@ -322,6 +322,304 @@ export interface FundDistribution {
   lastActorRole?: ActorRole;
   lastActionAt?: string;
   identitySource?: "authSession";
+}
+
+export type InstructionType =
+  | "Subscription"
+  | "Redemption"
+  | "Transfer"
+  | "WalletChange"
+  | "DistributionEvent"
+  | "RecordDate"
+  | "RegisterCorrection"
+  | "TokenRecovery";
+
+export type InstructionStatus =
+  | "Received"
+  | "PendingEvidence"
+  | "PendingApproval"
+  | "ReadyForRegisterReview"
+  | "SnapshotLocked"
+  | "ListGenerated"
+  | "SubmittedToIssuer"
+  | "IssuerAcknowledged"
+  | "RegisterDeltaPrepared"
+  | "RegisterPosted"
+  | "Rejected"
+  | "Cancelled"
+  | "Reconciled";
+
+export interface TransferAgencyInstruction {
+  instructionId: string;
+  instructionType: InstructionType;
+  fundId: string;
+  classId: string;
+  sourceActorType: "Investor" | "Issuer" | "Distributor" | "TransferAgent" | "Custodian" | "VATP" | "System";
+  sourceActorId: string;
+  sourceChannel: "IssuerPortal" | "InvestorPortal" | "TAConsole" | "DistributorAPI" | "VATPAPI" | "BatchUpload" | "System";
+  sourceReference?: string;
+  idempotencyKey: string;
+  status: InstructionStatus;
+  evidenceRefIds: string[];
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
+}
+
+export interface RegisterAccount {
+  registerAccountId: string;
+  fundId: string;
+  classId: string;
+  holderId: string;
+  holderName: string;
+  registeredAddress: string;
+  holderType: "Direct" | "Nominee" | "DistributorOmnibus" | "VATPOmnibus";
+  units: string;
+  accountStatus: "Pending" | "Active" | "Restricted" | "Suspended" | "Closed";
+  openedAt?: string;
+  ceasedAt?: string;
+  source: "Direct" | "Distributor" | "HKEXIFP" | "VATP" | "Migration";
+  lastDeltaId?: string;
+  lastReconciledAt?: string;
+  version: number;
+}
+
+export interface WalletLink {
+  walletLinkId: string;
+  registerAccountId: string;
+  walletAddress: string;
+  chainId: string;
+  proofStatus: "Missing" | "Submitted" | "Verified" | "Rejected" | "Expired";
+  whitelistStatus: "NotRequired" | "Pending" | "Whitelisted" | "Removed" | "Suspended";
+  proofRefId?: string;
+  verifiedAt?: string;
+  version: number;
+}
+
+export interface RegisterDelta {
+  deltaId: string;
+  instructionId: string;
+  fundId: string;
+  classId: string;
+  registerAccountId: string;
+  deltaType: "Issue" | "Redeem" | "TransferIn" | "TransferOut" | "WalletChange" | "Restriction" | "Correction";
+  units: string;
+  navRefId?: string;
+  cashRefId?: string;
+  tokenEventRefId?: string;
+  reasonCode: string;
+  makerId?: string;
+  checkerId?: string;
+  makerStatus: "Draft" | "Submitted";
+  checkerStatus: "NotRequired" | "Pending" | "Approved" | "Rejected";
+  postingStatus: "NotPosted" | "Posting" | "Posted" | "Reversed" | "Failed";
+  effectiveAt?: string;
+  postedAt?: string;
+  previousRegisterVersionId?: string;
+  newRegisterVersionId?: string;
+  idempotencyKey: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
+}
+
+export interface RegisterVersion {
+  registerVersionId: string;
+  fundId: string;
+  classId: string;
+  status: "Draft" | "PendingChecker" | "Released" | "Superseded" | "Voided";
+  effectiveAt: string;
+  releasedAt?: string;
+  previousRegisterVersionId?: string;
+  totalHolders: number;
+  totalUnits: string;
+  registerHash: string;
+  deltaIds: string[];
+  releasedBy?: string;
+  createdAt: string;
+  version: number;
+}
+
+export interface CashMovement {
+  cashMovementId: string;
+  instructionId: string;
+  fundId: string;
+  classId: string;
+  direction: "In" | "Out";
+  amount: string;
+  currency: string;
+  status: "Expected" | "ProofUploaded" | "Matched" | "Confirmed" | "Failed" | "Reversed";
+  owner: "IssuerOps" | "Custodian" | "Bank" | "StablecoinCustodian" | "TransferAgent";
+  reference?: string;
+  confirmedAt?: string;
+  version: number;
+}
+
+export interface TransferAgencyNavRecord {
+  navRefId: string;
+  fundId: string;
+  classId: string;
+  navDate: string;
+  navValue: string;
+  currency: string;
+  status: "Draft" | "Official" | "Corrected" | "Voided";
+  publishedAt?: string;
+  version: number;
+}
+
+export interface TokenEvent {
+  tokenEventRefId: string;
+  fundId: string;
+  classId: string;
+  eventType: "Mint" | "Burn" | "Transfer" | "Whitelist" | "Recover" | "Pause" | "Unpause";
+  chainId: string;
+  txHash?: string;
+  blockNumber?: number;
+  fromAddress?: string;
+  toAddress?: string;
+  amount?: string;
+  status: "Observed" | "Confirmed" | "Finalized" | "Rejected" | "Reorged";
+  linkedDeltaId?: string;
+  createdAt: string;
+  version: number;
+}
+
+export interface ReconciliationBreak {
+  breakId: string;
+  fundId: string;
+  classId: string;
+  instructionId?: string;
+  registerDeltaId?: string;
+  severity: "Low" | "Medium" | "High" | "Critical";
+  breakType:
+    | "RegisterVsToken"
+    | "RegisterVsCash"
+    | "OrderVsRegister"
+    | "WalletNotMapped"
+    | "RestrictedTransfer"
+    | "NAVMismatch"
+    | "DuplicateInstruction"
+    | "ApprovalMissing";
+  description: string;
+  status: "Open" | "Assigned" | "UnderReview" | "Resolved" | "Waived";
+  ownerRole: "Issuer" | "TransferAgent" | "Distributor" | "Custodian" | "VATP" | "System";
+  resolutionRefId?: string;
+  detectedAt: string;
+  resolvedAt?: string;
+  version: number;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
+}
+
+export interface EvidenceRecord {
+  evidenceRefId: string;
+  fundId?: string;
+  classId?: string;
+  instructionId?: string;
+  registerDeltaId?: string;
+  evidenceType:
+    | "OfferingDocument"
+    | "ProductProviderApproval"
+    | "KYCReference"
+    | "SuitabilityReference"
+    | "CashConfirmation"
+    | "NAVPublication"
+    | "TokenEvent"
+    | "RegisterVersion"
+    | "ReconciliationReport"
+    | "Waiver"
+    | "CorrectionMemo";
+  label: string;
+  storageUri?: string;
+  contentHash?: string;
+  sourceActorType: TransferAgencyInstruction["sourceActorType"];
+  sourceActorId: string;
+  createdAt: string;
+  retentionClass: "Operational" | "Audit" | "Regulatory";
+  version: number;
+}
+
+export type HolderSnapshotSourceType = "Distribution" | "Redemption";
+
+export interface HolderSnapshot {
+  snapshotId: string;
+  sourceType: HolderSnapshotSourceType;
+  sourceReference: string;
+  instructionId: string;
+  fundId: string;
+  classId: string;
+  registerVersionId: string;
+  recordDate: string;
+  status: "Requested" | "Locked" | "SubmittedToIssuer" | "IssuerAcknowledged" | "Reconciled";
+  lockedAt?: string;
+  submittedToIssuerAt?: string;
+  issuerAcknowledgedAt?: string;
+  reconciledAt?: string;
+  idempotencyKey: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
+}
+
+export interface HolderSnapshotPosition {
+  positionId: string;
+  snapshotId: string;
+  registerAccountId: string;
+  holderName: string;
+  holderId: string;
+  units: string;
+  walletAddress: string;
+  restrictionStatus: RegisterAccount["accountStatus"];
+  included: boolean;
+  exclusionReason?: string;
+  entitlementAmount?: string;
+  cashAmount?: string;
+  version: number;
+}
+
+export interface SettlementList {
+  listId: string;
+  listType: "RecipientList" | "PaymentList";
+  snapshotId: string;
+  sourceType: HolderSnapshotSourceType;
+  sourceReference: string;
+  status: "Draft" | "Generated" | "SubmittedToIssuer" | "Acknowledged" | "Reconciled";
+  generatedAt?: string;
+  submittedToIssuerAt?: string;
+  acknowledgedAt?: string;
+  reconciledAt?: string;
+  idempotencyKey: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
+}
+
+export interface SettlementListLine {
+  lineId: string;
+  listId: string;
+  snapshotId: string;
+  holderSnapshotPositionId: string;
+  registerAccountId: string;
+  holderName: string;
+  amount: string;
+  currency: string;
+  destination: string;
+  status: "Ready" | "Submitted" | "Paid" | "Reconciled" | "Held";
+  evidenceRefIds: string[];
+  version: number;
 }
 
 export const initialFunds: FundIssuance[] = [
@@ -934,6 +1232,638 @@ export const initialFundOrders: FundOrder[] = [
     note: "Cash payment completed against the approved repurchase event.",
   },
 ];
+
+export const initialTransferAgencyInstructions: TransferAgencyInstruction[] = [
+  {
+    instructionId: "instr-sub-001",
+    instructionType: "Subscription",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    sourceActorType: "Investor",
+    sourceActorId: "inv-001",
+    sourceChannel: "InvestorPortal",
+    sourceReference: "sub-001",
+    idempotencyKey: "InvestorPortal:sub-001:Subscription:20260416",
+    status: "ReadyForRegisterReview",
+    evidenceRefIds: ["ev-cash-sub-001", "ev-nav-dlf-20260416", "ev-kyc-john"],
+    createdAt: "2026-04-16 11:18:00",
+    updatedAt: "2026-04-16 18:06:00",
+    version: 1,
+  },
+  {
+    instructionId: "instr-sub-003",
+    instructionType: "Subscription",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    sourceActorType: "Distributor",
+    sourceActorId: "dist-apac-001",
+    sourceChannel: "DistributorAPI",
+    sourceReference: "sub-003",
+    idempotencyKey: "DistributorAPI:sub-003:Subscription:20260416",
+    status: "PendingEvidence",
+    evidenceRefIds: ["ev-cash-sub-003", "ev-nav-dlf-20260416"],
+    createdAt: "2026-04-16 14:05:00",
+    updatedAt: "2026-04-16 18:08:00",
+    version: 1,
+  },
+  {
+    instructionId: "instr-red-ce-001",
+    instructionType: "Redemption",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    sourceActorType: "Issuer",
+    sourceActorId: "issuer-real-estate-a",
+    sourceChannel: "IssuerPortal",
+    sourceReference: "red-ce-001",
+    idempotencyKey: "IssuerPortal:red-ce-001:Redemption:20260512",
+    status: "RegisterDeltaPrepared",
+    evidenceRefIds: ["ev-nav-rea-20260512", "ev-payment-red-ce-001", "ev-issuer-redemption-approval"],
+    createdAt: "2026-05-12 16:20:00",
+    updatedAt: "2026-05-13 09:18:00",
+    version: 2,
+  },
+  {
+    instructionId: "instr-dist-002",
+    instructionType: "RecordDate",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    sourceActorType: "Issuer",
+    sourceActorId: "issuer-real-estate-a",
+    sourceChannel: "IssuerPortal",
+    sourceReference: "distribution-002",
+    idempotencyKey: "IssuerPortal:distribution-002:RecordDate:20260520",
+    status: "ReadyForRegisterReview",
+    evidenceRefIds: ["ev-issuer-dist-approval", "ev-register-rea-20260520"],
+    createdAt: "2026-05-20 17:30:00",
+    updatedAt: "2026-05-20 18:25:00",
+    version: 3,
+  },
+  {
+    instructionId: "instr-redemption-003-ta",
+    instructionType: "Redemption",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    sourceActorType: "Issuer",
+    sourceActorId: "issuer-real-estate-a",
+    sourceChannel: "IssuerPortal",
+    sourceReference: "redemption-003",
+    idempotencyKey: "IssuerPortal:redemption-003:RedemptionHandoff:20260512",
+    status: "ReadyForRegisterReview",
+    evidenceRefIds: ["ev-issuer-redemption-approval"],
+    createdAt: "2026-05-12 16:30:00",
+    updatedAt: "2026-05-12 16:30:00",
+    version: 1,
+  },
+  {
+    instructionId: "instr-vatp-placeholder",
+    instructionType: "Transfer",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    sourceActorType: "VATP",
+    sourceActorId: "vatp-demo-001",
+    sourceChannel: "VATPAPI",
+    sourceReference: "designed-not-enabled",
+    idempotencyKey: "VATPAPI:designed-not-enabled:Transfer:20260416",
+    status: "PendingApproval",
+    evidenceRefIds: [],
+    createdAt: "2026-04-16 16:05:00",
+    updatedAt: "2026-04-16 16:05:00",
+    version: 1,
+  },
+];
+
+export const initialRegisterAccounts: RegisterAccount[] = [
+  {
+    registerAccountId: "ra-dlf-john",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    holderId: "holder-john",
+    holderName: "John Doe",
+    registeredAddress: "Central, Hong Kong SAR",
+    holderType: "Direct",
+    units: "488,281.25",
+    accountStatus: "Active",
+    openedAt: "2026-04-15 18:20:00",
+    source: "Direct",
+    lastDeltaId: "delta-sub-002",
+    lastReconciledAt: "2026-04-16 10:05:00",
+    version: 2,
+  },
+  {
+    registerAccountId: "ra-dlf-acme",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    holderId: "holder-acme",
+    holderName: "Acme Treasury",
+    registeredAddress: "Quarry Bay, Hong Kong SAR",
+    holderType: "DistributorOmnibus",
+    units: "0",
+    accountStatus: "Pending",
+    source: "Distributor",
+    version: 1,
+  },
+  {
+    registerAccountId: "ra-rea-harbor",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    holderId: "holder-harbor",
+    holderName: "Harbor Family Office",
+    registeredAddress: "Admiralty, Hong Kong SAR",
+    holderType: "Direct",
+    units: "42,105.26",
+    accountStatus: "Active",
+    openedAt: "2026-04-25 10:00:00",
+    source: "Distributor",
+    lastDeltaId: "delta-rea-issuance-harbor",
+    lastReconciledAt: "2026-05-20 18:20:00",
+    version: 3,
+  },
+  {
+    registerAccountId: "ra-rea-granite",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    holderId: "holder-granite",
+    holderName: "Granite Institutional Fund",
+    registeredAddress: "Tsim Sha Tsui, Hong Kong SAR",
+    holderType: "Direct",
+    units: "52,631.58",
+    accountStatus: "Restricted",
+    openedAt: "2026-04-25 10:00:00",
+    source: "Distributor",
+    lastDeltaId: "delta-rea-issuance-granite",
+    lastReconciledAt: "2026-05-14 15:35:00",
+    version: 3,
+  },
+];
+
+export const initialWalletLinks: WalletLink[] = [
+  {
+    walletLinkId: "wl-dlf-john",
+    registerAccountId: "ra-dlf-john",
+    walletAddress: "0xa7E4F2c8b9D1e3A5C7F6B2d8E9A1c3F5b7D9e2A4",
+    chainId: "wb-hk-chain",
+    proofStatus: "Verified",
+    whitelistStatus: "Whitelisted",
+    proofRefId: "ev-wallet-john",
+    verifiedAt: "2026-04-15 10:30:00",
+    version: 2,
+  },
+  {
+    walletLinkId: "wl-dlf-acme",
+    registerAccountId: "ra-dlf-acme",
+    walletAddress: "0x9c3A1E5d8F4B2c6D7e9A4f2C5b8D3e6A1f4B7c9E",
+    chainId: "wb-hk-chain",
+    proofStatus: "Expired",
+    whitelistStatus: "Pending",
+    proofRefId: "ev-wallet-acme-expired",
+    verifiedAt: "2026-03-01 09:00:00",
+    version: 1,
+  },
+  {
+    walletLinkId: "wl-rea-harbor",
+    registerAccountId: "ra-rea-harbor",
+    walletAddress: "0x1a2B3c4D5e6F708192A3b4C5d6E7f8091A2b3C4d",
+    chainId: "wb-hk-chain",
+    proofStatus: "Verified",
+    whitelistStatus: "Whitelisted",
+    proofRefId: "ev-wallet-harbor",
+    verifiedAt: "2026-04-18 09:45:00",
+    version: 2,
+  },
+  {
+    walletLinkId: "wl-rea-granite",
+    registerAccountId: "ra-rea-granite",
+    walletAddress: "0x2b3C4d5E6f708192A3b4C5d6E7f8091A2b3C4d5E",
+    chainId: "wb-hk-chain",
+    proofStatus: "Expired",
+    whitelistStatus: "Suspended",
+    proofRefId: "ev-wallet-granite-expired",
+    verifiedAt: "2026-03-15 11:10:00",
+    version: 2,
+  },
+];
+
+export const initialRegisterDeltas: RegisterDelta[] = [
+  {
+    deltaId: "delta-sub-001",
+    instructionId: "instr-sub-001",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    registerAccountId: "ra-dlf-john",
+    deltaType: "Issue",
+    units: "243,997.66",
+    navRefId: "nav-dlf-20260416",
+    cashRefId: "cash-sub-001",
+    reasonCode: "PRIMARY_SUBSCRIPTION",
+    makerStatus: "Draft",
+    checkerStatus: "NotRequired",
+    postingStatus: "NotPosted",
+    effectiveAt: "2026-04-16 18:20:00",
+    previousRegisterVersionId: "REG-DLF-HKD-20260415-017",
+    newRegisterVersionId: "REG-DLF-HKD-20260416-018",
+    idempotencyKey: "TAConsole:delta-sub-001:PrepareDelta:20260416",
+    createdAt: "2026-04-16 18:06:00",
+    updatedAt: "2026-04-16 18:06:00",
+    version: 1,
+  },
+  {
+    deltaId: "delta-sub-003",
+    instructionId: "instr-sub-003",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    registerAccountId: "ra-dlf-acme",
+    deltaType: "Issue",
+    units: "1,171,189.54",
+    navRefId: "nav-dlf-20260416",
+    cashRefId: "cash-sub-003",
+    reasonCode: "PRIMARY_SUBSCRIPTION",
+    makerStatus: "Draft",
+    checkerStatus: "NotRequired",
+    postingStatus: "NotPosted",
+    effectiveAt: "2026-04-16 18:20:00",
+    previousRegisterVersionId: "REG-DLF-HKD-20260415-017",
+    newRegisterVersionId: "REG-DLF-HKD-20260416-019",
+    idempotencyKey: "TAConsole:delta-sub-003:PrepareDelta:20260416",
+    createdAt: "2026-04-16 18:08:00",
+    updatedAt: "2026-04-16 18:08:00",
+    version: 1,
+  },
+  {
+    deltaId: "delta-red-ce-001",
+    instructionId: "instr-red-ce-001",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    registerAccountId: "ra-rea-harbor",
+    deltaType: "Redeem",
+    units: "20,000",
+    navRefId: "nav-rea-20260512",
+    cashRefId: "cash-red-ce-001",
+    tokenEventRefId: "token-burn-red-ce-001",
+    reasonCode: "REPURCHASE_EVENT",
+    makerId: "ta-maker-001",
+    checkerId: "ta-checker-001",
+    makerStatus: "Submitted",
+    checkerStatus: "Approved",
+    postingStatus: "NotPosted",
+    effectiveAt: "2026-05-13 09:20:00",
+    previousRegisterVersionId: "REG-REA-HKD-20260512-004",
+    newRegisterVersionId: "REG-REA-HKD-20260513-005",
+    idempotencyKey: "TAConsole:delta-red-ce-001:PostRegister:20260513",
+    createdAt: "2026-05-13 09:18:00",
+    updatedAt: "2026-05-13 09:18:00",
+    version: 2,
+  },
+  {
+    deltaId: "delta-dist-002",
+    instructionId: "instr-dist-002",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    registerAccountId: "ra-rea-harbor",
+    deltaType: "Restriction",
+    units: "0",
+    reasonCode: "RECORD_DATE_SNAPSHOT",
+    makerId: "ta-maker-002",
+    checkerId: "ta-checker-002",
+    makerStatus: "Submitted",
+    checkerStatus: "Approved",
+    postingStatus: "Posted",
+    effectiveAt: "2026-05-20 18:00:00",
+    postedAt: "2026-05-20 18:05:00",
+    previousRegisterVersionId: "REG-REA-HKD-20260512-004",
+    newRegisterVersionId: "REG-REA-HKD-20260520-006",
+    idempotencyKey: "TAConsole:delta-dist-002:PostRegister:20260520",
+    createdAt: "2026-05-20 17:55:00",
+    updatedAt: "2026-05-20 18:05:00",
+    version: 3,
+  },
+];
+
+export const initialRegisterVersions: RegisterVersion[] = [
+  {
+    registerVersionId: "REG-DLF-HKD-20260415-017",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    status: "Released",
+    effectiveAt: "2026-04-15 18:20:00",
+    releasedAt: "2026-04-15 18:22:00",
+    totalHolders: 1,
+    totalUnits: "488,281.25",
+    registerHash: "0xregdlf017",
+    deltaIds: ["delta-sub-002"],
+    releasedBy: "ta-checker-001",
+    createdAt: "2026-04-15 18:20:00",
+    version: 2,
+  },
+  {
+    registerVersionId: "REG-DLF-HKD-20260416-018",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    status: "Draft",
+    effectiveAt: "2026-04-16 18:20:00",
+    previousRegisterVersionId: "REG-DLF-HKD-20260415-017",
+    totalHolders: 1,
+    totalUnits: "732,278.91",
+    registerHash: "0xregdlf018draft",
+    deltaIds: ["delta-sub-001"],
+    createdAt: "2026-04-16 18:06:00",
+    version: 1,
+  },
+  {
+    registerVersionId: "REG-REA-HKD-20260512-004",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    status: "Released",
+    effectiveAt: "2026-05-12 17:00:00",
+    releasedAt: "2026-05-12 17:05:00",
+    totalHolders: 2,
+    totalUnits: "94,736.84",
+    registerHash: "0xregrea004",
+    deltaIds: ["delta-rea-issuance-harbor", "delta-rea-issuance-granite"],
+    releasedBy: "ta-checker-002",
+    createdAt: "2026-05-12 17:00:00",
+    version: 3,
+  },
+  {
+    registerVersionId: "REG-REA-HKD-20260520-006",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    status: "Released",
+    effectiveAt: "2026-05-20 18:00:00",
+    releasedAt: "2026-05-20 18:05:00",
+    previousRegisterVersionId: "REG-REA-HKD-20260512-004",
+    totalHolders: 2,
+    totalUnits: "94,736.84",
+    registerHash: "0xregrea006",
+    deltaIds: ["delta-dist-002"],
+    releasedBy: "ta-checker-002",
+    createdAt: "2026-05-20 18:00:00",
+    version: 3,
+  },
+];
+
+export const initialCashMovements: CashMovement[] = [
+  {
+    cashMovementId: "cash-sub-001",
+    instructionId: "instr-sub-001",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    direction: "In",
+    amount: "250,000",
+    currency: "HKD",
+    status: "Confirmed",
+    owner: "StablecoinCustodian",
+    reference: "TX-OPEN-HKD-001",
+    confirmedAt: "2026-04-16 11:19:00",
+    version: 2,
+  },
+  {
+    cashMovementId: "cash-sub-003",
+    instructionId: "instr-sub-003",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    direction: "In",
+    amount: "1,200,000",
+    currency: "HKD",
+    status: "Confirmed",
+    owner: "StablecoinCustodian",
+    reference: "TX-OPEN-HKD-003",
+    confirmedAt: "2026-04-16 14:06:00",
+    version: 2,
+  },
+  {
+    cashMovementId: "cash-red-ce-001",
+    instructionId: "instr-red-ce-001",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    direction: "Out",
+    amount: "2,000,000",
+    currency: "HKD",
+    status: "Matched",
+    owner: "Bank",
+    reference: "PAY-REA-FO-20260513",
+    version: 1,
+  },
+];
+
+export const initialTransferAgencyNavRecords: TransferAgencyNavRecord[] = [
+  {
+    navRefId: "nav-dlf-20260416",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    navDate: "2026-04-16",
+    navValue: "1.0246",
+    currency: "HKD",
+    status: "Official",
+    publishedAt: "2026-04-16 18:05:00",
+    version: 2,
+  },
+  {
+    navRefId: "nav-rea-20260512",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    navDate: "2026-05-12",
+    navValue: "100",
+    currency: "HKD",
+    status: "Official",
+    publishedAt: "2026-05-12 16:00:00",
+    version: 1,
+  },
+];
+
+export const initialTokenEvents: TokenEvent[] = [
+  {
+    tokenEventRefId: "token-mint-sub-002",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    eventType: "Mint",
+    chainId: "wb-hk-chain",
+    txHash: "0xmintsub002",
+    blockNumber: 2190041,
+    toAddress: "0xa7E4F2c8b9D1e3A5C7F6B2d8E9A1c3F5b7D9e2A4",
+    amount: "488,281.25",
+    status: "Finalized",
+    linkedDeltaId: "delta-sub-002",
+    createdAt: "2026-04-15 18:23:00",
+    version: 2,
+  },
+  {
+    tokenEventRefId: "token-burn-red-ce-001",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    eventType: "Burn",
+    chainId: "wb-hk-chain",
+    txHash: "0xburnredce001",
+    blockNumber: 2258801,
+    fromAddress: "0x1a2B3c4D5e6F708192A3b4C5d6E7f8091A2b3C4d",
+    amount: "20,000",
+    status: "Confirmed",
+    linkedDeltaId: "delta-red-ce-001",
+    createdAt: "2026-05-13 09:25:00",
+    version: 1,
+  },
+];
+
+export const initialReconciliationBreaks: ReconciliationBreak[] = [
+  {
+    breakId: "break-sub-003-wallet",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    instructionId: "instr-sub-003",
+    registerDeltaId: "delta-sub-003",
+    severity: "High",
+    breakType: "WalletNotMapped",
+    description: "Distributor order has cleared cash, but wallet proof is expired and cannot be whitelisted.",
+    status: "Open",
+    ownerRole: "TransferAgent",
+    detectedAt: "2026-04-16 18:08:00",
+    version: 1,
+  },
+  {
+    breakId: "break-red-ce-001-cash",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    instructionId: "instr-red-ce-001",
+    registerDeltaId: "delta-red-ce-001",
+    severity: "Medium",
+    breakType: "RegisterVsCash",
+    description: "Redemption burn is confirmed, but payment is matched rather than fully confirmed.",
+    status: "UnderReview",
+    ownerRole: "Custodian",
+    detectedAt: "2026-05-13 09:30:00",
+    version: 2,
+  },
+];
+
+export const initialEvidenceRecords: EvidenceRecord[] = [
+  {
+    evidenceRefId: "ev-cash-sub-001",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    instructionId: "instr-sub-001",
+    registerDeltaId: "delta-sub-001",
+    evidenceType: "CashConfirmation",
+    label: "Tokenized deposit receipt TX-OPEN-HKD-001",
+    contentHash: "0xevcashsub001",
+    sourceActorType: "Custodian",
+    sourceActorId: "stablecoin-custodian-hkd",
+    createdAt: "2026-04-16 11:19:00",
+    retentionClass: "Audit",
+    version: 1,
+  },
+  {
+    evidenceRefId: "ev-nav-dlf-20260416",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    instructionId: "instr-sub-001",
+    registerDeltaId: "delta-sub-001",
+    evidenceType: "NAVPublication",
+    label: "Official NAV 1.0246 HKD",
+    contentHash: "0xevnavdlf20260416",
+    sourceActorType: "System",
+    sourceActorId: "nav-service",
+    createdAt: "2026-04-16 18:05:00",
+    retentionClass: "Regulatory",
+    version: 1,
+  },
+  {
+    evidenceRefId: "ev-kyc-john",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    instructionId: "instr-sub-001",
+    evidenceType: "KYCReference",
+    label: "Distributor onboarding cleared for John Doe",
+    contentHash: "0xevkycjohn",
+    sourceActorType: "Distributor",
+    sourceActorId: "dist-apac-001",
+    createdAt: "2026-04-15 10:00:00",
+    retentionClass: "Operational",
+    version: 1,
+  },
+  {
+    evidenceRefId: "ev-wallet-acme-expired",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    instructionId: "instr-sub-003",
+    registerDeltaId: "delta-sub-003",
+    evidenceType: "KYCReference",
+    label: "Acme wallet proof expired before whitelist update",
+    contentHash: "0xevwalletacmeexpired",
+    sourceActorType: "Distributor",
+    sourceActorId: "dist-apac-001",
+    createdAt: "2026-04-16 18:08:00",
+    retentionClass: "Audit",
+    version: 1,
+  },
+  {
+    evidenceRefId: "ev-payment-red-ce-001",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    instructionId: "instr-red-ce-001",
+    registerDeltaId: "delta-red-ce-001",
+    evidenceType: "CashConfirmation",
+    label: "Repurchase payment file PAY-REA-FO-20260513",
+    contentHash: "0xevpaymentredce001",
+    sourceActorType: "Custodian",
+    sourceActorId: "settlement-bank-hk",
+    createdAt: "2026-05-13 09:18:00",
+    retentionClass: "Audit",
+    version: 1,
+  },
+  {
+    evidenceRefId: "ev-register-rea-20260520",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    instructionId: "instr-dist-002",
+    registerDeltaId: "delta-dist-002",
+    evidenceType: "RegisterVersion",
+    label: "Record-date register version REG-REA-HKD-20260520-006",
+    contentHash: "0xregrea006",
+    sourceActorType: "TransferAgent",
+    sourceActorId: "ta-checker-002",
+    createdAt: "2026-05-20 18:05:00",
+    retentionClass: "Regulatory",
+    version: 1,
+  },
+];
+
+export const initialHolderSnapshots: HolderSnapshot[] = [
+  {
+    snapshotId: "snap-distribution-002-requested",
+    sourceType: "Distribution",
+    sourceReference: "distribution-002",
+    instructionId: "instr-dist-002",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    registerVersionId: "REG-REA-HKD-20260520-006",
+    recordDate: "2026-05-20 18:00:00",
+    status: "Requested",
+    idempotencyKey: "IssuerPortal:distribution-002:SnapshotRequest:20260520",
+    createdAt: "2026-05-20 17:30:00",
+    updatedAt: "2026-05-20 17:30:00",
+    version: 1,
+  },
+  {
+    snapshotId: "snap-redemption-003-requested",
+    sourceType: "Redemption",
+    sourceReference: "redemption-003",
+    instructionId: "instr-redemption-003-ta",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    registerVersionId: "REG-REA-HKD-20260512-004",
+    recordDate: "2026-05-12 17:00:00",
+    status: "Requested",
+    idempotencyKey: "IssuerPortal:redemption-003:SnapshotRequest:20260512",
+    createdAt: "2026-05-12 16:30:00",
+    updatedAt: "2026-05-12 16:30:00",
+    version: 1,
+  },
+];
+
+export const initialHolderSnapshotPositions: HolderSnapshotPosition[] = [];
+
+export const initialSettlementLists: SettlementList[] = [];
+
+export const initialSettlementListLines: SettlementListLine[] = [];
 
 export const initialFundBatches: FundBatch[] = [
   {

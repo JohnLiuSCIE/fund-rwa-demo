@@ -189,9 +189,21 @@ export function StatusBadge({ status }: StatusBadgeProps) {
         color: "bg-blue-100 text-blue-800 border-blue-200",
         label: "Processing",
       },
+      Booked: {
+        color: "bg-emerald-100 text-emerald-800 border-emerald-200",
+        label: "Booked",
+      },
       Settled: {
         color: "bg-emerald-100 text-emerald-800 border-emerald-200",
         label: "Settled",
+      },
+      AwaitingPayment: {
+        color: "bg-amber-100 text-amber-800 border-amber-200",
+        label: "Awaiting Payment",
+      },
+      AwaitingNAV: {
+        color: "bg-blue-100 text-blue-800 border-blue-200",
+        label: "Awaiting NAV",
       },
       Rejected: {
         color: "bg-red-100 text-red-800 border-red-200",

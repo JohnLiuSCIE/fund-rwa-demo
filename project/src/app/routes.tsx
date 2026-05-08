@@ -19,6 +19,13 @@ import { LoginPage } from "./pages/LoginPage";
 import { ConnectWalletPage } from "./pages/ConnectWalletPage";
 import { UserRole, useApp } from "./context/AppContext";
 import { FundsWorkspace } from "./pages/FundsWorkspace";
+import { TransferAgentDashboard } from "./pages/TransferAgentDashboard";
+import { TransferAgentWorkQueue } from "./pages/TransferAgentWorkQueue";
+import { TransferAgentWorkflowDetail } from "./pages/TransferAgentWorkflowDetail";
+import { HolderRegister } from "./pages/HolderRegister";
+import { TransferAgentReconciliation } from "./pages/TransferAgentReconciliation";
+import { TransferAgentEvidence } from "./pages/TransferAgentEvidence";
+import { TransferAgentTransfers } from "./pages/TransferAgentTransfers";
 
 function ProtectedRoute({ allow }: { allow: UserRole[] }) {
   const { authSession, isAuthSessionExpired } = useApp();
@@ -71,6 +78,17 @@ export function AppRoutes() {
           <Route path="marketplace/fund-redemption" element={<MarketplaceFundRedemption />} />
           <Route path="marketplace/fund-distribution" element={<MarketplaceFundDistribution />} />
           <Route path="marketplace/fund-distribution/:id" element={<FundDistributionDetail />} />
+        </Route>
+        <Route element={<ProtectedRoute allow={["transferAgent"]} />}>
+          <Route path="ta">
+            <Route index element={<TransferAgentDashboard />} />
+            <Route path="queue" element={<TransferAgentWorkQueue />} />
+            <Route path="queue/:taskId" element={<TransferAgentWorkflowDetail />} />
+            <Route path="register" element={<HolderRegister />} />
+            <Route path="reconciliation" element={<TransferAgentReconciliation />} />
+            <Route path="evidence" element={<TransferAgentEvidence />} />
+            <Route path="transfers" element={<TransferAgentTransfers />} />
+          </Route>
         </Route>
         <Route path="user" element={<UserCenter />} />
         <Route path="*" element={<NotFound />} />

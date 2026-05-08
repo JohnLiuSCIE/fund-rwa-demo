@@ -1,14 +1,14 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
-import { useApp } from "../context/AppContext";
+import { UserRole, useApp } from "../context/AppContext";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { authSession, createAuthSession, currentInvestor } = useApp();
 
-  const loginAs = (role: "issuer" | "investor") => {
+  const loginAs = (role: UserRole) => {
     createAuthSession(role, authSession?.walletAddress || currentInvestor.wallet, true);
-    navigate("/", { replace: true });
+    navigate(role === "transferAgent" ? "/ta" : "/", { replace: true });
   };
 
   return (
@@ -17,9 +17,10 @@ export function LoginPage() {
       <p className="text-muted-foreground mt-2 mb-8">
         Select a role to create a signed session for demo operations.
       </p>
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-4">
         <Button onClick={() => loginAs("issuer")}>Login as Issuer</Button>
         <Button variant="outline" onClick={() => loginAs("investor")}>Login as Investor</Button>
+        <Button variant="outline" onClick={() => loginAs("transferAgent")}>Login as Transfer Agent</Button>
       </div>
     </div>
   );

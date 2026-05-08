@@ -12,9 +12,18 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { StatusBadge } from "../components/StatusBadge";
 import { useApp } from "../context/AppContext";
+import { buildInvestorOrderProjection } from "../lib/transferAgency";
 
 export function UserCenter() {
-  const { currentInvestor, fundOrders, fundIssuances, fundDistributions } = useApp();
+  const {
+    currentInvestor,
+    fundOrders,
+    fundIssuances,
+    fundDistributions,
+    transferAgencyInstructions,
+    registerDeltas,
+    cashMovements,
+  } = useApp();
 
   const investorOrders = fundOrders.filter((order) => order.investorId === currentInvestor.id);
   const subscriptionOrders = investorOrders.filter((order) => order.type === "subscription");
@@ -152,17 +161,25 @@ export function UserCenter() {
                 <TableBody>
                   {subscriptionOrders.map((order) => {
                     const fund = fundIssuances.find((item) => item.id === order.fundId);
+                    const orderProjection = buildInvestorOrderProjection({
+                      order,
+                      instructions: transferAgencyInstructions,
+                      registerDeltas,
+                      cashMovements,
+                    });
                     return (
                       <TableRow key={order.id}>
                         <TableCell className="font-mono text-xs">{order.id}</TableCell>
                         <TableCell>{fund?.name || order.fundId}</TableCell>
                         <TableCell>{order.requestAmount}</TableCell>
-                        <TableCell>{order.estimatedSharesOrCash}</TableCell>
+                        <TableCell>{orderProjection?.confirmedUnits || order.estimatedSharesOrCash}</TableCell>
                         <TableCell>
-                          <StatusBadge status={order.status} />
+                          <StatusBadge status={orderProjection?.displayStatus || order.status} />
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{order.submitTime}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{order.settlementTime || "Pending"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {orderProjection?.settlementAt || order.settlementTime || "Pending"}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -200,14 +217,20 @@ export function UserCenter() {
                 <TableBody>
                   {redemptionOrders.map((order) => {
                     const fund = fundIssuances.find((item) => item.id === order.fundId);
+                    const orderProjection = buildInvestorOrderProjection({
+                      order,
+                      instructions: transferAgencyInstructions,
+                      registerDeltas,
+                      cashMovements,
+                    });
                     return (
                       <TableRow key={order.id}>
                         <TableCell className="font-mono text-xs">{order.id}</TableCell>
                         <TableCell>{fund?.name || order.fundId}</TableCell>
                         <TableCell>{order.requestQuantity}</TableCell>
-                        <TableCell>{order.estimatedSharesOrCash}</TableCell>
+                        <TableCell>{orderProjection?.confirmedCash || order.estimatedSharesOrCash}</TableCell>
                         <TableCell>
-                          <StatusBadge status={order.status} />
+                          <StatusBadge status={orderProjection?.displayStatus || order.status} />
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{order.submitTime}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{order.settlementTime || "Pending"}</TableCell>

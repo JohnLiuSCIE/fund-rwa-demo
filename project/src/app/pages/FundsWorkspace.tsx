@@ -32,10 +32,11 @@ import {
 } from "../components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { cn } from "../components/ui/utils";
-import { useApp } from "../context/AppContext";
+import { useApp, type UserRole } from "../context/AppContext";
 import type { FundIssuance } from "../data/fundDemoData";
 
 type FundWorkspaceFilter = "all" | "open-end" | "closed-end";
+type FundWorkspaceRole = Exclude<UserRole, "transferAgent">;
 
 type WorkspaceRedemption = {
   id: string;
@@ -66,7 +67,7 @@ function getInvestorVisibleFunds(funds: FundIssuance[]) {
   });
 }
 
-function getFundDetailPath(userRole: "issuer" | "investor", fundId: string) {
+function getFundDetailPath(userRole: FundWorkspaceRole, fundId: string) {
   return userRole === "issuer" ? `/fund-issuance/${fundId}` : `/marketplace/fund-issuance/${fundId}`;
 }
 
@@ -199,7 +200,7 @@ function getFundSortPriority(status: string) {
 }
 
 function getRedemptionEntryAction(
-  userRole: "issuer" | "investor",
+  userRole: FundWorkspaceRole,
   fund: FundIssuance,
   redemption: WorkspaceRedemption | undefined,
 ): WorkspaceAction | null {
@@ -228,7 +229,7 @@ function getRedemptionEntryAction(
 }
 
 function getDistributionEntryAction(
-  userRole: "issuer" | "investor",
+  userRole: FundWorkspaceRole,
   fund: FundIssuance,
   distribution: WorkspaceDistribution | undefined,
 ): WorkspaceAction | null {
@@ -257,7 +258,7 @@ function getDistributionEntryAction(
 }
 
 function getRecommendedAction(
-  userRole: "issuer" | "investor",
+  userRole: FundWorkspaceRole,
   fund: FundIssuance,
   redemption: WorkspaceRedemption | undefined,
   distribution: WorkspaceDistribution | undefined,
@@ -401,6 +402,7 @@ function FundActionCard({
 
 export function FundsWorkspace() {
   const { fundIssuances, fundRedemptions, fundDistributions, userRole } = useApp();
+  const workspaceRole: FundWorkspaceRole = userRole === "transferAgent" ? "investor" : userRole;
   const [filter, setFilter] = useState<FundWorkspaceFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFundId, setSelectedFundId] = useState<string | null>(null);
@@ -408,11 +410,11 @@ export function FundsWorkspace() {
   const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLowerCase());
 
   const visibleFunds = useMemo(() => {
-    if (userRole === "issuer") {
+    if (workspaceRole === "issuer") {
       return fundIssuances;
     }
     return getInvestorVisibleFunds(fundIssuances);
-  }, [fundIssuances, userRole]);
+  }, [fundIssuances, workspaceRole]);
 
   const redemptionByFundId = useMemo(
     () =>
@@ -518,24 +520,24 @@ export function FundsWorkspace() {
     );
   }).length;
 
-  const fundDetailPath = selectedFund ? getFundDetailPath(userRole, selectedFund.id) : "#";
+  const fundDetailPath = selectedFund ? getFundDetailPath(workspaceRole, selectedFund.id) : "#";
   const recommendedAction =
     selectedFund &&
-    getRecommendedAction(userRole, selectedFund, selectedRedemption, selectedDistribution);
+    getRecommendedAction(workspaceRole, selectedFund, selectedRedemption, selectedDistribution);
   const launchAction =
     selectedFund
       ? {
-          label: userRole === "issuer" ? "Open Fund" : "View Fund",
+          label: workspaceRole === "issuer" ? "Open Fund" : "View Fund",
           to: fundDetailPath,
           summary: "Open the core fund object and review the full lifecycle context.",
         }
       : null;
   const redemptionAction =
     selectedFund &&
-    getRedemptionEntryAction(userRole, selectedFund, selectedRedemption);
+    getRedemptionEntryAction(workspaceRole, selectedFund, selectedRedemption);
   const distributionAction =
     selectedFund &&
-    getDistributionEntryAction(userRole, selectedFund, selectedDistribution);
+    getDistributionEntryAction(workspaceRole, selectedFund, selectedDistribution);
   const recommendedModule =
     recommendedAction?.to === launchAction?.to
       ? "launch"

@@ -12,3 +12,7 @@
 - `DECISION - Lifecycle Scope Boundary.md`
 - `DECISION - Redemption Claim Model.md`
 - `DECISION - Distribution Rate Model.md`
+
+## 已归档文档
+
+- `SOW - Fund RWA Platform Scope of Work.md` — 基金RWA代币化平台工作范围定义（2026-04-27，基于Demo材料、会议纪要和架构笔记整合）

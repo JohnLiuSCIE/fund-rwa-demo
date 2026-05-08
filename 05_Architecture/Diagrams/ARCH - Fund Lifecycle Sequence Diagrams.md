@@ -415,3 +415,184 @@ sequenceDiagram
 - stage annotations use Mermaid note banners only; do not convert them into full-width colored background blocks
 - open-end diagrams should be read as `module + cycle` flows, even when the current UI still uses event-like labels
 - where the current UI and the target semantics still diverge, this file should be treated as the intended workflow reference
+
+## 4. Transfer Agent Workflow Handoff
+
+This section supersedes the earlier simplified `UI -> TA -> Register` traces for transaction work.
+Transfer Agent is a separate workflow party, not a hidden service call inside the Issuer page.
+
+Target design:
+
+- Issuer creates or approves business intent.
+- Backend creates a workflow instance and a TA intake task.
+- TA pulls the request, responds, matches canonical data, and only then advances the workflow.
+- Snapshot locking, recipient/payment-list generation, issuer review, and reconciliation are workflow steps with ownership, audit, and review gates.
+- Direct `Lock Snapshot` or `Generate List` buttons in a table are insufficient unless they open a dedicated task review page first.
+
+### 4.1 Distribution / Record-date Handoff
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor IssuerMaker as Issuer Maker
+    actor IssuerChecker as Issuer Checker
+    participant IssuerUI as Issuer Client
+    participant Workflow as Workflow Service
+    participant Instruction as Instruction Service
+    participant TAUI as TA Client
+    actor TAReviewer as TA Reviewer
+    participant Register as Register Service
+    participant Evidence as Evidence Store
+
+    note over IssuerMaker,IssuerUI: 1. Business intent
+    IssuerMaker->>IssuerUI: Prepare distribution / record-date request
+    IssuerUI->>Workflow: Create issuer approval workflow
+    Workflow-->>IssuerChecker: Approval task
+    IssuerChecker->>Workflow: Approve business request
+
+    note over Workflow,TAUI: 2. Request handoff to TA
+    Workflow->>Instruction: Create TransferAgencyInstruction\nsource=IssuerPortal, type=RecordDate
+    Instruction->>Workflow: InstructionReceived\nversion + idempotency key
+    Workflow->>Workflow: Create TA workflow instance\nstatus=IssuerSubmitted, step=TARespond
+    TAUI->>Workflow: Pull assigned TA intake tasks
+    Workflow-->>TAUI: Request payload + evidence references
+
+    note over TAReviewer,Workflow: 3. TA respond and match
+    TAReviewer->>TAUI: Open dedicated review page
+    TAUI->>Workflow: Respond: Accept for review
+    Workflow->>Register: Fetch latest register version\nrecord date + class
+    Register-->>Workflow: Register version + holder rows
+    TAUI->>Workflow: Run Match\ninstruction vs register vs event economics
+    alt Data mismatch
+        Workflow->>Evidence: Store match failure memo
+        Workflow-->>IssuerUI: Return to issuer with mismatch reason
+    else Matched
+        Workflow->>Workflow: Advance to MatchPassed / LockSnapshot
+    end
+
+    note over TAReviewer,Workflow: 4. Review-gated register action
+    TAReviewer->>TAUI: Review holder rows, wallet status, restrictions, evidence
+    TAUI->>Workflow: Mark review checklist complete
+    TAReviewer->>Workflow: Submit workflow step\nLock snapshot
+    Workflow->>Register: Lock holder snapshot
+    Register-->>Workflow: HolderSnapshot locked
+    TAReviewer->>Workflow: Submit workflow step\nGenerate recipient list
+    Workflow->>Register: Generate recipient list
+    Register-->>Workflow: SettlementList generated
+
+    note over Workflow,IssuerUI: 5. Issuer acknowledgement
+    Workflow->>Evidence: Release snapshot/list evidence pack
+    Workflow-->>IssuerUI: Snapshot and recipient list submitted
+    IssuerChecker->>Workflow: Acknowledge TA output
+    Workflow-->>TAUI: Close-out reconciliation task ready
+
+    note over TAReviewer,Register: 6. Close-out
+    TAReviewer->>Workflow: Reconcile payout close-out
+    Workflow->>Register: Mark snapshot/list reconciled
+    Workflow->>Evidence: Store reconciliation evidence
+    Workflow-->>IssuerUI: Distribution workflow reconciled
+```
+
+### 4.2 Redemption / Payment-list Handoff
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor IssuerMaker as Issuer Maker
+    actor IssuerChecker as Issuer Checker
+    participant IssuerUI as Issuer Client
+    participant Workflow as Workflow Service
+    participant Instruction as Instruction Service
+    participant TAUI as TA Client
+    actor TAReviewer as TA Reviewer
+    participant Register as Register Service
+    participant Settlement as Settlement / Cash Rail
+    participant Evidence as Evidence Store
+
+    note over IssuerMaker,Workflow: 1. Redemption request
+    IssuerMaker->>IssuerUI: Prepare redemption / repurchase event
+    IssuerUI->>Workflow: Submit issuer approval request
+    IssuerChecker->>Workflow: Approve event and accepted request roster
+    Workflow->>Instruction: Create TransferAgencyInstruction\ntype=Redemption
+
+    note over TAUI,TAReviewer: 2. Pull, respond, match
+    TAUI->>Workflow: Pull TA intake tasks
+    Workflow-->>TAUI: Redemption request + accepted roster + evidence
+    TAReviewer->>TAUI: Respond and import into TA workflow
+    TAUI->>Register: Fetch current holdings and restrictions
+    TAUI->>Settlement: Fetch cash readiness / funding evidence
+    TAUI->>Workflow: Submit MatchResult\nholders, units, cash, wallet destinations
+
+    alt Match failed
+        Workflow-->>IssuerUI: Return with break / mismatch
+        Workflow->>Evidence: Store mismatch evidence
+    else Matched
+        Workflow->>Workflow: Advance to MatchPassed / LockSnapshot
+    end
+
+    note over TAReviewer,Workflow: 3. Snapshot and payment workflow steps
+    TAReviewer->>TAUI: Review snapshot, requests, payment destinations
+    TAUI->>Workflow: Mark review checklist complete
+    TAReviewer->>Workflow: Submit workflow step\nlock holder snapshot
+    Workflow->>Register: Lock holder snapshot
+    TAReviewer->>Workflow: Submit workflow step\ngenerate payment list
+    Workflow->>Settlement: Draft payment list
+
+    note over IssuerChecker,Workflow: 4. Issuer acknowledgement and close-out
+    Workflow-->>IssuerUI: Submit payment list to issuer review
+    IssuerChecker->>Workflow: Acknowledge payment list
+    Workflow-->>TAUI: Reconcile close-out task
+    TAReviewer->>Workflow: Reconcile paid rows and register movement
+    Workflow->>Evidence: Store payment-list reconciliation evidence
+    Workflow-->>IssuerUI: Redemption workflow reconciled
+```
+
+### 4.3 TA Workflow Instance State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> IssuerSubmitted
+    IssuerSubmitted --> TAPulled: TA pulls request
+    TAPulled --> TAResponded: TA responds / accepts
+    TAResponded --> MatchPassed: checklist complete + match passed
+    TAResponded --> MatchException: checklist complete + match failed
+    MatchException --> ReturnedToIssuer: return with reason
+    ReturnedToIssuer --> IssuerSubmitted: issuer corrects and resubmits
+    MatchPassed --> SnapshotLocked: lock holder snapshot
+    SnapshotLocked --> RecipientListGenerated: distribution workflow
+    SnapshotLocked --> PaymentListGenerated: redemption workflow
+    RecipientListGenerated --> SubmittedToIssuer: submit issuer review
+    PaymentListGenerated --> SubmittedToIssuer: submit issuer review
+    SubmittedToIssuer --> IssuerAcknowledged: issuer accepts TA output
+    IssuerAcknowledged --> Reconciled: TA reconciles register, list, cash, token evidence
+    Reconciled --> [*]
+```
+
+### 4.4 TA Task Review Gate State Machine
+
+Every row in TA Work Queue should open a dedicated approval page.
+The primary action is disabled until the task has passed evidence and match review.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unopened
+    Unopened --> ReviewOpened: TA opens task page
+    ReviewOpened --> EvidenceChecked: required evidence viewed
+    EvidenceChecked --> MatchChecked: match executed
+    MatchChecked --> DecisionReady: match passed and checklist complete
+    MatchChecked --> ReturnReady: match failed
+    ReturnReady --> Returned: TA returns to issuer with reason
+    DecisionReady --> Submitted: maker submits next workflow action
+    Submitted --> [*]
+```
+
+Current implementation audit:
+
+| Capability | Current implementation | Target |
+| --- | --- | --- |
+| Shared issuer / TA data | Implemented with mock backend state, localStorage, BroadcastChannel, and projections | Replace mock backend with real service |
+| TA intake request | Implemented as issuer-created `WorkflowInstance` + `WorkflowTask` | Add production API auth and server-side assignment |
+| Match | Implemented as `MatchResult` with pass/fail and exception path | Add richer field-level diffs |
+| Dedicated approval page | Implemented at `/ta/queue/:taskId` | Add maker/checker sub-role separation |
+| Review gate | Implemented: checklist + match required before workflow submit | Add policy-driven checklist definitions |
+| Workflow state machine | Implemented for distribution/redemption MVP | Extend to subscription and secondary transfers |
