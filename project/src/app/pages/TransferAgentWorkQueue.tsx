@@ -11,7 +11,7 @@ import { MetricCard } from "../components/MetricCard";
 import { useApp } from "../context/AppContext";
 import { getWorkflowTaskActionLabel, type WorkflowInstance, type WorkflowTaskStatus } from "../lib/workflowBackend";
 
-type WorkflowAreaFilter = "all" | "distributionSnapshot" | "redemptionPayment";
+type WorkflowAreaFilter = "all" | "issuanceApproval" | "distributionSnapshot" | "redemptionPayment";
 type TaskStageFilter = "all" | "intake" | "match" | "taAction" | "issuerReview" | "exception" | "closed";
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
 
@@ -29,9 +29,20 @@ function workflowPriority(status: WorkflowTaskStatus) {
 }
 
 function getWorkflowAreaLabel(sourceType?: string) {
+  if (sourceType === "Issuance") return "Issuance Approval";
   if (sourceType === "Distribution") return "Distribution Snapshot";
   if (sourceType === "Redemption") return "Redemption Payment";
   return "TA Workflow";
+}
+
+function formatIssuanceActionReference(sourceReference: string) {
+  const [, actionKey] = sourceReference.split("--");
+  if (!actionKey) return "Issuance approval";
+  return actionKey
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function getTaskStageLabel(status: WorkflowTaskStatus) {
@@ -56,14 +67,19 @@ export function TransferAgentWorkQueue() {
       instance.sourceType === "Redemption"
         ? fundRedemptions.find((item) => item.id === instance.sourceReference)
         : undefined;
-    const eventName = distribution?.name || redemption?.name || instance.sourceReference;
+    const issuance = instance.sourceType === "Issuance" ? fundIssuances.find((item) => item.id === instance.fundId) : undefined;
+    const eventName =
+      distribution?.name ||
+      redemption?.name ||
+      (issuance ? `${issuance.name} - ${formatIssuanceActionReference(instance.sourceReference)}` : instance.sourceReference);
     const fundName =
       distribution?.fundName ||
       redemption?.fundName ||
+      issuance?.name ||
       fundNameById.get(instance.fundId) ||
       instance.fundId;
-    const primaryDate = distribution?.recordDate || redemption?.windowEnd || redemption?.effectiveDate || "Pending";
-    const secondaryDate = distribution?.paymentDate || redemption?.settlementCycle || "Pending";
+    const primaryDate = distribution?.recordDate || redemption?.windowEnd || redemption?.effectiveDate || issuance?.status || "Pending";
+    const secondaryDate = distribution?.paymentDate || redemption?.settlementCycle || issuance?.tokenSymbol || issuance?.tokenName || "Pending";
 
     return {
       eventName,
@@ -72,11 +88,15 @@ export function TransferAgentWorkQueue() {
       primaryScope:
         instance.sourceType === "Distribution"
           ? `Record date: ${primaryDate}`
-          : `Cut-off / effective: ${primaryDate}`,
+          : instance.sourceType === "Redemption"
+            ? `Cut-off / effective: ${primaryDate}`
+            : `Issuance status: ${primaryDate}`,
       secondaryScope:
         instance.sourceType === "Distribution"
           ? `Payment date: ${secondaryDate}`
-          : `Settlement: ${secondaryDate}`,
+          : instance.sourceType === "Redemption"
+            ? `Settlement: ${secondaryDate}`
+            : `Token: ${secondaryDate}`,
     };
   };
   const workflows = workflowState.tasks
@@ -93,6 +113,7 @@ export function TransferAgentWorkQueue() {
   const [stageFilter, setStageFilter] = useState<TaskStageFilter>("all");
   const areaFilteredWorkflows = workflows.filter(({ instance }) => {
     if (areaFilter === "all") return true;
+    if (areaFilter === "issuanceApproval") return instance!.sourceType === "Issuance";
     if (areaFilter === "distributionSnapshot") return instance!.sourceType === "Distribution";
     return instance!.sourceType === "Redemption";
   });
@@ -117,6 +138,12 @@ export function TransferAgentWorkQueue() {
       label: "All TA Workflows",
       detail: "Every issuer handoff that needs TA control.",
       count: workflows.length,
+    },
+    {
+      value: "issuanceApproval",
+      label: "Issuance Approval",
+      detail: "Fund launch, allocation, and register sign-off approvals.",
+      count: workflows.filter(({ instance }) => instance!.sourceType === "Issuance").length,
     },
     {
       value: "distributionSnapshot",
@@ -192,7 +219,7 @@ export function TransferAgentWorkQueue() {
           <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             1. Workflow area
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {areaOptions.map((option) => (
               <button
                 key={option.value}

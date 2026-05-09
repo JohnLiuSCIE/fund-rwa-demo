@@ -5,7 +5,7 @@ import {
   type HolderSnapshot,
 } from "../data/fundDemoData";
 
-export type WorkflowSourceType = "Distribution" | "Redemption";
+export type WorkflowSourceType = "Distribution" | "Redemption" | "Issuance";
 
 export type WorkflowStepId =
   | "IssuerSubmitted"
@@ -780,7 +780,11 @@ export function matchWorkflowTask(
     const nextInstance = setInstanceStatus(
       instance,
       matched ? "MatchPassed" : "MatchException",
-      matched ? "LockSnapshot" : "MatchData",
+      matched
+        ? instance.sourceType === "Issuance"
+          ? "SubmitIssuerReview"
+          : "LockSnapshot"
+        : "MatchData",
       actorRole,
       "match",
     );
@@ -895,7 +899,13 @@ export function submitWorkflowStep(
     let taskStatus: WorkflowTaskStatus;
     let message: string;
     let logStepId: WorkflowStepId;
-    if (instance.status === "MatchPassed") {
+    if (instance.status === "MatchPassed" && instance.sourceType === "Issuance") {
+      nextStatus = "SubmittedToIssuer";
+      nextStep = "IssuerAcknowledge";
+      taskStatus = "Awaiting Issuer";
+      message = "TA issuance approval submitted to issuer review.";
+      logStepId = "SubmitIssuerReview";
+    } else if (instance.status === "MatchPassed") {
       nextStatus = "SnapshotLocked";
       nextStep = "GenerateList";
       taskStatus = "Ready For Approval";
@@ -962,13 +972,16 @@ export function acknowledgeWorkflowTask(
       result = { success: false, message: "Workflow is not awaiting issuer acknowledgement.", error: "INVALID_STATE" };
       return state;
     }
-    const nextInstance = setInstanceStatus(instance, "IssuerAcknowledged", "ReconcileCloseOut", actorRole, "acknowledge");
+    const nextTaskStatus = instance.sourceType === "Issuance" ? "Completed" : "Ready To Reconcile";
+    const nextOwnerRole = instance.sourceType === "Issuance" ? "issuer" : "transferAgent";
+    const nextStepId = instance.sourceType === "Issuance" ? "IssuerAcknowledge" : "ReconcileCloseOut";
+    const nextInstance = setInstanceStatus(instance, "IssuerAcknowledged", nextStepId, actorRole, "acknowledge");
     result = { success: true, message: "Issuer acknowledged TA output.", workflowId: instance.workflowId, taskId };
     return {
       ...state,
       instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
       tasks: state.tasks.map((item) =>
-        item.taskId === taskId ? setTaskStatus(item, nextInstance, "Ready To Reconcile", "transferAgent", false, false) : item,
+        item.taskId === taskId ? setTaskStatus(item, nextInstance, nextTaskStatus, nextOwnerRole, false, false) : item,
       ),
       actionLogs: [
         auditLog(
@@ -1049,6 +1062,16 @@ export function subscribeWorkflowState(listener: (state: WorkflowBackendState) =
 }
 
 export function getWorkflowSteps(sourceType: WorkflowSourceType) {
+  if (sourceType === "Issuance") {
+    return [
+      { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
+      { stepId: "TARespond" as const, label: "TA Respond", owner: "Transfer Agent" },
+      { stepId: "MatchData" as const, label: "Match Data", owner: "Transfer Agent" },
+      { stepId: "SubmitIssuerReview" as const, label: "Submit Issuer Review", owner: "Transfer Agent" },
+      { stepId: "IssuerAcknowledge" as const, label: "Issuer Acknowledge", owner: "Issuer" },
+    ];
+  }
+
   return [
     { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
     { stepId: "TARespond" as const, label: "TA Respond", owner: "Transfer Agent" },
@@ -1067,10 +1090,10 @@ export function getWorkflowTaskActionLabel(instance?: WorkflowInstance, task?: W
   if (instance.status === "IssuerSubmitted") return "Pull Request";
   if (instance.status === "TAPulled") return "Respond / Accept";
   if (instance.status === "TAResponded" || instance.status === "MatchException") return "Run Match";
-  if (instance.status === "MatchPassed") return "Lock Snapshot";
+  if (instance.status === "MatchPassed") return instance.sourceType === "Issuance" ? "Submit TA Approval" : "Lock Snapshot";
   if (instance.status === "SnapshotLocked") return instance.sourceType === "Distribution" ? "Generate Recipient List" : "Generate Payment List";
   if (instance.status === "RecipientListGenerated" || instance.status === "PaymentListGenerated") return "Submit Issuer Review";
   if (instance.status === "SubmittedToIssuer") return "Await Issuer";
-  if (instance.status === "IssuerAcknowledged") return "Reconcile Close-out";
+  if (instance.status === "IssuerAcknowledged") return instance.sourceType === "Issuance" ? "View Workflow" : "Reconcile Close-out";
   return "Open Workflow";
 }

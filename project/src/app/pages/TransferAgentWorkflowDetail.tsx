@@ -125,13 +125,22 @@ export function TransferAgentWorkflowDetail() {
     instance?.sourceType === "Redemption"
       ? fundRedemptions.find((item) => item.id === instance.sourceReference)
       : undefined;
-  const sourceEventName = sourceDistribution?.name || sourceRedemption?.name || instance?.sourceReference || "Workflow";
-  const sourceFundName = sourceDistribution?.fundName || sourceRedemption?.fundName || fund?.name || instance?.fundId || "Fund";
+  const sourceIssuance = instance?.sourceType === "Issuance" ? fund : undefined;
+  const sourceEventName =
+    sourceDistribution?.name ||
+    sourceRedemption?.name ||
+    (sourceIssuance
+      ? `${sourceIssuance.name} - ${instance.sourceReference.split("--")[1] || "issuance approval"}`
+      : instance?.sourceReference) ||
+    "Workflow";
+  const sourceFundName = sourceDistribution?.fundName || sourceRedemption?.fundName || sourceIssuance?.name || fund?.name || instance?.fundId || "Fund";
   const issuerDetailPath = sourceDistribution
     ? `/fund-distribution/${sourceDistribution.id}`
     : sourceRedemption
       ? `/fund-redemption/${sourceRedemption.id}`
-      : undefined;
+      : sourceIssuance
+        ? `/fund-issuance/${sourceIssuance.id}`
+        : undefined;
   const sourceScopeItems = sourceDistribution
     ? [
         { label: "Record date", value: sourceDistribution.recordDate || "Pending" },
@@ -144,7 +153,13 @@ export function TransferAgentWorkflowDetail() {
           { label: "Settlement", value: sourceRedemption.settlementCycle || "Pending" },
           { label: "Redemption mode", value: sourceRedemption.redemptionMode || "Pending" },
         ]
-      : [];
+      : sourceIssuance
+        ? [
+            { label: "Issuance status", value: sourceIssuance.status },
+            { label: "Token", value: sourceIssuance.tokenSymbol || sourceIssuance.tokenName },
+            { label: "Action", value: instance?.sourceReference.split("--")[1] || "Issuance approval" },
+          ]
+        : [];
   const snapshot = instance
     ? holderSnapshots.find((item) => item.snapshotId === instance.snapshotId) ||
       holderSnapshots.find((item) => item.sourceType === instance.sourceType && item.sourceReference === instance.sourceReference)

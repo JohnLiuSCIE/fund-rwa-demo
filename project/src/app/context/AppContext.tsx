@@ -188,6 +188,12 @@ interface AppContextType {
   workflowSubmitCurrentStep: (taskId: string) => WorkflowCommandResult;
   workflowAcknowledgeTask: (taskId: string) => WorkflowCommandResult;
   workflowReconcileTask: (taskId: string) => WorkflowCommandResult;
+  createIssuanceWorkflowFromIssuer: (
+    fundId: string,
+    actionKey: string,
+    expectedVersion?: number,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
   createTransferAgencyInstructionFromIssuer: (
     sourceType: HolderSnapshot["sourceType"],
     sourceReference: string,
@@ -278,7 +284,7 @@ const permissionMatrix: Record<UserRole, Record<string, PermissionResource[]>> =
     put_on_chain: ["issuance", "distribution"],
     review: ["order"],
     update: ["issuance", "redemption", "distribution", "order"],
-    acknowledge: ["redemption", "distribution"],
+    acknowledge: ["issuance", "redemption", "distribution"],
   },
   investor: {
     subscribe: ["marketplace", "order"],
@@ -1433,6 +1439,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return snapshot.snapshotId;
   };
 
+  const createIssuanceWorkflowFromIssuer = (
+    fundId: string,
+    actionKey: string,
+    expectedVersion?: number,
+    idempotencyKey = `IssuerPortal:${fundId}:${actionKey}:IssuanceHandoff:${formatDateTag(new Date())}`,
+  ): TransferAgencyCommandResult => {
+    const fund = fundIssuances.find((item) => item.id === fundId);
+    if (!fund) return { success: false, error: "NOT_FOUND", message: "Issuance source was not found." };
+    if (!ensureIdentitySource("authSession") || !ensurePermission("submit", "issuance")) {
+      return buildCommandDeniedResult();
+    }
+    void expectedVersion;
+
+    const sourceReference = `${fundId}--${actionKey}`.replace(/[^a-zA-Z0-9-]/g, "-");
+    const instructionId = `instr-issuance-${sourceReference}-ta`.replace(/[^a-zA-Z0-9-]/g, "-");
+    const latestRegister = getLatestRegisterVersionForFund(fundId);
+    const result = createIssuerWorkflowInstruction({
+      sourceType: "Issuance",
+      sourceReference,
+      instructionId,
+      fundId,
+      classId: latestRegister?.classId || fund.shareClass || "Issuance",
+      actorRole: authSession!.role!,
+      idempotencyKey,
+    });
+    refreshWorkflowStateFromStorage();
+    return {
+      success: result.success,
+      id: instructionId,
+      message: result.message || `Transfer-agent issuance workflow created for ${fund.name}.`,
+      error: result.error,
+    };
+  };
+
   const createTransferAgencyInstructionFromIssuer = (
     sourceType: HolderSnapshot["sourceType"],
     sourceReference: string,
@@ -2071,7 +2111,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
 
     let canonicalResult: TransferAgencyCommandResult = { success: true, message: "Workflow step ready." };
-    if (instance.status === "MatchPassed") {
+    if (instance.sourceType === "Issuance") {
+      canonicalResult = { success: true, message: "Issuance approval is ready for issuer review." };
+    } else if (instance.status === "MatchPassed") {
       if (!instruction) return { success: false, message: "Transfer-agent instruction was not found.", error: "NOT_FOUND" };
       canonicalResult = lockHolderSnapshot(instruction.instructionId, instruction.version);
     } else if (instance.status === "SnapshotLocked") {
@@ -2099,14 +2141,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const workflowAcknowledgeTask = (taskId: string): WorkflowCommandResult => {
     const { instance, snapshot } = getWorkflowRuntime(taskId);
-    if (!instance || !snapshot) return { success: false, message: "Workflow snapshot was not found.", error: "NOT_FOUND" };
-    const canonicalResult = acknowledgeIssuerReview(snapshot.snapshotId, snapshot.version);
-    if (!canonicalResult.success) {
-      return {
-        success: false,
-        message: canonicalResult.message || "Issuer acknowledgement failed.",
-        error: canonicalResult.error === "VERSION_CONFLICT" ? "VERSION_CONFLICT" : "INVALID_STATE",
-      };
+    if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
+    if (instance.sourceType !== "Issuance") {
+      if (!snapshot) return { success: false, message: "Workflow snapshot was not found.", error: "NOT_FOUND" };
+      const canonicalResult = acknowledgeIssuerReview(snapshot.snapshotId, snapshot.version);
+      if (!canonicalResult.success) {
+        return {
+          success: false,
+          message: canonicalResult.message || "Issuer acknowledgement failed.",
+          error: canonicalResult.error === "VERSION_CONFLICT" ? "VERSION_CONFLICT" : "INVALID_STATE",
+        };
+      }
     }
     return finishWorkflowCommand(
       acknowledgeWorkflowTask(taskId, authSession?.role || "issuer", workflowCommandOptions(taskId, "Acknowledge")),
@@ -2840,6 +2885,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workflowSubmitCurrentStep,
         workflowAcknowledgeTask,
         workflowReconcileTask,
+        createIssuanceWorkflowFromIssuer,
         createTransferAgencyInstructionFromIssuer,
         lockHolderSnapshot,
         generateRecipientList,
