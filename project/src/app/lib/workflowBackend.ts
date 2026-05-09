@@ -1,4 +1,9 @@
-import { type ActorRole, type HolderSnapshot } from "../data/fundDemoData";
+import {
+  initialHolderSnapshots,
+  initialTransferAgencyInstructions,
+  type ActorRole,
+  type HolderSnapshot,
+} from "../data/fundDemoData";
 
 export type WorkflowSourceType = "Distribution" | "Redemption";
 
@@ -88,6 +93,7 @@ export interface WorkflowActionLog {
   actionLogId: string;
   workflowId: string;
   taskId?: string;
+  stepId?: WorkflowStepId;
   action:
     | "create"
     | "pull"
@@ -124,7 +130,7 @@ export interface WorkflowCommandOptions {
   idempotencyKey?: string;
 }
 
-const STORAGE_KEY = "fund-rwa-workflow-state-v2";
+const STORAGE_KEY = "fund-rwa-workflow-state-v4";
 const CHANNEL_NAME = "fund-rwa-workflow";
 
 function now() {
@@ -150,11 +156,13 @@ function auditLog(
   message: string,
   taskId?: string,
   idempotencyKey?: string,
+  stepId?: WorkflowStepId,
 ): WorkflowActionLog {
   return {
     actionLogId: `log-${workflowId}-${action}-${Date.now()}`,
     workflowId,
     taskId,
+    stepId,
     action,
     actorRole,
     message,
@@ -193,11 +201,246 @@ function buildTask(
 }
 
 function createInitialWorkflowState(): WorkflowBackendState {
+  const seededWorkflows: Array<{
+    sourceType: WorkflowSourceType;
+    sourceReference: string;
+    status: WorkflowStatus;
+    currentStepId: WorkflowStepId;
+    taskStatus: WorkflowTaskStatus;
+    ownerRole: ActorRole;
+    createdAt: string;
+    updatedAt: string;
+    assignee?: string;
+    reviewChecklist?: Record<string, boolean>;
+    matchResult?: { matched: boolean; exception?: string };
+    logs: Array<{
+      action: WorkflowActionLog["action"];
+      actorRole: ActorRole;
+      message: string;
+      stepId: WorkflowStepId;
+      createdAt: string;
+    }>;
+  }> = [
+    {
+      sourceType: "Distribution",
+      sourceReference: "distribution-002",
+      status: "IssuerSubmitted",
+      currentStepId: "TARespond",
+      taskStatus: "New Request",
+      ownerRole: "transferAgent",
+      createdAt: "2026-05-20T17:30:00.000Z",
+      updatedAt: "2026-05-20T17:30:00.000Z",
+      logs: [
+        {
+          action: "create",
+          actorRole: "issuer",
+          message: "Issuer submitted 2026 interim distribution record-date request to TA.",
+          stepId: "IssuerSubmitted",
+          createdAt: "2026-05-20T17:30:00.000Z",
+        },
+      ],
+    },
+    {
+      sourceType: "Redemption",
+      sourceReference: "redemption-003",
+      status: "TAResponded",
+      currentStepId: "MatchData",
+      taskStatus: "Match Required",
+      ownerRole: "transferAgent",
+      assignee: "ta-operator-demo",
+      createdAt: "2026-05-12T16:30:00.000Z",
+      updatedAt: "2026-05-12T17:08:00.000Z",
+      reviewChecklist: {
+        sourceInstruction: true,
+        registerVersion: true,
+        holderData: false,
+        evidencePack: true,
+      },
+      logs: [
+        {
+          action: "create",
+          actorRole: "issuer",
+          message: "Issuer submitted repurchase event roster to transfer agent.",
+          stepId: "IssuerSubmitted",
+          createdAt: "2026-05-12T16:30:00.000Z",
+        },
+        {
+          action: "pull",
+          actorRole: "transferAgent",
+          message: "TA pulled redemption package into review.",
+          stepId: "TARespond",
+          createdAt: "2026-05-12T16:42:00.000Z",
+        },
+        {
+          action: "respond",
+          actorRole: "transferAgent",
+          message: "TA accepted redemption package and is matching holder data.",
+          stepId: "TARespond",
+          createdAt: "2026-05-12T17:08:00.000Z",
+        },
+      ],
+    },
+    {
+      sourceType: "Redemption",
+      sourceReference: "red-ce-001",
+      status: "MatchException",
+      currentStepId: "MatchData",
+      taskStatus: "Blocked",
+      ownerRole: "transferAgent",
+      assignee: "ta-operator-demo",
+      createdAt: "2026-05-13T09:18:00.000Z",
+      updatedAt: "2026-05-13T09:30:00.000Z",
+      reviewChecklist: {
+        sourceInstruction: true,
+        registerVersion: true,
+        holderData: true,
+        evidencePack: true,
+      },
+      matchResult: {
+        matched: false,
+        exception: "Cash confirmation is matched but not fully settled against the redemption register delta.",
+      },
+      logs: [
+        {
+          action: "create",
+          actorRole: "issuer",
+          message: "Issuer submitted accepted repurchase payment row for TA close-out.",
+          stepId: "IssuerSubmitted",
+          createdAt: "2026-05-13T09:18:00.000Z",
+        },
+        {
+          action: "pull",
+          actorRole: "transferAgent",
+          message: "TA pulled the close-out request into controlled review.",
+          stepId: "TARespond",
+          createdAt: "2026-05-13T09:21:00.000Z",
+        },
+        {
+          action: "respond",
+          actorRole: "transferAgent",
+          message: "TA accepted the request and prepared the match review.",
+          stepId: "TARespond",
+          createdAt: "2026-05-13T09:24:00.000Z",
+        },
+        {
+          action: "match",
+          actorRole: "transferAgent",
+          message: "TA data match failed because cash evidence is incomplete.",
+          stepId: "MatchData",
+          createdAt: "2026-05-13T09:30:00.000Z",
+        },
+      ],
+    },
+  ];
+
+  const instances: WorkflowInstance[] = [];
+  const tasks: WorkflowTask[] = [];
+  const matchResults: MatchResult[] = [];
+  const actionLogs: WorkflowActionLog[] = [];
+
+  seededWorkflows.forEach((seed) => {
+    const workflowId = makeWorkflowId(seed.sourceType, seed.sourceReference);
+    const instruction = initialTransferAgencyInstructions.find(
+      (item) =>
+        item.sourceReference === seed.sourceReference &&
+        ((seed.sourceType === "Distribution" && item.instructionType === "RecordDate") ||
+          (seed.sourceType === "Redemption" && item.instructionType === "Redemption")),
+    );
+    const snapshot = initialHolderSnapshots.find(
+      (item) => item.sourceType === seed.sourceType && item.sourceReference === seed.sourceReference,
+    );
+    const instance: WorkflowInstance = {
+      workflowId,
+      sourceType: seed.sourceType,
+      sourceReference: seed.sourceReference,
+      instructionId: instruction?.instructionId || `instr-${seed.sourceType.toLowerCase()}-${seed.sourceReference}`,
+      snapshotId: snapshot?.snapshotId,
+      fundId: instruction?.fundId || snapshot?.fundId || "fund-closed-001",
+      classId: instruction?.classId || snapshot?.classId || "REA-HKD",
+      status: seed.status,
+      currentStepId: seed.currentStepId,
+      createdAt: seed.createdAt,
+      updatedAt: seed.updatedAt,
+      version: seed.status === "IssuerSubmitted" ? 1 : 2,
+      idempotencyKey: instruction?.idempotencyKey || `MockSeed:${seed.sourceReference}:Workflow:${dateTag()}`,
+      lastActorRole: seed.logs.at(-1)?.actorRole,
+      lastAction: seed.logs.at(-1)?.action,
+    };
+    const task = {
+      ...buildTask(instance, seed.taskStatus, seed.ownerRole, true, true),
+      assignee: seed.assignee,
+      reviewChecklist:
+        seed.reviewChecklist ||
+        {
+          sourceInstruction: false,
+          registerVersion: false,
+          holderData: false,
+          evidencePack: false,
+        },
+      updatedAt: seed.updatedAt,
+      version: seed.status === "IssuerSubmitted" ? 1 : 2,
+    };
+    if (seed.matchResult) {
+      const matchResult: MatchResult = {
+        matchResultId: `match-${workflowId}-seed`,
+        workflowId,
+        matched: seed.matchResult.matched,
+        checks: [
+          {
+            checkId: "sourceInstruction",
+            label: "Source instruction present",
+            passed: true,
+            detail: "Instruction links to issuer event.",
+          },
+          {
+            checkId: "registerVersion",
+            label: "Register version available",
+            passed: true,
+            detail: "Register version and holder account are available.",
+          },
+          {
+            checkId: "holderData",
+            label: "Holder data ready",
+            passed: seed.matchResult.matched,
+            detail: seed.matchResult.matched ? "Holder positions can be derived." : "Holder data requires exception review.",
+          },
+          {
+            checkId: "evidencePack",
+            label: "Evidence pack linked",
+            passed: seed.matchResult.matched,
+            detail: seed.matchResult.matched ? "Evidence references are available." : "Evidence package is incomplete.",
+          },
+        ],
+        exception: seed.matchResult.exception,
+        createdAt: seed.updatedAt,
+        actorRole: "transferAgent",
+        version: 1,
+      };
+      matchResults.push(matchResult);
+      task.matchResultId = matchResult.matchResultId;
+    }
+    instances.push(instance);
+    tasks.push(task);
+    seed.logs.forEach((log, index) => {
+      actionLogs.push({
+        actionLogId: `log-${workflowId}-${log.action}-seed-${index}`,
+        workflowId,
+        taskId: task.taskId,
+        stepId: log.stepId,
+        action: log.action,
+        actorRole: log.actorRole,
+        message: log.message,
+        createdAt: log.createdAt,
+        idempotencyKey: `MockSeed:${workflowId}:${log.action}:${index}`,
+      });
+    });
+  });
+
   return {
-    instances: [],
-    tasks: [],
-    matchResults: [],
-    actionLogs: [],
+    instances,
+    tasks,
+    matchResults,
+    actionLogs,
   };
 }
 
@@ -362,7 +605,15 @@ export function createIssuerWorkflowInstruction(input: {
       instances: [instance, ...state.instances],
       tasks: [task, ...state.tasks],
       actionLogs: [
-        auditLog(instance.workflowId, input.actorRole, "create", "Issuer submitted request to transfer agent.", task.taskId),
+        auditLog(
+          instance.workflowId,
+          input.actorRole,
+          "create",
+          "Issuer submitted request to transfer agent.",
+          task.taskId,
+          input.idempotencyKey,
+          "IssuerSubmitted",
+        ),
         ...state.actionLogs,
       ],
     };
@@ -434,6 +685,7 @@ export function pullWorkflowTask(
           "TA pulled request into workflow.",
           taskId,
           options?.idempotencyKey,
+          "TARespond",
         ),
         ...state.actionLogs,
       ],
@@ -476,6 +728,7 @@ export function respondWorkflowTask(
           "TA accepted request for data match.",
           taskId,
           options?.idempotencyKey,
+          "TARespond",
         ),
         ...state.actionLogs,
       ],
@@ -564,6 +817,7 @@ export function matchWorkflowTask(
           matched ? "TA data match passed." : "TA data match failed.",
           taskId,
           options?.idempotencyKey,
+          "MatchData",
         ),
         ...state.actionLogs,
       ],
@@ -603,6 +857,7 @@ export function returnWorkflowTask(
           reason || "TA returned request to issuer.",
           taskId,
           options?.idempotencyKey,
+          instance.currentStepId,
         ),
         ...state.actionLogs,
       ],
@@ -639,21 +894,25 @@ export function submitWorkflowStep(
     let nextStep: WorkflowStepId;
     let taskStatus: WorkflowTaskStatus;
     let message: string;
+    let logStepId: WorkflowStepId;
     if (instance.status === "MatchPassed") {
       nextStatus = "SnapshotLocked";
       nextStep = "GenerateList";
       taskStatus = "Ready For Approval";
       message = "Snapshot locked through workflow approval.";
+      logStepId = "LockSnapshot";
     } else if (instance.status === "SnapshotLocked") {
       nextStatus = instance.sourceType === "Distribution" ? "RecipientListGenerated" : "PaymentListGenerated";
       nextStep = "SubmitIssuerReview";
       taskStatus = "Ready For Approval";
       message = instance.sourceType === "Distribution" ? "Recipient list generated." : "Payment list generated.";
+      logStepId = "GenerateList";
     } else if (instance.status === "RecipientListGenerated" || instance.status === "PaymentListGenerated") {
       nextStatus = "SubmittedToIssuer";
       nextStep = "IssuerAcknowledge";
       taskStatus = "Awaiting Issuer";
       message = "TA output submitted to issuer review.";
+      logStepId = "SubmitIssuerReview";
     } else {
       result = { success: false, message: "Workflow is not ready for this submit action.", error: "INVALID_STATE" };
       return state;
@@ -677,7 +936,7 @@ export function submitWorkflowStep(
           : item,
       ),
       actionLogs: [
-        auditLog(instance.workflowId, actorRole, "submit", message, taskId, options?.idempotencyKey),
+        auditLog(instance.workflowId, actorRole, "submit", message, taskId, options?.idempotencyKey, logStepId),
         ...state.actionLogs,
       ],
     };
@@ -719,6 +978,7 @@ export function acknowledgeWorkflowTask(
           "Issuer acknowledged TA output.",
           taskId,
           options?.idempotencyKey,
+          "IssuerAcknowledge",
         ),
         ...state.actionLogs,
       ],
@@ -761,6 +1021,7 @@ export function reconcileWorkflowTask(
           "TA reconciled close-out.",
           taskId,
           options?.idempotencyKey,
+          "ReconcileCloseOut",
         ),
         ...state.actionLogs,
       ],
@@ -794,7 +1055,8 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType) {
     { stepId: "MatchData" as const, label: "Match Data", owner: "Transfer Agent" },
     { stepId: "LockSnapshot" as const, label: "Lock Snapshot", owner: "Transfer Agent" },
     { stepId: "GenerateList" as const, label: sourceType === "Distribution" ? "Recipient List" : "Payment List", owner: "Transfer Agent" },
-    { stepId: "SubmitIssuerReview" as const, label: "Issuer Review", owner: "Issuer" },
+    { stepId: "SubmitIssuerReview" as const, label: "Submit Issuer Review", owner: "Transfer Agent" },
+    { stepId: "IssuerAcknowledge" as const, label: "Issuer Acknowledge", owner: "Issuer" },
     { stepId: "ReconcileCloseOut" as const, label: "Close-out", owner: "Transfer Agent" },
   ];
 }

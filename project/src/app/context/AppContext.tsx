@@ -806,7 +806,7 @@ interface CanonicalPersistedState {
   settlementListLines: SettlementListLine[];
 }
 
-const CANONICAL_STORAGE_KEY = "fund-rwa-canonical-state-v1";
+const CANONICAL_STORAGE_KEY = "fund-rwa-canonical-state-v2";
 const CANONICAL_CHANNEL_NAME = "fund-rwa-canonical";
 
 const initialCanonicalState: CanonicalPersistedState = {

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { User, Building2, ShieldCheck } from "lucide-react";
 
@@ -8,7 +9,12 @@ export function RoleSwitcher() {
   const roleLabel = userRole === "issuer" ? "Issuer" : userRole === "transferAgent" ? "Transfer Agent" : "Investor";
 
   return (
-    <div className="hidden items-center gap-2 rounded-lg border bg-secondary/50 px-3 py-2 text-sm sm:inline-flex">
+    <Link
+      to="/login"
+      aria-label={`Current role is ${roleLabel}. Open login page to switch role.`}
+      title="Switch role"
+      className="hidden items-center gap-2 rounded-lg border bg-secondary/50 px-3 py-2 text-sm transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:inline-flex"
+    >
       <Icon className="w-4 h-4 text-muted-foreground" />
       <span className="font-medium">Current Role: {roleLabel}</span>
       {authSession?.isSimulated && (
@@ -16,6 +22,6 @@ export function RoleSwitcher() {
           Simulation Mode
         </span>
       )}
-    </div>
+    </Link>
   );
 }

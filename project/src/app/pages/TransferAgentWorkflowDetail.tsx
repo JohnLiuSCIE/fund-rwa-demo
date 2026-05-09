@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Circle, Clock3, FileCheck2, ShieldCheck, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -6,6 +7,14 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Checkbox } from "../components/ui/checkbox";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "../components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { MetricCard } from "../components/MetricCard";
 import { useApp } from "../context/AppContext";
@@ -13,7 +22,8 @@ import { cn } from "../components/ui/utils";
 import {
   getWorkflowSteps,
   getWorkflowTaskActionLabel,
-  type WorkflowStatus,
+  type WorkflowActionLog,
+  type WorkflowStepId,
   type WorkflowTaskStatus,
 } from "../lib/workflowBackend";
 
@@ -26,24 +36,50 @@ function taskVariant(status: WorkflowTaskStatus): BadgeVariant {
   return "outline";
 }
 
-function statusOrder(status: WorkflowStatus) {
-  const order: WorkflowStatus[] = [
-    "IssuerSubmitted",
-    "TAPulled",
-    "TAResponded",
-    "MatchPassed",
-    "SnapshotLocked",
-    "RecipientListGenerated",
-    "PaymentListGenerated",
-    "SubmittedToIssuer",
-    "IssuerAcknowledged",
-    "Reconciled",
-  ];
-  return order.indexOf(status);
+function actionStepId(log: WorkflowActionLog): WorkflowStepId {
+  if (log.stepId) return log.stepId;
+  if (log.action === "create") return "IssuerSubmitted";
+  if (log.action === "pull" || log.action === "respond") return "TARespond";
+  if (log.action === "match" || log.action === "return") return "MatchData";
+  if (log.action === "acknowledge") return "IssuerAcknowledge";
+  if (log.action === "reconcile") return "ReconcileCloseOut";
+  return "LockSnapshot";
+}
+
+function actorLabel(role: WorkflowActionLog["actorRole"]) {
+  if (role === "transferAgent") return "Transfer Agent";
+  if (role === "issuer") return "Issuer";
+  return "Investor";
+}
+
+function actionLabel(action: WorkflowActionLog["action"]) {
+  const labels: Record<WorkflowActionLog["action"], string> = {
+    create: "Submitted",
+    pull: "Pulled",
+    respond: "Responded",
+    match: "Matched",
+    return: "Returned",
+    submit: "Submitted",
+    acknowledge: "Acknowledged",
+    reconcile: "Reconciled",
+  };
+  return labels[action];
+}
+
+function formatActionTime(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
 }
 
 export function TransferAgentWorkflowDetail() {
   const { taskId } = useParams();
+  const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
   const app = useApp();
   const {
     fundIssuances,
@@ -109,31 +145,43 @@ export function TransferAgentWorkflowDetail() {
     Boolean(match?.matched);
   const canReconcile = instance.status === "IssuerAcknowledged";
 
-  const run = (result: { success: boolean; message: string }) => {
-    if (result.success) toast.success(result.message);
-    else toast.error(result.message);
+  const run = (result: { success: boolean; message: string }, options?: { quietSuccess?: boolean }) => {
+    const toastOptions = { position: "top-center" as const };
+    if (result.success) {
+      if (!options?.quietSuccess) toast.success(result.message, toastOptions);
+    } else {
+      toast.error(result.message, toastOptions);
+    }
   };
 
   const updateChecklistItem = (key: string, value: boolean) => {
-    run(workflowUpdateChecklist(task.taskId, { ...task.reviewChecklist, [key]: value }));
+    run(workflowUpdateChecklist(task.taskId, { ...task.reviewChecklist, [key]: value }), { quietSuccess: true });
   };
 
   const primaryAction = () => {
     if (instance.status === "IssuerSubmitted") return run(workflowPullTask(task.taskId));
     if (instance.status === "TAPulled") return run(workflowRespondTask(task.taskId));
-    if (canRunMatch) return run(workflowMatchTask(task.taskId, true));
+    if (canRunMatch) return setReviewSheetOpen(true);
     if (canReconcile) return run(workflowReconcileTask(task.taskId));
     return run(workflowSubmitCurrentStep(task.taskId));
   };
 
   const primaryDisabled =
-    (canRunMatch && !reviewComplete) ||
     (!canRunMatch && !canReconcile && !["IssuerSubmitted", "TAPulled"].includes(instance.status) && !canSubmit) ||
     instance.status === "SubmittedToIssuer" ||
     instance.status === "Reconciled";
 
   const steps = getWorkflowSteps(instance.sourceType);
-  const currentIndex = Math.max(0, statusOrder(instance.status));
+  const currentIndex = Math.max(0, steps.findIndex((step) => step.stepId === instance.currentStepId));
+  const checklistItems = [
+    ["sourceInstruction", "Issuer instruction matches source event"],
+    ["registerVersion", "Register version is available for record date"],
+    ["holderData", "Holder data can derive snapshot/list"],
+    ["evidencePack", "Evidence pack references are attached"],
+  ] as const;
+  const completedChecklistCount = checklistItems.filter(([key]) => task.reviewChecklist[key]).length;
+  const matchStatusLabel = match ? (match.matched ? "Match passed" : "Match exception") : "Not matched";
+  const primaryActionLabel = canRunMatch ? "Review & Match" : getWorkflowTaskActionLabel(instance, task);
 
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
@@ -163,7 +211,7 @@ export function TransferAgentWorkflowDetail() {
             </div>
             <Button disabled={primaryDisabled} onClick={primaryAction}>
               <ShieldCheck className="h-4 w-4" />
-              {getWorkflowTaskActionLabel(instance, task)}
+              {primaryActionLabel}
             </Button>
           </div>
 
@@ -185,6 +233,9 @@ export function TransferAgentWorkflowDetail() {
             {steps.map((step, index) => {
               const isCurrent = step.stepId === instance.currentStepId;
               const isDone = index < currentIndex || instance.status === "Reconciled";
+              const stepLog = logs
+                .filter((log) => actionStepId(log) === step.stepId)
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
               return (
                 <div key={step.stepId} className="relative flex gap-4">
                   <div className="flex flex-col items-center">
@@ -207,9 +258,18 @@ export function TransferAgentWorkflowDetail() {
                       {isCurrent && <Badge variant="secondary">Current</Badge>}
                     </div>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      {step.stepId === "MatchData"
-                        ? "Review source instruction, register version, holder data, and evidence before approving."
-                        : "No action recorded yet."}
+                      {stepLog ? (
+                        <div>
+                          <div className="text-foreground">{stepLog.message}</div>
+                          <div className="mt-1 text-xs">
+                            {actorLabel(stepLog.actorRole)} · {actionLabel(stepLog.action)} · {formatActionTime(stepLog.createdAt)}
+                          </div>
+                        </div>
+                      ) : step.stepId === "MatchData" && isCurrent ? (
+                        "Review source instruction, register version, holder data, and evidence before approving."
+                      ) : (
+                        "Awaiting action."
+                      )}
                     </div>
                   </div>
                 </div>
@@ -257,8 +317,23 @@ export function TransferAgentWorkflowDetail() {
                 </div>
               </div>
               <Button className="w-full" disabled={primaryDisabled} onClick={primaryAction}>
-                {getWorkflowTaskActionLabel(instance, task)}
+                {primaryActionLabel}
               </Button>
+              {canRunMatch || match ? (
+                <div className="rounded-lg border p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">Review & Match</div>
+                      <div className="text-xs text-muted-foreground">
+                        {completedChecklistCount}/4 checks complete · {matchStatusLabel}
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setReviewSheetOpen(true)}>
+                      Open
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               {instance.status === "MatchException" || task.taskStatus === "Blocked" ? (
                 <Button
                   className="w-full"
@@ -273,77 +348,12 @@ export function TransferAgentWorkflowDetail() {
         </div>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+      <div className="mt-6">
         <Card>
           <CardHeader>
-            <CardTitle>Review Checklist</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              ["sourceInstruction", "Issuer instruction matches source event"],
-              ["registerVersion", "Register version is available for record date"],
-              ["holderData", "Holder data can derive snapshot/list"],
-              ["evidencePack", "Evidence pack references are attached"],
-            ].map(([key, label]) => (
-              <label key={key} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
-                <Checkbox
-                  checked={Boolean(task.reviewChecklist[key])}
-                  onCheckedChange={(checked) => updateChecklistItem(key, Boolean(checked))}
-                  disabled={["IssuerSubmitted", "SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(instance.status)}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
-            <Button
-              className="w-full"
-              variant="outline"
-              disabled={!reviewComplete || !canRunMatch}
-              onClick={() => run(workflowMatchTask(task.taskId, true))}
-            >
-              Run Match
-            </Button>
-            <Button
-              className="w-full"
-              variant="outline"
-              disabled={!reviewComplete || !canRunMatch}
-              onClick={() => run(workflowMatchTask(task.taskId, false, "Manual exception raised by TA reviewer."))}
-            >
-              Record Match Exception
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Match Result & Evidence</CardTitle>
+            <CardTitle>Evidence Pack</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {match ? (
-              <div className="rounded-lg border p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="font-medium">{match.matched ? "Match Passed" : "Match Exception"}</div>
-                  <Badge variant={match.matched ? "default" : "destructive"}>
-                    {match.matched ? "Matched" : "Exception"}
-                  </Badge>
-                </div>
-                <div className="grid gap-2">
-                  {match.checks.map((check) => (
-                    <div key={check.checkId} className="flex items-start justify-between gap-3 rounded-md bg-muted px-3 py-2 text-sm">
-                      <div>
-                        <div className="font-medium">{check.label}</div>
-                        <div className="text-xs text-muted-foreground">{check.detail}</div>
-                      </div>
-                      <Badge variant={check.passed ? "outline" : "destructive"}>{check.passed ? "Pass" : "Fail"}</Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Run match after completing the review checklist.
-              </div>
-            )}
-
             <Table>
               <TableHeader>
                 <TableRow>
@@ -392,6 +402,97 @@ export function TransferAgentWorkflowDetail() {
           ))}
         </CardContent>
       </Card>
+
+      <Sheet open={reviewSheetOpen} onOpenChange={setReviewSheetOpen}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>Review & Match</SheetTitle>
+            <SheetDescription>
+              Complete the TA review checks, then run the one-time source data match for this workflow step.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="space-y-6 px-4 pb-4">
+            <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
+              <div>
+                <div className="text-muted-foreground">Workflow</div>
+                <div className="font-medium">{instance.sourceType}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Current step</div>
+                <div className="font-medium">{instance.currentStepId}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Review state</div>
+                <div className="font-medium">{completedChecklistCount}/4 complete</div>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-3 font-medium">Review Checklist</div>
+              <div className="space-y-3">
+                {checklistItems.map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
+                    <Checkbox
+                      checked={Boolean(task.reviewChecklist[key])}
+                      onCheckedChange={(checked) => updateChecklistItem(key, Boolean(checked))}
+                      disabled={["IssuerSubmitted", "SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(instance.status)}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="font-medium">Match Result</div>
+                <Badge variant={match?.matched ? "default" : match ? "destructive" : "outline"}>
+                  {match ? (match.matched ? "Matched" : "Exception") : "Not Run"}
+                </Badge>
+              </div>
+              {match ? (
+                <div className="rounded-lg border p-4">
+                  <div className="mb-3 font-medium">{match.matched ? "Match Passed" : "Match Exception"}</div>
+                  <div className="grid gap-2">
+                    {match.checks.map((check) => (
+                      <div key={check.checkId} className="flex items-start justify-between gap-3 rounded-md bg-muted px-3 py-2 text-sm">
+                        <div>
+                          <div className="font-medium">{check.label}</div>
+                          <div className="text-xs text-muted-foreground">{check.detail}</div>
+                        </div>
+                        <Badge variant={check.passed ? "outline" : "destructive"}>{check.passed ? "Pass" : "Fail"}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  Run match after completing the review checklist.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <SheetFooter className="border-t">
+            <div className="grid w-full gap-2 sm:grid-cols-2">
+              <Button
+                disabled={!reviewComplete || !canRunMatch}
+                onClick={() => run(workflowMatchTask(task.taskId, true))}
+              >
+                Run Match
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!reviewComplete || !canRunMatch}
+                onClick={() => run(workflowMatchTask(task.taskId, false, "Manual exception raised by TA reviewer."))}
+              >
+                Record Exception
+              </Button>
+            </div>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

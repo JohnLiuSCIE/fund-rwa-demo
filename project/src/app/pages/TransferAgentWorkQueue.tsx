@@ -11,7 +11,8 @@ import { MetricCard } from "../components/MetricCard";
 import { useApp } from "../context/AppContext";
 import { getWorkflowTaskActionLabel, type WorkflowTaskStatus } from "../lib/workflowBackend";
 
-type QueueFilter = "all" | "new" | "match" | "approval" | "issuer" | "closed";
+type WorkflowAreaFilter = "all" | "distributionSnapshot" | "redemptionPayment";
+type TaskStageFilter = "all" | "intake" | "match" | "taAction" | "issuerReview" | "exception" | "closed";
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
 
 function statusVariant(status: WorkflowTaskStatus): BadgeVariant {
@@ -27,6 +28,22 @@ function workflowPriority(status: WorkflowTaskStatus) {
   return "Low";
 }
 
+function getWorkflowAreaLabel(sourceType?: string) {
+  if (sourceType === "Distribution") return "Distribution Snapshot";
+  if (sourceType === "Redemption") return "Redemption Payment";
+  return "TA Workflow";
+}
+
+function getTaskStageLabel(status: WorkflowTaskStatus) {
+  if (status === "New Request" || status === "Awaiting Pull") return "Intake required";
+  if (status === "Match Required") return "Data match";
+  if (status === "Ready For Approval" || status === "Ready To Reconcile") return "TA action ready";
+  if (status === "Awaiting Issuer") return "Issuer review";
+  if (status === "Blocked" || status === "Returned") return "Exception";
+  if (status === "Completed") return "Completed";
+  return status;
+}
+
 export function TransferAgentWorkQueue() {
   const { fundIssuances, workflowState } = useApp();
   const fundNameById = new Map(fundIssuances.map((fund) => [fund.id, fund.name]));
@@ -40,24 +57,83 @@ export function TransferAgentWorkQueue() {
     }))
     .filter((item) => item.instance);
 
-  const filters: Record<QueueFilter, typeof workflows> = {
-    all: workflows,
-    new: workflows.filter(({ task }) => task.taskStatus === "New Request"),
-    match: workflows.filter(({ task }) => task.taskStatus === "Match Required" || task.taskStatus === "Blocked"),
-    approval: workflows.filter(({ task }) => task.taskStatus === "Ready For Approval" || task.taskStatus === "Ready To Reconcile"),
-    issuer: workflows.filter(({ task }) => task.taskStatus === "Awaiting Issuer"),
-    closed: workflows.filter(({ task }) => task.taskStatus === "Completed"),
-  };
-
-  const [filter, setFilter] = useState<QueueFilter>("all");
-  const filteredWorkflows = filters[filter];
+  const [areaFilter, setAreaFilter] = useState<WorkflowAreaFilter>("all");
+  const [stageFilter, setStageFilter] = useState<TaskStageFilter>("all");
+  const areaFilteredWorkflows = workflows.filter(({ instance }) => {
+    if (areaFilter === "all") return true;
+    if (areaFilter === "distributionSnapshot") return instance!.sourceType === "Distribution";
+    return instance!.sourceType === "Redemption";
+  });
+  const filteredWorkflows = areaFilteredWorkflows.filter(({ task }) => {
+    if (stageFilter === "all") return true;
+    if (stageFilter === "intake") return task.taskStatus === "New Request" || task.taskStatus === "Awaiting Pull";
+    if (stageFilter === "match") return task.taskStatus === "Match Required";
+    if (stageFilter === "taAction") return task.taskStatus === "Ready For Approval" || task.taskStatus === "Ready To Reconcile";
+    if (stageFilter === "issuerReview") return task.taskStatus === "Awaiting Issuer";
+    if (stageFilter === "exception") return task.taskStatus === "Blocked" || task.taskStatus === "Returned";
+    return task.taskStatus === "Completed";
+  });
   const openCount = workflows.filter(({ task }) => task.taskStatus !== "Completed").length;
   const readyCount = workflows.filter(({ task }) =>
     ["Ready For Approval", "Ready To Reconcile"].includes(task.taskStatus),
   ).length;
   const exceptionCount = workflows.filter(({ task }) => ["Blocked", "Returned"].includes(task.taskStatus)).length;
   const waitingIssuerCount = workflows.filter(({ task }) => task.taskStatus === "Awaiting Issuer").length;
-  const tabClassName = "flex-none shrink-0 px-3";
+  const areaOptions: Array<{ value: WorkflowAreaFilter; label: string; detail: string; count: number }> = [
+    {
+      value: "all",
+      label: "All TA Workflows",
+      detail: "Every issuer handoff that needs TA control.",
+      count: workflows.length,
+    },
+    {
+      value: "distributionSnapshot",
+      label: "Distribution Snapshot",
+      detail: "Record-date freeze and recipient list review.",
+      count: workflows.filter(({ instance }) => instance!.sourceType === "Distribution").length,
+    },
+    {
+      value: "redemptionPayment",
+      label: "Redemption Payment",
+      detail: "Holder snapshot, payment list, and close-out.",
+      count: workflows.filter(({ instance }) => instance!.sourceType === "Redemption").length,
+    },
+  ];
+  const stageOptions: Array<{ value: TaskStageFilter; label: string; count: number }> = [
+    { value: "all", label: "All stages", count: areaFilteredWorkflows.length },
+    {
+      value: "intake",
+      label: "Intake required",
+      count: areaFilteredWorkflows.filter(({ task }) => task.taskStatus === "New Request" || task.taskStatus === "Awaiting Pull").length,
+    },
+    {
+      value: "match",
+      label: "Data match",
+      count: areaFilteredWorkflows.filter(({ task }) => task.taskStatus === "Match Required").length,
+    },
+    {
+      value: "taAction",
+      label: "TA action ready",
+      count: areaFilteredWorkflows.filter(({ task }) =>
+        ["Ready For Approval", "Ready To Reconcile"].includes(task.taskStatus),
+      ).length,
+    },
+    {
+      value: "issuerReview",
+      label: "Issuer review",
+      count: areaFilteredWorkflows.filter(({ task }) => task.taskStatus === "Awaiting Issuer").length,
+    },
+    {
+      value: "exception",
+      label: "Exception",
+      count: areaFilteredWorkflows.filter(({ task }) => ["Blocked", "Returned"].includes(task.taskStatus)).length,
+    },
+    {
+      value: "closed",
+      label: "Completed",
+      count: areaFilteredWorkflows.filter(({ task }) => task.taskStatus === "Completed").length,
+    },
+  ];
 
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
@@ -79,17 +155,53 @@ export function TransferAgentWorkQueue() {
         <MetricCard icon={TriangleAlert} label="Exceptions" value={exceptionCount} variant="warning" />
       </div>
 
-      <div className="mb-6 overflow-x-auto pb-1">
-        <Tabs value={filter} onValueChange={(value) => setFilter(value as QueueFilter)}>
-          <TabsList className="w-max justify-start">
-            <TabsTrigger className={tabClassName} value="all">All</TabsTrigger>
-            <TabsTrigger className={tabClassName} value="new">New Request</TabsTrigger>
-            <TabsTrigger className={tabClassName} value="match">Match</TabsTrigger>
-            <TabsTrigger className={tabClassName} value="approval">Approval</TabsTrigger>
-            <TabsTrigger className={tabClassName} value="issuer">Awaiting Issuer</TabsTrigger>
-            <TabsTrigger className={tabClassName} value="closed">Closed</TabsTrigger>
-          </TabsList>
-        </Tabs>
+      <div className="mb-6 rounded-lg border bg-card p-4">
+        <div className="mb-4">
+          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            1. Workflow area
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {areaOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  setAreaFilter(option.value);
+                  setStageFilter("all");
+                }}
+                className={`rounded-lg border p-3 text-left transition-colors hover:bg-secondary ${
+                  areaFilter === option.value ? "border-primary bg-primary/5" : "bg-background"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium">{option.label}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{option.detail}</div>
+                  </div>
+                  <Badge variant={areaFilter === option.value ? "default" : "outline"}>{option.count}</Badge>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            2. Task stage
+          </div>
+          <div className="overflow-x-auto pb-1">
+            <Tabs value={stageFilter} onValueChange={(value) => setStageFilter(value as TaskStageFilter)}>
+              <TabsList className="w-max justify-start">
+                {stageOptions.map((option) => (
+                  <TabsTrigger key={option.value} className="flex-none shrink-0 px-3" value={option.value}>
+                    {option.label}
+                    <span className="ml-1 text-xs text-muted-foreground">{option.count}</span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          </div>
+        </div>
       </div>
 
       <Card>
@@ -103,18 +215,24 @@ export function TransferAgentWorkQueue() {
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <div>
                     <div className="font-medium">{fundNameById.get(instance!.fundId) || instance!.fundId}</div>
-                    <div className="text-xs text-muted-foreground">{instance!.sourceType} / {instance!.sourceReference}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {getWorkflowAreaLabel(instance!.sourceType)} / {instance!.sourceReference}
+                    </div>
                   </div>
                   <Badge variant={statusVariant(task.taskStatus)}>{task.taskStatus}</Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <div className="text-muted-foreground">Step</div>
-                    <div className="font-medium">{instance!.currentStepId}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">Match</div>
-                    <div className="font-medium">{match ? (match.matched ? "Passed" : "Exception") : "Pending"}</div>
+                    <div>
+                      <div className="text-muted-foreground">Step</div>
+                      <div className="font-medium">{instance!.currentStepId}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Stage</div>
+                      <div className="font-medium">{getTaskStageLabel(task.taskStatus)}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Match</div>
+                      <div className="font-medium">{match ? (match.matched ? "Passed" : "Exception") : "Pending"}</div>
                   </div>
                   <div>
                     <div className="text-muted-foreground">Priority</div>
@@ -162,12 +280,12 @@ export function TransferAgentWorkQueue() {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">{fundNameById.get(instance!.fundId) || instance!.fundId}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {instance!.sourceType} / {instance!.sourceReference}
-                        </div>
+                        <div className="text-xs text-muted-foreground">{getWorkflowAreaLabel(instance!.sourceType)}</div>
+                        <div className="text-xs text-muted-foreground">{instance!.sourceReference}</div>
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">{instance!.currentStepId}</div>
+                        <div className="text-xs text-muted-foreground">{getTaskStageLabel(task.taskStatus)}</div>
                         <div className="text-xs text-muted-foreground">{getWorkflowTaskActionLabel(instance, task)}</div>
                       </TableCell>
                       <TableCell>{task.ownerRole}</TableCell>
