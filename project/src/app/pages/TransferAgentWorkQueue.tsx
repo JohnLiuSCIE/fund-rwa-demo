@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { MetricCard } from "../components/MetricCard";
 import { useApp } from "../context/AppContext";
-import { getWorkflowTaskActionLabel, type WorkflowTaskStatus } from "../lib/workflowBackend";
+import { getWorkflowTaskActionLabel, type WorkflowInstance, type WorkflowTaskStatus } from "../lib/workflowBackend";
 
 type WorkflowAreaFilter = "all" | "distributionSnapshot" | "redemptionPayment";
 type TaskStageFilter = "all" | "intake" | "match" | "taAction" | "issuerReview" | "exception" | "closed";
@@ -45,8 +45,40 @@ function getTaskStageLabel(status: WorkflowTaskStatus) {
 }
 
 export function TransferAgentWorkQueue() {
-  const { fundIssuances, workflowState } = useApp();
+  const { fundIssuances, fundDistributions, fundRedemptions, workflowState } = useApp();
   const fundNameById = new Map(fundIssuances.map((fund) => [fund.id, fund.name]));
+  const getWorkflowSourceMeta = (instance: WorkflowInstance) => {
+    const distribution =
+      instance.sourceType === "Distribution"
+        ? fundDistributions.find((item) => item.id === instance.sourceReference)
+        : undefined;
+    const redemption =
+      instance.sourceType === "Redemption"
+        ? fundRedemptions.find((item) => item.id === instance.sourceReference)
+        : undefined;
+    const eventName = distribution?.name || redemption?.name || instance.sourceReference;
+    const fundName =
+      distribution?.fundName ||
+      redemption?.fundName ||
+      fundNameById.get(instance.fundId) ||
+      instance.fundId;
+    const primaryDate = distribution?.recordDate || redemption?.windowEnd || redemption?.effectiveDate || "Pending";
+    const secondaryDate = distribution?.paymentDate || redemption?.settlementCycle || "Pending";
+
+    return {
+      eventName,
+      fundName,
+      sourceLabel: `${instance.sourceType} / ${instance.sourceReference}`,
+      primaryScope:
+        instance.sourceType === "Distribution"
+          ? `Record date: ${primaryDate}`
+          : `Cut-off / effective: ${primaryDate}`,
+      secondaryScope:
+        instance.sourceType === "Distribution"
+          ? `Payment date: ${secondaryDate}`
+          : `Settlement: ${secondaryDate}`,
+    };
+  };
   const workflows = workflowState.tasks
     .map((task) => ({
       task,
@@ -210,18 +242,25 @@ export function TransferAgentWorkQueue() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3 md:hidden">
-            {filteredWorkflows.map(({ task, instance, match }) => (
-              <div key={task.taskId} className="rounded-lg border p-4">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{fundNameById.get(instance!.fundId) || instance!.fundId}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {getWorkflowAreaLabel(instance!.sourceType)} / {instance!.sourceReference}
+            {filteredWorkflows.map(({ task, instance, match }) => {
+              const meta = getWorkflowSourceMeta(instance!);
+              return (
+                <div key={task.taskId} className="rounded-lg border p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{meta.eventName}</div>
+                      <div className="text-xs text-muted-foreground">{meta.fundName}</div>
+                      <div className="mt-1 font-mono text-[11px] text-muted-foreground">{meta.sourceLabel}</div>
                     </div>
+                    <Badge variant={statusVariant(task.taskStatus)}>{task.taskStatus}</Badge>
                   </div>
-                  <Badge variant={statusVariant(task.taskStatus)}>{task.taskStatus}</Badge>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="mb-3 rounded-md bg-muted px-3 py-2 text-xs">
+                    <div>{meta.primaryScope}</div>
+                    <div>{meta.secondaryScope}</div>
+                    <div className="mt-1 font-mono">Workflow: {instance!.workflowId}</div>
+                    <div className="font-mono">Task: {task.taskId}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
                     <div>
                       <div className="text-muted-foreground">Step</div>
                       <div className="font-medium">{instance!.currentStepId}</div>
@@ -249,8 +288,9 @@ export function TransferAgentWorkQueue() {
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
-              </div>
-            ))}
+                </div>
+              );
+            })}
             {filteredWorkflows.length === 0 && (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
                 No workflow tasks match this filter.
@@ -263,7 +303,8 @@ export function TransferAgentWorkQueue() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Status</TableHead>
-                  <TableHead>Fund / Event</TableHead>
+                  <TableHead>Issuer Source</TableHead>
+                  <TableHead>Workflow Linkage</TableHead>
                   <TableHead>Current Step</TableHead>
                   <TableHead>Owner</TableHead>
                   <TableHead>Review / Match</TableHead>
@@ -273,15 +314,23 @@ export function TransferAgentWorkQueue() {
               <TableBody>
                 {filteredWorkflows.map(({ task, instance, match }) => {
                   const reviewComplete = Object.values(task.reviewChecklist).every(Boolean);
+                  const meta = getWorkflowSourceMeta(instance!);
                   return (
                     <TableRow key={task.taskId}>
                       <TableCell>
                         <Badge variant={statusVariant(task.taskStatus)}>{task.taskStatus}</Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium">{fundNameById.get(instance!.fundId) || instance!.fundId}</div>
+                        <div className="font-medium">{meta.eventName}</div>
+                        <div className="text-xs text-muted-foreground">{meta.fundName}</div>
                         <div className="text-xs text-muted-foreground">{getWorkflowAreaLabel(instance!.sourceType)}</div>
-                        <div className="text-xs text-muted-foreground">{instance!.sourceReference}</div>
+                        <div className="font-mono text-xs text-muted-foreground">{meta.sourceLabel}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs">{meta.primaryScope}</div>
+                        <div className="text-xs text-muted-foreground">{meta.secondaryScope}</div>
+                        <div className="mt-1 font-mono text-[11px] text-muted-foreground">{instance!.workflowId}</div>
+                        <div className="font-mono text-[11px] text-muted-foreground">{task.taskId}</div>
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">{instance!.currentStepId}</div>
@@ -308,7 +357,7 @@ export function TransferAgentWorkQueue() {
                 })}
                 {filteredWorkflows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
                       No workflow tasks match this filter.
                     </TableCell>
                   </TableRow>

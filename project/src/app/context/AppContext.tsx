@@ -910,47 +910,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [settlementListLines, setSettlementListLines] = useState<SettlementListLine[]>(persistedCanonical.settlementListLines);
   const [workflowState, setWorkflowState] = useState<WorkflowBackendState>(() => loadWorkflowState());
   const canonicalSyncRef = useRef<string>("");
+  const workflowSyncRef = useRef<string>(JSON.stringify(workflowState));
 
-  useEffect(() => subscribeWorkflowState(setWorkflowState), []);
+  const applyCanonicalState = (next: CanonicalPersistedState) => {
+    setFundIssuances(next.fundIssuances);
+    setFundRedemptions(next.fundRedemptions);
+    setFundOrders(next.fundOrders);
+    setFundBatches(next.fundBatches);
+    setFundDistributions(next.fundDistributions);
+    setTransferAgencyInstructions(next.transferAgencyInstructions);
+    setRegisterAccounts(next.registerAccounts);
+    setRegisterDeltas(next.registerDeltas);
+    setRegisterVersions(next.registerVersions);
+    setTokenEvents(next.tokenEvents);
+    setOnChainEvents(next.onChainEvents);
+    setAnchoringEvents(next.anchoringEvents);
+    setReconciliationBreaks(next.reconciliationBreaks);
+    setEvidenceRecords(next.evidenceRecords);
+    setHolderSnapshots(next.holderSnapshots);
+    setHolderSnapshotPositions(next.holderSnapshotPositions);
+    setSettlementLists(next.settlementLists);
+    setSettlementListLines(next.settlementListLines);
+  };
+
+  const refreshCanonicalStateFromStorage = () => {
+    const next = loadCanonicalState();
+    const serialized = JSON.stringify(next);
+    if (serialized === canonicalSyncRef.current) return;
+    canonicalSyncRef.current = serialized;
+    applyCanonicalState(next);
+  };
+
+  const applyWorkflowState = (next: WorkflowBackendState) => {
+    const serialized = JSON.stringify(next);
+    if (serialized === workflowSyncRef.current) return;
+    workflowSyncRef.current = serialized;
+    setWorkflowState(next);
+  };
+
+  const refreshWorkflowStateFromStorage = () => {
+    applyWorkflowState(loadWorkflowState());
+  };
+
+  const refreshMockBackendStateFromStorage = () => {
+    refreshCanonicalStateFromStorage();
+    refreshWorkflowStateFromStorage();
+  };
+
+  useEffect(() => subscribeWorkflowState(applyWorkflowState), []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const handleExternalCanonicalUpdate = () => {
-      const next = loadCanonicalState();
-      const serialized = JSON.stringify(next);
-      if (serialized === canonicalSyncRef.current) return;
-      canonicalSyncRef.current = serialized;
-      setFundIssuances(next.fundIssuances);
-      setFundRedemptions(next.fundRedemptions);
-      setFundOrders(next.fundOrders);
-      setFundBatches(next.fundBatches);
-      setFundDistributions(next.fundDistributions);
-      setTransferAgencyInstructions(next.transferAgencyInstructions);
-      setRegisterAccounts(next.registerAccounts);
-      setRegisterDeltas(next.registerDeltas);
-      setRegisterVersions(next.registerVersions);
-      setTokenEvents(next.tokenEvents);
-      setOnChainEvents(next.onChainEvents);
-      setAnchoringEvents(next.anchoringEvents);
-      setReconciliationBreaks(next.reconciliationBreaks);
-      setEvidenceRecords(next.evidenceRecords);
-      setHolderSnapshots(next.holderSnapshots);
-      setHolderSnapshotPositions(next.holderSnapshotPositions);
-      setSettlementLists(next.settlementLists);
-      setSettlementListLines(next.settlementListLines);
-    };
     const onStorage = (event: StorageEvent) => {
-      if (event.key === CANONICAL_STORAGE_KEY) handleExternalCanonicalUpdate();
+      if (event.key === CANONICAL_STORAGE_KEY) refreshCanonicalStateFromStorage();
     };
     window.addEventListener("storage", onStorage);
     let channel: BroadcastChannel | null = null;
     if ("BroadcastChannel" in window) {
       channel = new BroadcastChannel(CANONICAL_CHANNEL_NAME);
-      channel.onmessage = handleExternalCanonicalUpdate;
+      channel.onmessage = refreshCanonicalStateFromStorage;
     }
     return () => {
       window.removeEventListener("storage", onStorage);
       channel?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onVisibleOrFocused = () => refreshMockBackendStateFromStorage();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshMockBackendStateFromStorage();
+    };
+    window.addEventListener("focus", onVisibleOrFocused);
+    window.addEventListener("pageshow", onVisibleOrFocused);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const intervalId = window.setInterval(refreshMockBackendStateFromStorage, 1500);
+    return () => {
+      window.removeEventListener("focus", onVisibleOrFocused);
+      window.removeEventListener("pageshow", onVisibleOrFocused);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(intervalId);
     };
   }, []);
 
@@ -1068,9 +1108,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const transferAgencyAuditFields = (action: string) => ({
+  const transferAgencyAuditFields = (action: string, actorRole: ActorRole = authSession?.role || "issuer") => ({
     lastAction: action,
-    lastActorRole: authSession!.role!,
+    lastActorRole: actorRole,
     lastActionAt: new Date().toISOString(),
   });
 
@@ -1325,6 +1365,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const buildRequestedSnapshot = (
     instruction: TransferAgencyInstruction,
     idempotencyKey: string,
+    actorRole: ActorRole = authSession?.role || "issuer",
   ): HolderSnapshot | null => {
     if (!instruction.sourceReference) return null;
     const sourceType = getInstructionSourceType(instruction);
@@ -1345,19 +1386,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       version: 1,
-      ...transferAgencyAuditFields("submit"),
+      ...transferAgencyAuditFields("submit", actorRole),
     };
   };
 
   const ensureRequestedSnapshot = (
     instruction: TransferAgencyInstruction,
     idempotencyKey: string,
+    actorRole: ActorRole = authSession?.role || "issuer",
   ): string | null => {
     const existing = holderSnapshots.find((snapshot) => snapshot.instructionId === instruction.instructionId);
     if (existing) return existing.snapshotId;
-    const snapshot = buildRequestedSnapshot(instruction, idempotencyKey);
+    const snapshot = buildRequestedSnapshot(instruction, idempotencyKey, actorRole);
     if (!snapshot) return null;
-    setHolderSnapshots((prev) => [snapshot, ...prev]);
+    setHolderSnapshots((prev) =>
+      prev.some((item) => item.snapshotId === snapshot.snapshotId || item.instructionId === instruction.instructionId)
+        ? prev
+        : [snapshot, ...prev],
+    );
     return snapshot.snapshotId;
   };
 
@@ -1393,6 +1439,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         actorRole: authSession!.role!,
         idempotencyKey,
       });
+      refreshWorkflowStateFromStorage();
       return {
         success: true,
         id: existing.instructionId,
@@ -1432,8 +1479,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
       actorRole: authSession!.role!,
       idempotencyKey,
     });
+    refreshWorkflowStateFromStorage();
     return { success: true, id: instructionId, message: `Transfer-agent instruction created for ${sourceReference}.` };
   };
+
+  const repairTransferAgencyWorkflow = (
+    sourceType: HolderSnapshot["sourceType"],
+    sourceReference: string,
+    idempotencyKey = `SystemRepair:${sourceReference}:${sourceType}Workflow:${formatDateTag(new Date())}`,
+  ) => {
+    const sourceConfig = getSnapshotSourceConfig(sourceType, sourceReference);
+    if (!sourceConfig) return false;
+
+    const existingInstruction = transferAgencyInstructions.find(
+      (instruction) =>
+        instruction.sourceActorType === "Issuer" &&
+        instruction.sourceReference === sourceReference &&
+        ((sourceType === "Distribution" && instruction.instructionType === "RecordDate") ||
+          (sourceType === "Redemption" && instruction.instructionType === "Redemption")),
+    );
+    const now = new Date().toISOString();
+    const instruction =
+      existingInstruction ||
+      ({
+        instructionId: `instr-${sourceType.toLowerCase()}-${sourceReference}-ta`.replace(/[^a-zA-Z0-9-]/g, "-"),
+        instructionType: sourceType === "Distribution" ? "RecordDate" : "Redemption",
+        fundId: sourceConfig.fundId,
+        classId: sourceConfig.classId,
+        sourceActorType: "Issuer",
+        sourceActorId: "issuer-demo",
+        sourceChannel: "IssuerPortal",
+        sourceReference,
+        idempotencyKey,
+        status: "ReadyForRegisterReview",
+        evidenceRefIds: [],
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+        ...transferAgencyAuditFields("submit", "issuer"),
+      } satisfies TransferAgencyInstruction);
+
+    if (!existingInstruction) {
+      setTransferAgencyInstructions((prev) =>
+        prev.some((item) => item.instructionId === instruction.instructionId) ? prev : [instruction, ...prev],
+      );
+    }
+    const snapshotId = ensureRequestedSnapshot(instruction, idempotencyKey, "issuer");
+    createIssuerWorkflowInstruction({
+      sourceType,
+      sourceReference,
+      instructionId: instruction.instructionId,
+      snapshotId: snapshotId || undefined,
+      fundId: sourceConfig.fundId,
+      classId: sourceConfig.classId,
+      actorRole: "issuer",
+      idempotencyKey,
+    });
+    refreshWorkflowStateFromStorage();
+    return true;
+  };
+
+  useEffect(() => {
+    const taOwnedDistributionStatuses = new Set(["Snapshot Locked", "Pending Allocation"]);
+    fundDistributions.forEach((distribution) => {
+      if (!taOwnedDistributionStatuses.has(distribution.status)) return;
+      if (workflowState.instances.some((item) => item.sourceType === "Distribution" && item.sourceReference === distribution.id)) {
+        return;
+      }
+      repairTransferAgencyWorkflow("Distribution", distribution.id);
+    });
+  }, [fundDistributions, workflowState.instances, transferAgencyInstructions, holderSnapshots]);
 
   const buildSnapshotPositions = (snapshot: HolderSnapshot): HolderSnapshotPosition[] => {
     const accounts = registerAccounts.filter((account) => account.fundId === snapshot.fundId);

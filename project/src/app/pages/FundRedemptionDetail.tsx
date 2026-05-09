@@ -2707,6 +2707,32 @@ export function FundRedemptionDetail() {
                       <div className="mt-1 font-medium">{redemptionTaProjection.totalAmount}</div>
                     </div>
                   </div>
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      TA workflow linkage
+                    </div>
+                    <div className="grid gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Issuer source: </span>
+                        <span className="font-mono">{`Redemption / ${redemption.id}`}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Workflow ID: </span>
+                        <span className="font-mono">{redemptionWorkflow?.workflowId || "Not created"}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Task ID: </span>
+                        <span className="font-mono">{redemptionWorkflowTask?.taskId || "Not created"}</span>
+                      </div>
+                    </div>
+                    {redemptionWorkflowTask ? (
+                      <Button asChild variant="outline" size="sm" className="mt-3 w-full bg-background">
+                        <Link to={`/ta/queue/${redemptionWorkflowTask.taskId}`}>
+                          Open TA Workflow
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </div>
                   {userRole === "issuer" && (
                     <Button
                       className="w-full"

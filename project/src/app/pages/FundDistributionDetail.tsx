@@ -1465,6 +1465,7 @@ export function FundDistributionDetail() {
   const [taActionModalOpen, setTaActionModalOpen] = useState(false);
   const [pendingTaAction, setPendingTaAction] = useState<DistributionTaHandoffActionConfig | null>(null);
   const detailSectionRef = useRef<HTMLDivElement | null>(null);
+  const autoTaWorkflowRepairRef = useRef<string | null>(null);
   const isClaimMode = distribution.payoutMode !== "Direct Transfer";
 
   useEffect(() => {
@@ -1877,6 +1878,25 @@ export function FundDistributionDetail() {
       setHasAppliedEditIntent(true);
     }
   }, [editIntentRequested, canEditSetup, hasAppliedEditIntent]);
+
+  useEffect(() => {
+    const taOwnedDistributionStage = ["Snapshot Locked", "Pending Allocation"].includes(currentStatus);
+    if (!taOwnedDistributionStage || distributionWorkflow || userRole !== "issuer") return;
+    if (autoTaWorkflowRepairRef.current === distribution.id) return;
+    autoTaWorkflowRepairRef.current = distribution.id;
+    const result = createTransferAgencyInstructionFromIssuer("Distribution", distribution.id);
+    if (result.success) {
+      toast.info("TA workflow created for this distribution stage.");
+    } else {
+      toast.error(result.message || "TA workflow could not be created.");
+    }
+  }, [
+    createTransferAgencyInstructionFromIssuer,
+    currentStatus,
+    distribution.id,
+    distributionWorkflow,
+    userRole,
+  ]);
 
   const openDetailTab = (tab: DistributionTab) => {
     setDetailTab(tab);
@@ -2307,6 +2327,32 @@ export function FundDistributionDetail() {
                       <div className="text-muted-foreground">Projected payout</div>
                       <div className="mt-1 font-medium">{distributionTaProjection.totalAmount}</div>
                     </div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      TA workflow linkage
+                    </div>
+                    <div className="grid gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Issuer source: </span>
+                        <span className="font-mono">{`Distribution / ${distribution.id}`}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Workflow ID: </span>
+                        <span className="font-mono">{distributionWorkflow?.workflowId || "Not created"}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Task ID: </span>
+                        <span className="font-mono">{distributionWorkflowTask?.taskId || "Not created"}</span>
+                      </div>
+                    </div>
+                    {distributionWorkflowTask ? (
+                      <Button asChild variant="outline" size="sm" className="mt-3 w-full bg-background">
+                        <Link to={`/ta/queue/${distributionWorkflowTask.taskId}`}>
+                          Open TA Workflow
+                        </Link>
+                      </Button>
+                    ) : null}
                   </div>
                   <Button
                     className="w-full"

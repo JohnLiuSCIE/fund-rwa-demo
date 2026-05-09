@@ -97,6 +97,8 @@ export function TransferAgentWorkflowDetail() {
   const app = useApp();
   const {
     fundIssuances,
+    fundDistributions,
+    fundRedemptions,
     workflowState,
     holderSnapshots,
     holderSnapshotPositions,
@@ -115,6 +117,34 @@ export function TransferAgentWorkflowDetail() {
   const task = workflowState.tasks.find((item) => item.taskId === taskId);
   const instance = task ? workflowState.instances.find((item) => item.workflowId === task.workflowId) : undefined;
   const fund = instance ? fundIssuances.find((item) => item.id === instance.fundId) : undefined;
+  const sourceDistribution =
+    instance?.sourceType === "Distribution"
+      ? fundDistributions.find((item) => item.id === instance.sourceReference)
+      : undefined;
+  const sourceRedemption =
+    instance?.sourceType === "Redemption"
+      ? fundRedemptions.find((item) => item.id === instance.sourceReference)
+      : undefined;
+  const sourceEventName = sourceDistribution?.name || sourceRedemption?.name || instance?.sourceReference || "Workflow";
+  const sourceFundName = sourceDistribution?.fundName || sourceRedemption?.fundName || fund?.name || instance?.fundId || "Fund";
+  const issuerDetailPath = sourceDistribution
+    ? `/fund-distribution/${sourceDistribution.id}`
+    : sourceRedemption
+      ? `/fund-redemption/${sourceRedemption.id}`
+      : undefined;
+  const sourceScopeItems = sourceDistribution
+    ? [
+        { label: "Record date", value: sourceDistribution.recordDate || "Pending" },
+        { label: "Payment date", value: sourceDistribution.paymentDate || "Pending" },
+        { label: "Payout mode", value: sourceDistribution.payoutMode || "Claim" },
+      ]
+    : sourceRedemption
+      ? [
+          { label: "Window / cut-off", value: sourceRedemption.windowEnd || sourceRedemption.effectiveDate || "Pending" },
+          { label: "Settlement", value: sourceRedemption.settlementCycle || "Pending" },
+          { label: "Redemption mode", value: sourceRedemption.redemptionMode || "Pending" },
+        ]
+      : [];
   const snapshot = instance
     ? holderSnapshots.find((item) => item.snapshotId === instance.snapshotId) ||
       holderSnapshots.find((item) => item.sourceType === instance.sourceType && item.sourceReference === instance.sourceReference)
@@ -299,10 +329,10 @@ export function TransferAgentWorkflowDetail() {
                 <Badge variant={taskVariant(task.taskStatus)}>{task.taskStatus}</Badge>
               </div>
               <h1 style={{ fontFamily: "var(--font-heading)" }}>
-                {instance.sourceType} Request Review
+                {sourceEventName}
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Pull, respond, match, and approve the issuer request before releasing register actions.
+                {sourceFundName} · {instance.sourceType} / {instance.sourceReference}
               </p>
             </div>
             <Button disabled={primaryDisabled} onClick={primaryAction}>
@@ -381,17 +411,39 @@ export function TransferAgentWorkflowDetail() {
             </CardHeader>
             <CardContent className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-1">
               <div>
-                <div className="text-muted-foreground">Fund</div>
-                <div className="font-medium">{fund?.name || instance.fundId}</div>
+                <div className="text-muted-foreground">Issuer Event</div>
+                <div className="font-medium">{sourceEventName}</div>
+                <div className="text-xs text-muted-foreground">{sourceFundName}</div>
               </div>
               <div>
-                <div className="text-muted-foreground">Source</div>
-                <div className="font-medium">{instance.sourceType} / {instance.sourceReference}</div>
+                <div className="text-muted-foreground">Source Reference</div>
+                <div className="font-mono text-xs">{instance.sourceType} / {instance.sourceReference}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Workflow ID</div>
+                <div className="break-all font-mono text-xs">{instance.workflowId}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Task ID</div>
+                <div className="break-all font-mono text-xs">{task.taskId}</div>
               </div>
               <div>
                 <div className="text-muted-foreground">Register Version</div>
                 <div className="break-all font-mono text-xs">{snapshot?.registerVersionId || "Pending snapshot"}</div>
               </div>
+              {sourceScopeItems.map((item) => (
+                <div key={item.label}>
+                  <div className="text-muted-foreground">{item.label}</div>
+                  <div className="font-medium">{item.value}</div>
+                </div>
+              ))}
+              {issuerDetailPath ? (
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <Button variant="outline" size="sm" className="w-full" asChild>
+                    <Link to={issuerDetailPath}>Open Issuer Source</Link>
+                  </Button>
+                </div>
+              ) : null}
               {snapshot ? (
                 <div className="sm:col-span-2 lg:col-span-1">
                   <Button variant="outline" size="sm" className="w-full" asChild>
