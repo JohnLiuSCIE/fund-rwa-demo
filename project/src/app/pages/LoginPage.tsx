@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { flushSync } from "react-dom";
 import { Button } from "../components/ui/button";
 import { UserRole, useApp } from "../context/AppContext";
 
@@ -7,7 +8,9 @@ export function LoginPage() {
   const { authSession, createAuthSession, currentInvestor } = useApp();
 
   const loginAs = (role: UserRole) => {
-    createAuthSession(role, authSession?.walletAddress || currentInvestor.wallet, true);
+    flushSync(() => {
+      createAuthSession(role, authSession?.walletAddress || currentInvestor.wallet, true);
+    });
     navigate(role === "transferAgent" ? "/ta" : "/", { replace: true });
   };
 

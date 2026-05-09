@@ -826,6 +826,7 @@ interface CanonicalPersistedState {
 
 const CANONICAL_STORAGE_KEY = "fund-rwa-canonical-state-v2";
 const CANONICAL_CHANNEL_NAME = "fund-rwa-canonical";
+const AUTH_SESSION_STORAGE_KEY = "fund-rwa-auth-session-v1";
 
 const initialCanonicalState: CanonicalPersistedState = {
   fundIssuances: initialFunds,
@@ -876,14 +877,29 @@ function broadcastCanonicalState() {
   channel.close();
 }
 
-export function AppProvider({ children }: { children: ReactNode }) {
-  const persistedCanonical = loadCanonicalState();
-  const [authSession, setAuthSession] = useState<AuthSession>({
+function defaultAuthSession(): AuthSession {
+  return {
     walletAddress: defaultInvestor.wallet,
     signedAt: new Date().toISOString(),
     role: "issuer",
     isSimulated: true,
-  });
+  };
+}
+
+function loadAuthSession(): AuthSession {
+  if (typeof window === "undefined") return defaultAuthSession();
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY) || "null") as AuthSession | null;
+    if (!parsed?.role || !parsed.walletAddress || !parsed.signedAt) return defaultAuthSession();
+    return parsed;
+  } catch {
+    return defaultAuthSession();
+  }
+}
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const persistedCanonical = loadCanonicalState();
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => loadAuthSession());
   const [fundIssuances, setFundIssuances] = useState<FundIssuance[]>(persistedCanonical.fundIssuances);
   const [fundRedemptions, setFundRedemptions] = useState<FundRedemptionConfig[]>(persistedCanonical.fundRedemptions);
   const [fundOrders, setFundOrders] = useState<FundOrder[]>(persistedCanonical.fundOrders);
@@ -963,6 +979,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return;
     const onStorage = (event: StorageEvent) => {
       if (event.key === CANONICAL_STORAGE_KEY) refreshCanonicalStateFromStorage();
+      if (event.key === AUTH_SESSION_STORAGE_KEY) setAuthSession(loadAuthSession());
     };
     window.addEventListener("storage", onStorage);
     let channel: BroadcastChannel | null = null;
@@ -975,6 +992,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       channel?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (authSession) {
+      window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(authSession));
+    } else {
+      window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+    }
+  }, [authSession]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
