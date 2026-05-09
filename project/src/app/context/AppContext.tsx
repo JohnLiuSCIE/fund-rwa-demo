@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, ReactNode } fro
 
 import {
   ActorRole,
+  AnchoringEvent,
   CashMovement,
   EvidenceRecord,
   FundBatch,
@@ -17,10 +18,12 @@ import {
   ReconciliationBreak,
   SettlementList,
   SettlementListLine,
+  OnChainEvent,
   TokenEvent,
   TransferAgencyInstruction,
   TransferAgencyNavRecord,
   WalletLink,
+  initialAnchoringEvents,
   initialCashMovements,
   initialDistributions,
   initialEvidenceRecords,
@@ -36,6 +39,7 @@ import {
   initialRegisterVersions,
   initialSettlementListLines,
   initialSettlementLists,
+  initialOnChainEvents,
   initialTokenEvents,
   initialTransferAgencyInstructions,
   initialTransferAgencyNavRecords,
@@ -167,6 +171,8 @@ interface AppContextType {
   cashMovements: CashMovement[];
   transferAgencyNavRecords: TransferAgencyNavRecord[];
   tokenEvents: TokenEvent[];
+  onChainEvents: OnChainEvent[];
+  anchoringEvents: AnchoringEvent[];
   reconciliationBreaks: ReconciliationBreak[];
   evidenceRecords: EvidenceRecord[];
   holderSnapshots: HolderSnapshot[];
@@ -357,6 +363,16 @@ function formatDateTag(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}${month}${day}`;
+}
+
+function mockHex(input: string, length = 64) {
+  const normalized = input.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const padded = `${normalized}${"0".repeat(length)}`;
+  return `0x${padded.slice(0, length)}`;
+}
+
+function mockBlockNumber(input: string) {
+  return 2_260_000 + Array.from(input).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 90_000;
 }
 
 function shiftDate(
@@ -798,6 +814,8 @@ interface CanonicalPersistedState {
   registerDeltas: RegisterDelta[];
   registerVersions: RegisterVersion[];
   tokenEvents: TokenEvent[];
+  onChainEvents: OnChainEvent[];
+  anchoringEvents: AnchoringEvent[];
   reconciliationBreaks: ReconciliationBreak[];
   evidenceRecords: EvidenceRecord[];
   holderSnapshots: HolderSnapshot[];
@@ -820,6 +838,8 @@ const initialCanonicalState: CanonicalPersistedState = {
   registerDeltas: initialRegisterDeltas,
   registerVersions: initialRegisterVersions,
   tokenEvents: initialTokenEvents,
+  onChainEvents: initialOnChainEvents,
+  anchoringEvents: initialAnchoringEvents,
   reconciliationBreaks: initialReconciliationBreaks,
   evidenceRecords: initialEvidenceRecords,
   holderSnapshots: initialHolderSnapshots,
@@ -833,9 +853,16 @@ function loadCanonicalState(): CanonicalPersistedState {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(CANONICAL_STORAGE_KEY) || "null") as Partial<CanonicalPersistedState> | null;
     if (!parsed) return initialCanonicalState;
+    const mergeByKey = <T extends Record<string, unknown>>(seed: T[], saved: T[] | undefined, key: keyof T) => {
+      const savedItems = saved || [];
+      const savedKeys = new Set(savedItems.map((item) => item[key]));
+      return [...savedItems, ...seed.filter((item) => !savedKeys.has(item[key]))];
+    };
     return {
       ...initialCanonicalState,
       ...parsed,
+      onChainEvents: mergeByKey(initialOnChainEvents, parsed.onChainEvents, "onChainEventId"),
+      anchoringEvents: mergeByKey(initialAnchoringEvents, parsed.anchoringEvents, "anchoringEventId"),
     };
   } catch {
     return initialCanonicalState;
@@ -871,6 +898,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [cashMovements] = useState<CashMovement[]>(initialCashMovements);
   const [transferAgencyNavRecords] = useState<TransferAgencyNavRecord[]>(initialTransferAgencyNavRecords);
   const [tokenEvents, setTokenEvents] = useState<TokenEvent[]>(persistedCanonical.tokenEvents);
+  const [onChainEvents, setOnChainEvents] = useState<OnChainEvent[]>(persistedCanonical.onChainEvents);
+  const [anchoringEvents, setAnchoringEvents] = useState<AnchoringEvent[]>(persistedCanonical.anchoringEvents);
   const [reconciliationBreaks, setReconciliationBreaks] =
     useState<ReconciliationBreak[]>(persistedCanonical.reconciliationBreaks);
   const [evidenceRecords, setEvidenceRecords] = useState<EvidenceRecord[]>(persistedCanonical.evidenceRecords);
@@ -901,6 +930,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRegisterDeltas(next.registerDeltas);
       setRegisterVersions(next.registerVersions);
       setTokenEvents(next.tokenEvents);
+      setOnChainEvents(next.onChainEvents);
+      setAnchoringEvents(next.anchoringEvents);
       setReconciliationBreaks(next.reconciliationBreaks);
       setEvidenceRecords(next.evidenceRecords);
       setHolderSnapshots(next.holderSnapshots);
@@ -936,6 +967,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       registerDeltas,
       registerVersions,
       tokenEvents,
+      onChainEvents,
+      anchoringEvents,
       reconciliationBreaks,
       evidenceRecords,
       holderSnapshots,
@@ -957,6 +990,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fundRedemptions,
     holderSnapshotPositions,
     holderSnapshots,
+    onChainEvents,
+    anchoringEvents,
     reconciliationBreaks,
     registerAccounts,
     registerDeltas,
@@ -1038,6 +1073,175 @@ export function AppProvider({ children }: { children: ReactNode }) {
     lastActorRole: authSession!.role!,
     lastActionAt: new Date().toISOString(),
   });
+
+  const recordAnchoringEvent = (event: Omit<AnchoringEvent, "createdAt" | "version" | "actorRole">) => {
+    setAnchoringEvents((prev) => {
+      const existing = prev.find(
+        (item) =>
+          item.anchorType === event.anchorType &&
+          item.targetId === event.targetId &&
+          item.sourceReference === event.sourceReference,
+      );
+      if (existing) return prev;
+      const now = new Date().toISOString();
+      return [
+        {
+          ...event,
+          actorRole: authSession?.role || undefined,
+          createdAt: now,
+          version: 1,
+        },
+        ...prev,
+      ];
+    });
+  };
+
+  const recordOnChainEvent = (event: Omit<OnChainEvent, "createdAt" | "version" | "actorRole">) => {
+    setOnChainEvents((prev) => {
+      const existing = prev.find(
+        (item) =>
+          item.eventType === event.eventType &&
+          item.sourceReference === event.sourceReference &&
+          item.idempotencyKey === event.idempotencyKey,
+      );
+      if (existing) return prev;
+      return [
+        {
+          ...event,
+          actorRole: authSession?.role || undefined,
+          createdAt: new Date().toISOString(),
+          version: 1,
+        },
+        ...prev,
+      ];
+    });
+  };
+
+  const anchorRegisterVersion = (registerVersionId: string, delta: RegisterDelta) => {
+    recordAnchoringEvent({
+      anchoringEventId: `anchor-register-${registerVersionId}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+      anchorType: "RegisterVersion",
+      sourceType: "Register",
+      sourceReference: registerVersionId,
+      targetId: registerVersionId,
+      fundId: delta.fundId,
+      classId: delta.classId,
+      chainId: "wb-hk-chain",
+      contentHash: mockHex(`register-version:${registerVersionId}:${delta.deltaId}`),
+      txHash: mockHex(`tx:anchor:register:${registerVersionId}`),
+      blockNumber: mockBlockNumber(registerVersionId),
+      status: "Confirmed",
+      idempotencyKey: `Anchor:RegisterVersion:${registerVersionId}`,
+      anchoredAt: new Date().toISOString(),
+    });
+  };
+
+  const anchorSnapshotArtifact = (snapshot: HolderSnapshot, anchorType: AnchoringEvent["anchorType"], targetId: string) => {
+    recordAnchoringEvent({
+      anchoringEventId: `anchor-${anchorType.toLowerCase()}-${targetId}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+      anchorType,
+      sourceType: snapshot.sourceType,
+      sourceReference: snapshot.sourceReference,
+      targetId,
+      fundId: snapshot.fundId,
+      classId: snapshot.classId,
+      chainId: "wb-hk-chain",
+      contentHash: mockHex(`${anchorType}:${snapshot.snapshotId}:${targetId}:${snapshot.registerVersionId}`),
+      merkleRoot: ["HolderSnapshot", "SettlementList", "EvidencePack"].includes(anchorType)
+        ? mockHex(`root:${anchorType}:${snapshot.snapshotId}:${targetId}`)
+        : undefined,
+      txHash: mockHex(`tx:anchor:${anchorType}:${targetId}`),
+      blockNumber: mockBlockNumber(`${anchorType}:${targetId}`),
+      status: "Confirmed",
+      idempotencyKey: `Anchor:${anchorType}:${targetId}`,
+      anchoredAt: new Date().toISOString(),
+    });
+  };
+
+  const recordDistributionOnChain = (distribution: FundDistribution, eventType: OnChainEvent["eventType"]) => {
+    const sourceReference = distribution.id;
+    const fundId = distribution.fundId || "fund-pending";
+    const latestRegister = distribution.fundId ? getLatestRegisterVersionForFund(distribution.fundId) : undefined;
+    const snapshot = holderSnapshots.find((item) => item.sourceType === "Distribution" && item.sourceReference === sourceReference);
+    const list = snapshot ? settlementLists.find((item) => item.snapshotId === snapshot.snapshotId) : undefined;
+    recordOnChainEvent({
+      onChainEventId: `chain-${eventType.toLowerCase()}-${sourceReference}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+      sourceType: "Distribution",
+      sourceReference,
+      eventType,
+      fundId,
+      classId: latestRegister?.classId,
+      chainId: "wb-hk-chain",
+      contractAddress: distribution.tokenAddress,
+      method:
+        eventType === "DistributionClaimOpen"
+          ? "openClaim"
+          : eventType === "DistributionTransferBatch"
+            ? "batchTransfer"
+            : "postPayoutInstruction",
+      txHash: mockHex(`tx:${eventType}:${sourceReference}`),
+      blockNumber: mockBlockNumber(`${eventType}:${sourceReference}`),
+      status: "Confirmed",
+      payloadHash: mockHex(`payload:${eventType}:${sourceReference}:${list?.listId || "no-list"}`),
+      merkleRoot: list ? mockHex(`root:settlement-list:${list.listId}`) : undefined,
+      amount: distribution.distributionRate,
+      currency: distribution.payoutToken || distribution.distributionUnit || "HKD",
+      idempotencyKey: `OnChain:${sourceReference}:${eventType}`,
+      confirmedAt: new Date().toISOString(),
+    });
+  };
+
+  const recordRedemptionBurnOnChain = (redemption: FundRedemptionConfig) => {
+    const snapshot = holderSnapshots.find((item) => item.sourceType === "Redemption" && item.sourceReference === redemption.id);
+    const list = snapshot ? settlementLists.find((item) => item.snapshotId === snapshot.snapshotId) : undefined;
+    const burnedUnits = snapshot
+      ? holderSnapshotPositions
+          .filter((position) => position.snapshotId === snapshot.snapshotId && position.included)
+          .reduce((sum, position) => sum + parseLeadingNumber(position.units), 0)
+      : 0;
+    recordOnChainEvent({
+      onChainEventId: `chain-burn-${redemption.id}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+      sourceType: "Redemption",
+      sourceReference: redemption.id,
+      eventType: "FundUnitBurn",
+      fundId: redemption.fundId,
+      classId: snapshot?.classId,
+      chainId: "wb-hk-chain",
+      contractAddress: redemption.tokenAddress,
+      method: "burnFrom",
+      txHash: mockHex(`tx:burn:${redemption.id}`),
+      blockNumber: mockBlockNumber(`burn:${redemption.id}`),
+      status: "Confirmed",
+      payloadHash: mockHex(`payload:burn:${redemption.id}:${list?.listId || "no-list"}`),
+      merkleRoot: list ? mockHex(`root:payment-list:${list.listId}`) : undefined,
+      amount: burnedUnits ? `${formatDemoNumber(burnedUnits, 2)} units` : undefined,
+      currency: redemption.fundToken,
+      idempotencyKey: `OnChain:${redemption.id}:FundUnitBurn`,
+      confirmedAt: new Date().toISOString(),
+    });
+  };
+
+  const recordIssuanceMintOnChain = (fund: FundIssuance) => {
+    recordOnChainEvent({
+      onChainEventId: `chain-mint-${fund.id}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+      sourceType: "Issuance",
+      sourceReference: fund.id,
+      eventType: "FundUnitMint",
+      fundId: fund.id,
+      classId: fund.shareClass,
+      chainId: "wb-hk-chain",
+      contractAddress: fund.tokenAddress,
+      method: "mintBatch",
+      txHash: mockHex(`tx:mint:${fund.id}`),
+      blockNumber: mockBlockNumber(`mint:${fund.id}`),
+      status: "Confirmed",
+      payloadHash: mockHex(`payload:mint:${fund.id}:${fund.allocationStatus || "allocation"}`),
+      amount: fund.totalSubscribedAmount,
+      currency: fund.tokenSymbol || fund.tokenName,
+      idempotencyKey: `OnChain:${fund.id}:FundUnitMint`,
+      confirmedAt: new Date().toISOString(),
+    });
+  };
 
   const buildCommandDeniedResult = (): TransferAgencyCommandResult => ({
     success: false,
@@ -1349,6 +1553,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return [...buildSnapshotPositions(snapshot), ...prev];
     });
     createSnapshotEvidence(snapshot, `Locked ${snapshot.sourceType.toLowerCase()} holder snapshot ${snapshot.snapshotId}`);
+    anchorSnapshotArtifact(snapshot, "HolderSnapshot", snapshot.snapshotId);
     updateInstructionStatus(instruction.instructionId, "SnapshotLocked", "lock");
     return { success: true, id: snapshot.snapshotId, message: `Holder snapshot ${snapshot.snapshotId} locked.` };
   };
@@ -1409,6 +1614,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     setSettlementLists((prev) => [list, ...prev]);
     setSettlementListLines((prev) => [...lines, ...prev]);
+    anchorSnapshotArtifact(snapshot, "SettlementList", list.listId);
     updateInstructionStatus(snapshot.instructionId, "ListGenerated", "generate");
     return { success: true, id: listId, message: `${listType} generated from ${snapshot.snapshotId}.` };
   };
@@ -1472,6 +1678,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : item,
       ),
     );
+    anchorSnapshotArtifact(snapshot, "EvidencePack", `evidence-pack-${snapshotId}`);
     updateInstructionStatus(snapshot.instructionId, "SubmittedToIssuer", "review");
     return { success: true, id: snapshotId, message: "Snapshot and list submitted to issuer review." };
   };
@@ -1525,6 +1732,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : item,
       ),
     );
+    anchorSnapshotArtifact(snapshot, "ApprovalAttestation", `issuer-ack-${snapshotId}`);
     updateInstructionStatus(snapshot.instructionId, "IssuerAcknowledged", "acknowledge");
     return { success: true, id: snapshotId, message: "Issuer review acknowledged." };
   };
@@ -1581,6 +1789,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         line.snapshotId === snapshot.snapshotId ? { ...line, status: "Reconciled", version: line.version + 1 } : line,
       ),
     );
+    anchorSnapshotArtifact(snapshot, "EvidencePack", `reconciliation-${snapshot.snapshotId}`);
     updateInstructionStatus(snapshot.instructionId, "Reconciled", "reconcile");
     if (sourceType === "Distribution") {
       setFundDistributions((prev) =>
@@ -2012,6 +2221,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     createEvidenceForPostedDelta(current, registerVersionId);
     const postedAt = new Date().toISOString();
     const instruction = transferAgencyInstructions.find((item) => item.instructionId === current.instructionId);
+    anchorRegisterVersion(registerVersionId, current);
+    if (["Issue", "Redeem"].includes(current.deltaType)) {
+      const fund = fundIssuances.find((item) => item.id === current.fundId);
+      recordOnChainEvent({
+        onChainEventId: `chain-${current.deltaType.toLowerCase()}-${current.deltaId}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+        sourceType: current.deltaType === "Issue" ? "Issuance" : "Redemption",
+        sourceReference: instruction?.sourceReference || current.deltaId,
+        eventType: current.deltaType === "Issue" ? "FundUnitMint" : "FundUnitBurn",
+        fundId: current.fundId,
+        classId: current.classId,
+        chainId: "wb-hk-chain",
+        contractAddress: fund?.tokenAddress,
+        method: current.deltaType === "Issue" ? "mint" : "burnFrom",
+        txHash: mockHex(`tx:${current.deltaType}:${current.deltaId}`),
+        blockNumber: mockBlockNumber(`${current.deltaType}:${current.deltaId}`),
+        status: "Confirmed",
+        payloadHash: mockHex(`payload:${current.deltaType}:${current.deltaId}:${registerVersionId}`),
+        amount: current.units,
+        currency: current.classId,
+        idempotencyKey: `OnChain:${current.deltaId}:${current.deltaType}`,
+        confirmedAt: postedAt,
+      });
+    }
     if (instruction?.sourceReference) {
       setFundOrders((prev) =>
         prev.map((order) =>
@@ -2186,6 +2418,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : fund,
       ),
     );
+    if (targetFund && ["Allocate On Chain", "Allocation Completed"].includes(status)) {
+      recordIssuanceMintOnChain({ ...targetFund, ...(demoSeed?.fundUpdates || {}), status });
+    }
     return true;
   };
 
@@ -2274,6 +2509,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : redemption,
       ),
     );
+    const targetRedemption = fundRedemptions.find((redemption) => redemption.id === id);
+    if (targetRedemption && status === "Burn On Chain") {
+      recordRedemptionBurnOnChain({ ...targetRedemption, status });
+    }
     return true;
   };
 
@@ -2401,6 +2640,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : distribution,
       ),
     );
+    const targetDistribution = fundDistributions.find((distribution) => distribution.id === id);
+    if (targetDistribution && status === "Put On Chain") {
+      recordDistributionOnChain({ ...targetDistribution, status }, "DistributionPayout");
+    }
+    if (targetDistribution && status === "Open For Distribution") {
+      recordDistributionOnChain(
+        { ...targetDistribution, status },
+        targetDistribution.payoutMode === "Direct Transfer" ? "DistributionTransferBatch" : "DistributionClaimOpen",
+      );
+    }
     return true;
   };
 
@@ -2433,6 +2682,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         cashMovements,
         transferAgencyNavRecords,
         tokenEvents,
+        onChainEvents,
+        anchoringEvents,
         reconciliationBreaks,
         evidenceRecords,
         holderSnapshots,

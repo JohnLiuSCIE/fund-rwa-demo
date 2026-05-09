@@ -50,6 +50,7 @@ import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
 } from "../components/TransferAgentPanels";
+import { OnChainEvidencePanel, type OnChainRequirement } from "../components/OnChainEvidencePanel";
 import { useApp } from "../context/AppContext";
 import { FundIssuance, FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
 import { buildIssuerRedemptionTaProjection } from "../lib/transferAgency";
@@ -88,6 +89,18 @@ interface RedemptionWorkflowActionConfig {
   previewSummary: ActionModalSummaryItem[];
   previewDetails: ActionModalDetailGroup[];
   viewLinks: RedemptionViewLink[];
+}
+
+type RedemptionTaHandoffActionKind = "send" | "acknowledge";
+
+interface RedemptionTaHandoffActionConfig {
+  kind: RedemptionTaHandoffActionKind;
+  title: string;
+  description: string;
+  steps: ActionModalStep[];
+  summary: ActionModalSummaryItem[];
+  impactBadges: ActionModalImpactBadge[];
+  detailGroups: ActionModalDetailGroup[];
 }
 
 function getNextRedemptionOrderAction(order: FundOrder) {
@@ -1898,6 +1911,8 @@ export function FundRedemptionDetail() {
   const [detailTab, setDetailTab] = useState<RedemptionTab>("overview");
   const [actionModalOpen, setActionModalOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<RedemptionWorkflowActionConfig | null>(null);
+  const [taActionModalOpen, setTaActionModalOpen] = useState(false);
+  const [pendingTaAction, setPendingTaAction] = useState<RedemptionTaHandoffActionConfig | null>(null);
   const [requestActionModalOpen, setRequestActionModalOpen] = useState(false);
   const [pendingRequestAction, setPendingRequestAction] = useState<
     (ReturnType<typeof getRedemptionRequestActionConfig> & { orderId: string }) | null
@@ -1917,6 +1932,8 @@ export function FundRedemptionDetail() {
     settlementLists,
     settlementListLines,
     evidenceRecords,
+    onChainEvents,
+    anchoringEvents,
     workflowState,
     createTransferAgencyInstructionFromIssuer,
     workflowAcknowledgeTask,
@@ -2051,6 +2068,16 @@ export function FundRedemptionDetail() {
   });
   const primarySetupAction = setupActions.find((action) => action.variant === "default") || null;
   const secondarySetupActions = setupActions.filter((action) => action !== primarySetupAction);
+  const redemptionActionBlockReason =
+    primarySetupAction?.impactType === "hybrid"
+      ? !redemptionWorkflow
+        ? "Send this redemption to TA and wait for an acknowledged payment list before on-chain burn."
+        : redemptionWorkflow.status === "SubmittedToIssuer"
+          ? "Acknowledge the TA output before executing the on-chain burn."
+          : !["IssuerAcknowledged", "Reconciled"].includes(redemptionWorkflow.status)
+            ? `TA workflow is ${redemptionWorkflow.status}. Wait for TA to submit the holder snapshot and payment list.`
+            : undefined
+      : undefined;
   const redemptionWorkflowTimings: WorkflowStepTiming[] = isOpenEndFund
     ? [
         {
@@ -2127,6 +2154,60 @@ export function FundRedemptionDetail() {
   const editIntentRequested = new URLSearchParams(location.search).get("mode") === "edit";
   const showTransferAgentLayer =
     !isOpenEndFund || Boolean(redemption.transferAgentOps) || Boolean(redemptionTaProjection.instruction);
+  const scopedOnChainEvents = onChainEvents.filter((event) => event.sourceReference === redemption.id);
+  const scopedAnchoringEvents = anchoringEvents.filter((event) => event.sourceReference === redemption.id);
+  const hasChainEvent = (eventTypes: string[]) =>
+    scopedOnChainEvents.some((event) => eventTypes.includes(event.eventType));
+  const hasAnchor = (anchorType: string) =>
+    scopedAnchoringEvents.some((event) => event.anchorType === anchorType);
+  const chainRequirements: OnChainRequirement[] = [
+    {
+      label: "Holder snapshot root",
+      category: "Hash Anchor",
+      status: hasAnchor("HolderSnapshot") ? "Complete" : redemptionWorkflow ? "Pending" : "Blocked",
+      detail: hasAnchor("HolderSnapshot")
+        ? "Cut-off holder snapshot has a mock chain anchor."
+        : redemptionWorkflow
+          ? "TA must lock the redemption snapshot before the holder root can be anchored."
+          : "Send the redemption to TA before anchoring the holder snapshot.",
+    },
+    {
+      label: "Payment list root",
+      category: "Hash Anchor",
+      status: hasAnchor("SettlementList") ? "Complete" : redemptionTaProjection.list ? "Pending" : "Blocked",
+      detail: hasAnchor("SettlementList")
+        ? "Payment list merkle root is recorded without exposing holder names or bank details on chain."
+        : redemptionTaProjection.list
+          ? "Payment list exists and is ready for hash anchoring."
+          : "TA must generate the payment list first.",
+    },
+    {
+      label: "Issuer approval attestation",
+      category: "Hash Anchor",
+      status: hasAnchor("ApprovalAttestation") ? "Complete" : redemptionWorkflow?.status === "SubmittedToIssuer" ? "Pending" : "Blocked",
+      detail: hasAnchor("ApprovalAttestation")
+        ? "Issuer acknowledgement is represented by an attestation hash."
+        : redemptionWorkflow?.status === "SubmittedToIssuer"
+          ? "Issuer can acknowledge TA output, then the attestation hash is recorded."
+          : "Wait until TA submits the snapshot and payment list back to issuer review.",
+    },
+    {
+      label: "Fund unit burn",
+      category: "Contract",
+      status: hasChainEvent(["FundUnitBurn"])
+        ? "Complete"
+        : redemption.status === "Burn On Chain"
+          ? "Pending"
+          : "Blocked",
+      detail: "Accepted fund units are burned on chain after TA output is acknowledged; payment details remain off-chain.",
+    },
+    {
+      label: "Holder register, KYC, and payment details",
+      category: "Off-chain",
+      status: "Private",
+      detail: "Holder identity, KYC/KYB evidence, wallet proof, and bank/payment line details stay private; only hashes are anchored.",
+    },
+  ];
   const totalSnapshotUnits = holderSnapshotRows.reduce(
     (sum, row) => sum + parseLeadingNumber(row.snapshotUnits),
     0,
@@ -2288,6 +2369,7 @@ export function FundRedemptionDetail() {
 
   const handleStatusChange = (nextStatus: typeof redemption.status, message: string) => {
     if (!pendingAction) return;
+    if (!maybeCreateRedemptionWorkflowForAction(pendingAction)) return;
     const updated = updateRedemptionStatus(
       redemption.id,
       nextStatus,
@@ -2306,13 +2388,102 @@ export function FundRedemptionDetail() {
     toast.error(result.message || "Transfer-agent action could not be completed.");
   };
 
-  const handleRedemptionTaAction = () => {
+  const maybeCreateRedemptionWorkflowForAction = (action: RedemptionWorkflowActionConfig) => {
+    if (!["ta", "hybrid"].includes(action.impactType) || redemptionWorkflow) return true;
+    const result = createTransferAgencyInstructionFromIssuer("Redemption", redemption.id);
+    runTaCommand(result);
+    return result.success;
+  };
+
+  const buildRedemptionTaActionConfig = (
+    kind: RedemptionTaHandoffActionKind,
+  ): RedemptionTaHandoffActionConfig => {
+    const isAcknowledge = kind === "acknowledge";
+
+    return {
+      kind,
+      title: isAcknowledge ? "Acknowledge TA Output" : "Send Redemption To Transfer Agent",
+      description: isAcknowledge
+        ? "Review the holder snapshot, payment list, and evidence pack before acknowledging TA output."
+        : "Verify issuer identity before creating the transfer-agent workflow request.",
+      steps: buildStructuredRedemptionModalFlow({
+        reviewTitle: isAcknowledge ? "Review TA Output" : "Review TA Handoff",
+        reviewDescription: isAcknowledge
+          ? "Confirm the payment list and evidence pack are ready to return to issuer control."
+          : "Confirm the redemption source event, cut-off roster, and settlement route before requesting TA processing.",
+        identityDescription: isAcknowledge
+          ? "Issuer identity and output-acknowledgement authority are being verified."
+          : "Issuer identity and TA handoff authority are being verified.",
+        workflowTitle: isAcknowledge ? "Acknowledge TA Output" : "Create TA Workflow",
+        workflowDescription: isAcknowledge
+          ? "The issuer acknowledgement is being recorded and the workflow is being released for TA close-out."
+          : "The redemption instruction is being created in the workflow engine.",
+        taTitle: isAcknowledge ? "Release To TA Close-out" : "Dispatch To TA Queue",
+        taDescription: isAcknowledge
+          ? "The transfer agent will see the workflow as ready for close-out reconciliation."
+          : "The transfer agent will receive a new workflow task for pull, respond, match, and snapshot lock.",
+        successTitle: isAcknowledge ? "TA output acknowledged" : "TA workflow created",
+        successDescription: isAcknowledge
+          ? "Issuer acknowledgement has been recorded."
+          : "The request is now visible in the TA workflow queue.",
+        requiresTa: true,
+        requiresOnChain: false,
+      }),
+      summary: [
+        { label: "Linked Fund", value: fund?.name || redemption.fundName },
+        { label: "Source", value: `Redemption / ${redemption.id}` },
+        { label: "Cut-off", value: redemption.cutOffTime || "Pending" },
+        { label: "Register Version", value: redemptionTaProjection.registerVersionId || "Pending" },
+        { label: "Payment Amount", value: redemptionTaProjection.totalAmount },
+      ],
+      impactBadges: [
+        { label: "Identity Required", kind: "identity" },
+        { label: isAcknowledge ? "Notify TA Close-out" : "Create TA Workflow", kind: "ta" },
+      ],
+      detailGroups: [
+        {
+          title: "Issuer Control",
+          kind: "identity",
+          items: [
+            `Current status: ${redemptionWorkflow?.status || "Not sent"}`,
+            `Redemption mode: ${redemption.redemptionMode}`,
+            `Settlement cycle: ${redemption.settlementCycle}`,
+          ],
+        },
+        {
+          title: "TA Payload",
+          kind: "ta",
+          items: [
+            `Instruction: ${redemptionTaProjection.instruction?.instructionId || "New instruction will be created"}`,
+            `Snapshot: ${redemptionTaProjection.snapshot?.snapshotId || "Pending TA lock"}`,
+            `Included holders: ${redemptionTaProjection.includedCount}`,
+          ],
+        },
+      ],
+    };
+  };
+
+  const openRedemptionTaAction = () => {
     if (!redemptionWorkflow) {
-      runTaCommand(createTransferAgencyInstructionFromIssuer("Redemption", redemption.id));
+      setPendingTaAction(buildRedemptionTaActionConfig("send"));
+      setTaActionModalOpen(true);
       return;
     }
 
     if (redemptionWorkflow?.status === "SubmittedToIssuer" && redemptionWorkflowTask) {
+      setPendingTaAction(buildRedemptionTaActionConfig("acknowledge"));
+      setTaActionModalOpen(true);
+    }
+  };
+
+  const executeRedemptionTaAction = () => {
+    if (!pendingTaAction) return;
+    if (pendingTaAction.kind === "send") {
+      runTaCommand(createTransferAgencyInstructionFromIssuer("Redemption", redemption.id));
+      return;
+    }
+
+    if (redemptionWorkflowTask) {
       runTaCommand(workflowAcknowledgeTask(redemptionWorkflowTask.taskId));
     }
   };
@@ -2383,10 +2554,10 @@ export function FundRedemptionDetail() {
                   !getPermissionResult(
                     getRedemptionPermissionAction(primarySetupAction.label),
                     "redemption",
-                  ).allowed
+                  ).allowed || Boolean(redemptionActionBlockReason)
                 }
                 disabledReason={
-                  getPermissionResult(
+                  redemptionActionBlockReason || getPermissionResult(
                     getRedemptionPermissionAction(primarySetupAction.label),
                     "redemption",
                   ).reason
@@ -2540,7 +2711,7 @@ export function FundRedemptionDetail() {
                     <Button
                       className="w-full"
                       disabled={Boolean(redemptionWorkflow) && redemptionWorkflow.status !== "SubmittedToIssuer"}
-                      onClick={handleRedemptionTaAction}
+                      onClick={openRedemptionTaAction}
                     >
                       {redemptionWorkflow?.status === "SubmittedToIssuer"
                         ? "Acknowledge TA Output"
@@ -2561,6 +2732,14 @@ export function FundRedemptionDetail() {
               />
             </>
           )}
+
+          <OnChainEvidencePanel
+            title="Chain Execution"
+            sourceReference={redemption.id}
+            onChainEvents={onChainEvents}
+            anchoringEvents={anchoringEvents}
+            requirements={chainRequirements}
+          />
 
           {fund && (
             <Card>
@@ -3112,6 +3291,27 @@ export function FundRedemptionDetail() {
           summary={pendingAction.previewSummary}
           impactBadges={pendingAction.impactBadges}
           detailGroups={pendingAction.previewDetails}
+        />
+      )}
+
+      {pendingTaAction && (
+        <OperationActionModal
+          open={taActionModalOpen}
+          onOpenChange={(open) => {
+            setTaActionModalOpen(open);
+            if (!open) {
+              setPendingTaAction(null);
+            }
+          }}
+          onSuccess={executeRedemptionTaAction}
+          title={pendingTaAction.title}
+          description={pendingTaAction.description}
+          steps={pendingTaAction.steps}
+          startLabel="Start Verification"
+          completionLabel="Return To Detail"
+          summary={pendingTaAction.summary}
+          impactBadges={pendingTaAction.impactBadges}
+          detailGroups={pendingTaAction.detailGroups}
         />
       )}
 

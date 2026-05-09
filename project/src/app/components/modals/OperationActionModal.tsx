@@ -286,7 +286,7 @@ export function OperationActionModal({
         if (!nextOpen) reset();
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:!max-w-5xl xl:!max-w-6xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto border bg-white shadow-2xl sm:!max-w-5xl xl:!max-w-6xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

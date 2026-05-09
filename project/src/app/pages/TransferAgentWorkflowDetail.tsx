@@ -17,6 +17,11 @@ import {
 } from "../components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { MetricCard } from "../components/MetricCard";
+import {
+  OperationActionModal,
+  type ActionModalStep,
+  type ActionModalSummaryItem,
+} from "../components/modals/OperationActionModal";
 import { useApp } from "../context/AppContext";
 import { cn } from "../components/ui/utils";
 import {
@@ -28,6 +33,14 @@ import {
 } from "../lib/workflowBackend";
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
+type SecureAction =
+  | "pull"
+  | "respond"
+  | "match-pass"
+  | "match-exception"
+  | "submit"
+  | "reconcile"
+  | "return";
 
 function taskVariant(status: WorkflowTaskStatus): BadgeVariant {
   if (status === "Blocked" || status === "Returned") return "destructive";
@@ -80,6 +93,7 @@ function formatActionTime(value: string) {
 export function TransferAgentWorkflowDetail() {
   const { taskId } = useParams();
   const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
+  const [secureAction, setSecureAction] = useState<SecureAction | null>(null);
   const app = useApp();
   const {
     fundIssuances,
@@ -149,8 +163,10 @@ export function TransferAgentWorkflowDetail() {
     const toastOptions = { position: "top-center" as const };
     if (result.success) {
       if (!options?.quietSuccess) toast.success(result.message, toastOptions);
+      return true;
     } else {
       toast.error(result.message, toastOptions);
+      return false;
     }
   };
 
@@ -158,12 +174,14 @@ export function TransferAgentWorkflowDetail() {
     run(workflowUpdateChecklist(task.taskId, { ...task.reviewChecklist, [key]: value }), { quietSuccess: true });
   };
 
+  const requestSecureAction = (action: SecureAction) => setSecureAction(action);
+
   const primaryAction = () => {
-    if (instance.status === "IssuerSubmitted") return run(workflowPullTask(task.taskId));
-    if (instance.status === "TAPulled") return run(workflowRespondTask(task.taskId));
+    if (instance.status === "IssuerSubmitted") return requestSecureAction("pull");
+    if (instance.status === "TAPulled") return requestSecureAction("respond");
     if (canRunMatch) return setReviewSheetOpen(true);
-    if (canReconcile) return run(workflowReconcileTask(task.taskId));
-    return run(workflowSubmitCurrentStep(task.taskId));
+    if (canReconcile) return requestSecureAction("reconcile");
+    return requestSecureAction("submit");
   };
 
   const primaryDisabled =
@@ -182,6 +200,84 @@ export function TransferAgentWorkflowDetail() {
   const completedChecklistCount = checklistItems.filter(([key]) => task.reviewChecklist[key]).length;
   const matchStatusLabel = match ? (match.matched ? "Match passed" : "Match exception") : "Not matched";
   const primaryActionLabel = canRunMatch ? "Review & Match" : getWorkflowTaskActionLabel(instance, task);
+  const secureActionLabel =
+    secureAction === "pull"
+      ? "Pull Request"
+      : secureAction === "respond"
+        ? "Respond / Accept"
+        : secureAction === "match-pass"
+          ? "Run Match"
+          : secureAction === "match-exception"
+            ? "Record Exception"
+            : secureAction === "reconcile"
+              ? "Reconcile Close-out"
+              : secureAction === "return"
+                ? "Return To Issuer"
+                : getWorkflowTaskActionLabel(instance, task);
+  const secureActionIsMatch = secureAction === "match-pass" || secureAction === "match-exception";
+  const secureActionSummary: ActionModalSummaryItem[] = [
+    { label: "Workflow", value: `${instance.sourceType} / ${instance.sourceReference}` },
+    { label: "Current step", value: instance.currentStepId },
+    { label: "Register version", value: snapshot?.registerVersionId || "Pending snapshot" },
+    { label: "Action", value: secureActionLabel },
+  ];
+  const secureActionSteps: ActionModalStep[] = [
+    {
+      label: "Review",
+      title: `Review ${secureActionLabel}`,
+      description: "Confirm the selected TA workflow action before identity verification.",
+      state: "review",
+      kind: "review",
+    },
+    {
+      label: "Identity",
+      title: "Verify Identity",
+      description: "Transfer Agent operator identity and workflow authority are being verified.",
+      state: "loading",
+      kind: "identity",
+    },
+    {
+      label: secureActionIsMatch ? "Match" : "TA Control",
+      title: secureActionIsMatch ? "Record Match Decision" : "Release Workflow Action",
+      description: secureActionIsMatch
+        ? "The match result is being recorded against the workflow task."
+        : "The verified TA action is being recorded in the workflow engine.",
+      state: "loading",
+      kind: "ta",
+    },
+    {
+      label: "Completed",
+      title: `${secureActionLabel} verified`,
+      description: "The action can now be reflected in the Transfer Agent workflow.",
+      state: "success",
+      kind: "success",
+    },
+  ];
+
+  const executeSecureAction = () => {
+    if (!secureAction) return;
+    let success = false;
+    if (secureAction === "pull") {
+      success = run(workflowPullTask(task.taskId));
+    } else if (secureAction === "respond") {
+      success = run(workflowRespondTask(task.taskId));
+    } else if (secureAction === "match-pass") {
+      success = run(workflowMatchTask(task.taskId, true));
+    } else if (secureAction === "match-exception") {
+      success = run(workflowMatchTask(task.taskId, false, "Manual exception raised by TA reviewer."));
+    } else if (secureAction === "reconcile") {
+      success = run(workflowReconcileTask(task.taskId));
+    } else if (secureAction === "return") {
+      success = run(workflowReturnTask(task.taskId, "Match exception returned to issuer."));
+    } else {
+      success = run(workflowSubmitCurrentStep(task.taskId));
+    }
+
+    if (success && secureActionIsMatch) {
+      setReviewSheetOpen(false);
+    }
+    setSecureAction(null);
+  };
 
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
@@ -296,6 +392,15 @@ export function TransferAgentWorkflowDetail() {
                 <div className="text-muted-foreground">Register Version</div>
                 <div className="break-all font-mono text-xs">{snapshot?.registerVersionId || "Pending snapshot"}</div>
               </div>
+              {snapshot ? (
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <Button variant="outline" size="sm" className="w-full" asChild>
+                    <Link to={`/ta/register?snapshot=${snapshot.snapshotId}`}>
+                      Open Snapshot In Book
+                    </Link>
+                  </Button>
+                </div>
+              ) : null}
               <div>
                 <div className="text-muted-foreground">Workflow State</div>
                 <div className="font-medium">{instance.status}</div>
@@ -338,7 +443,7 @@ export function TransferAgentWorkflowDetail() {
                 <Button
                   className="w-full"
                   variant="outline"
-                  onClick={() => run(workflowReturnTask(task.taskId, "Match exception returned to issuer."))}
+                  onClick={() => requestSecureAction("return")}
                 >
                   Return To Issuer
                 </Button>
@@ -478,14 +583,14 @@ export function TransferAgentWorkflowDetail() {
             <div className="grid w-full gap-2 sm:grid-cols-2">
               <Button
                 disabled={!reviewComplete || !canRunMatch}
-                onClick={() => run(workflowMatchTask(task.taskId, true))}
+                onClick={() => requestSecureAction("match-pass")}
               >
                 Run Match
               </Button>
               <Button
                 variant="outline"
                 disabled={!reviewComplete || !canRunMatch}
-                onClick={() => run(workflowMatchTask(task.taskId, false, "Manual exception raised by TA reviewer."))}
+                onClick={() => requestSecureAction("match-exception")}
               >
                 Record Exception
               </Button>
@@ -493,6 +598,44 @@ export function TransferAgentWorkflowDetail() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <OperationActionModal
+        open={Boolean(secureAction)}
+        onOpenChange={(open) => {
+          if (!open) setSecureAction(null);
+        }}
+        onSuccess={executeSecureAction}
+        title={`Verify ${secureActionLabel}`}
+        description="Complete Transfer Agent identity verification before applying this workflow action."
+        startLabel="Verify"
+        completionLabel="Return To Workflow"
+        steps={secureActionSteps}
+        summary={secureActionSummary}
+        impactBadges={[
+          { label: "Identity required", kind: "identity" },
+          { label: "TA workflow control", kind: "ta" },
+        ]}
+        detailGroups={[
+          {
+            title: "Identity Verification",
+            kind: "identity",
+            items: [
+              "Validate Transfer Agent operator session",
+              "Confirm role authority for the active workflow task",
+              "Bind approval to the current register workflow version",
+            ],
+          },
+          {
+            title: "Workflow Control",
+            kind: "ta",
+            items: [
+              `Apply ${secureActionLabel} after verification`,
+              "Append action log and refresh shared workflow projection",
+              "Broadcast updated state to issuer and TA views",
+            ],
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -277,7 +277,7 @@ export function TransferAgentDashboard() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Register Operations Backlog</CardTitle>
             <Button variant="outline" size="sm" asChild>
-              <Link to="/ta/register">View Register</Link>
+              <Link to="/ta/register">Search Holder Book</Link>
             </Button>
           </CardHeader>
           <CardContent>

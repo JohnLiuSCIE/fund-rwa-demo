@@ -28,6 +28,8 @@ function workflowVariant(status: string): BadgeVariant {
 export function TransferAgentEvidence() {
   const {
     evidenceRecords,
+    anchoringEvents,
+    onChainEvents,
     fundIssuances,
     holderSnapshots,
     holderSnapshotPositions,
@@ -83,11 +85,12 @@ export function TransferAgentEvidence() {
         </p>
       </div>
 
-      <div className="mb-6 grid gap-4 md:grid-cols-4">
+      <div className="mb-6 grid gap-4 md:grid-cols-5">
         <MetricCard icon={Archive} label="Evidence Records" value={evidenceRecords.length} variant="primary" />
         <MetricCard icon={FileCheck2} label="Snapshot Packs" value={snapshotPacks.length} />
         <MetricCard icon={ShieldCheck} label="Regulatory Records" value={regulatoryRecords.length} variant="success" />
         <MetricCard icon={Fingerprint} label="Content Hashes" value={hashes.length} variant="warning" />
+        <MetricCard icon={Fingerprint} label="Chain Anchors" value={anchoringEvents.length} />
       </div>
 
       <Card className="mb-6">
@@ -145,6 +148,57 @@ export function TransferAgentEvidence() {
               No holder snapshot evidence has been created yet.
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>Chain Proofs</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">{onChainEvents.length} contract event(s)</Badge>
+              <Badge variant="outline">{anchoringEvents.length} hash anchor(s)</Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Proof</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Hash / Root</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {anchoringEvents.slice(0, 6).map((event) => (
+                <TableRow key={event.anchoringEventId}>
+                  <TableCell>
+                    <div className="font-medium">{event.anchorType}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{event.targetId}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div>{event.sourceType}</div>
+                    <div className="text-xs text-muted-foreground">{event.sourceReference}</div>
+                  </TableCell>
+                  <TableCell className="max-w-[260px] truncate font-mono text-xs">
+                    {event.merkleRoot || event.contentHash}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={event.status === "Confirmed" ? "default" : "secondary"}>{event.status}</Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {anchoringEvents.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                    No chain anchors have been recorded yet.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 

@@ -490,6 +490,67 @@ export interface TokenEvent {
   version: number;
 }
 
+export type OnChainEventType =
+  | "FundUnitMint"
+  | "FundUnitBurn"
+  | "DistributionPayout"
+  | "DistributionClaimOpen"
+  | "DistributionTransferBatch"
+  | "WhitelistUpdate"
+  | "TransferRestriction";
+
+export interface OnChainEvent {
+  onChainEventId: string;
+  sourceType: "Issuance" | "Distribution" | "Redemption" | "Register" | "Wallet";
+  sourceReference: string;
+  eventType: OnChainEventType;
+  fundId: string;
+  classId?: string;
+  chainId: string;
+  contractAddress?: string;
+  method?: string;
+  txHash?: string;
+  blockNumber?: number;
+  status: "Prepared" | "Submitted" | "Confirmed" | "Finalized" | "Failed";
+  payloadHash?: string;
+  merkleRoot?: string;
+  amount?: string;
+  currency?: string;
+  actorRole?: ActorRole;
+  idempotencyKey: string;
+  createdAt: string;
+  confirmedAt?: string;
+  version: number;
+}
+
+export type AnchoringEventType =
+  | "RegisterVersion"
+  | "HolderSnapshot"
+  | "SettlementList"
+  | "EvidencePack"
+  | "ApprovalAttestation";
+
+export interface AnchoringEvent {
+  anchoringEventId: string;
+  anchorType: AnchoringEventType;
+  sourceType: "Distribution" | "Redemption" | "Issuance" | "Register" | "Workflow";
+  sourceReference: string;
+  targetId: string;
+  fundId?: string;
+  classId?: string;
+  chainId: string;
+  contentHash: string;
+  merkleRoot?: string;
+  txHash?: string;
+  blockNumber?: number;
+  status: "Prepared" | "Submitted" | "Confirmed" | "Failed";
+  actorRole?: ActorRole;
+  idempotencyKey: string;
+  createdAt: string;
+  anchoredAt?: string;
+  version: number;
+}
+
 export interface ReconciliationBreak {
   breakId: string;
   fundId: string;
@@ -1699,6 +1760,135 @@ export const initialTokenEvents: TokenEvent[] = [
     status: "Confirmed",
     linkedDeltaId: "delta-red-ce-001",
     createdAt: "2026-05-13 09:25:00",
+    version: 1,
+  },
+];
+
+export const initialOnChainEvents: OnChainEvent[] = [
+  {
+    onChainEventId: "chain-mint-sub-002",
+    sourceType: "Issuance",
+    sourceReference: "order-sub-002",
+    eventType: "FundUnitMint",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    chainId: "wb-hk-chain",
+    contractAddress: "0x3E6C8F12a4B7d9e0F3a1C6D5E8b9F2A7c4D8e1B2",
+    method: "mint",
+    txHash: "0xmintsub002",
+    blockNumber: 2190041,
+    status: "Finalized",
+    payloadHash: "0xpayloadmintsub002",
+    amount: "488,281.25",
+    currency: "DLF-HKD",
+    actorRole: "transferAgent",
+    idempotencyKey: "OnChain:order-sub-002:Mint:20260415",
+    createdAt: "2026-04-15 18:23:00",
+    confirmedAt: "2026-04-15 18:24:00",
+    version: 1,
+  },
+  {
+    onChainEventId: "chain-burn-red-ce-001",
+    sourceType: "Redemption",
+    sourceReference: "red-ce-001",
+    eventType: "FundUnitBurn",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    chainId: "wb-hk-chain",
+    contractAddress: "0xa7E4F2c8b9D1e3A5C7F6B2d8E9A1c3F5b7D9e2A4",
+    method: "burnFrom",
+    txHash: "0xburnredce001",
+    blockNumber: 2258801,
+    status: "Confirmed",
+    payloadHash: "0xpayloadburnredce001",
+    amount: "20,000",
+    currency: "REA-HKD",
+    actorRole: "issuer",
+    idempotencyKey: "OnChain:red-ce-001:Burn:20260513",
+    createdAt: "2026-05-13 09:25:00",
+    confirmedAt: "2026-05-13 09:28:00",
+    version: 1,
+  },
+  {
+    onChainEventId: "chain-whitelist-rea-harbor",
+    sourceType: "Wallet",
+    sourceReference: "wl-rea-harbor",
+    eventType: "WhitelistUpdate",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    chainId: "wb-hk-chain",
+    contractAddress: "0xa7E4F2c8b9D1e3A5C7F6B2d8E9A1c3F5b7D9e2A4",
+    method: "setWhitelisted",
+    txHash: "0xwhitelistreaharbor",
+    blockNumber: 2249102,
+    status: "Confirmed",
+    payloadHash: "0xpayloadwhitelistreaharbor",
+    actorRole: "transferAgent",
+    idempotencyKey: "OnChain:wl-rea-harbor:Whitelist:20260418",
+    createdAt: "2026-04-18 09:46:00",
+    confirmedAt: "2026-04-18 09:48:00",
+    version: 1,
+  },
+];
+
+export const initialAnchoringEvents: AnchoringEvent[] = [
+  {
+    anchoringEventId: "anchor-register-rea-20260520",
+    anchorType: "RegisterVersion",
+    sourceType: "Register",
+    sourceReference: "REG-REA-HKD-20260520-006",
+    targetId: "REG-REA-HKD-20260520-006",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    chainId: "wb-hk-chain",
+    contentHash: "0xregrea006",
+    txHash: "0xanchorregrea006",
+    blockNumber: 2262040,
+    status: "Confirmed",
+    actorRole: "transferAgent",
+    idempotencyKey: "Anchor:RegisterVersion:REG-REA-HKD-20260520-006",
+    createdAt: "2026-05-20 18:05:00",
+    anchoredAt: "2026-05-20 18:06:00",
+    version: 1,
+  },
+  {
+    anchoringEventId: "anchor-snapshot-dist-002",
+    anchorType: "HolderSnapshot",
+    sourceType: "Distribution",
+    sourceReference: "distribution-002",
+    targetId: "snap-distribution-002-requested",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    chainId: "wb-hk-chain",
+    contentHash: "0xsnapdistribution002requested",
+    merkleRoot: "0xrootdist002snapshot",
+    txHash: "0xanchordist002snapshot",
+    blockNumber: 2262051,
+    status: "Confirmed",
+    actorRole: "transferAgent",
+    idempotencyKey: "Anchor:HolderSnapshot:snap-distribution-002-requested",
+    createdAt: "2026-05-20 18:05:00",
+    anchoredAt: "2026-05-20 18:07:00",
+    version: 1,
+  },
+  {
+    anchoringEventId: "anchor-list-redemption-003",
+    anchorType: "SettlementList",
+    sourceType: "Redemption",
+    sourceReference: "redemption-003",
+    targetId: "list-redemption-003-payment-draft",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    chainId: "wb-hk-chain",
+    contentHash: "0xlistredemption003paymentdraft",
+    merkleRoot: "0xrootredemption003payment",
+    txHash: "0xanchorredemption003list",
+    blockNumber: 2258900,
+    status: "Confirmed",
+    actorRole: "transferAgent",
+    idempotencyKey: "Anchor:SettlementList:list-redemption-003-payment-draft",
+    createdAt: "2026-05-13 09:15:00",
+    anchoredAt: "2026-05-13 09:16:00",
     version: 1,
   },
 ];
