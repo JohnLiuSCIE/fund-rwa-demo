@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleDashed,
+  Loader2,
   PauseCircle,
   PlayCircle,
   Send,
@@ -101,6 +102,18 @@ interface RedemptionTaHandoffActionConfig {
   summary: ActionModalSummaryItem[];
   impactBadges: ActionModalImpactBadge[];
   detailGroups: ActionModalDetailGroup[];
+}
+
+interface RedemptionActionWaitState {
+  title: string;
+  description: string;
+}
+
+interface RedemptionActionGate {
+  buttonLabel: string;
+  disabled: boolean;
+  reason: string;
+  waitState?: RedemptionActionWaitState;
 }
 
 function getNextRedemptionOrderAction(order: FundOrder) {
@@ -485,6 +498,11 @@ function formatWorkflowTiming(value?: string) {
   }).format(new Date(`${match[0]}T00:00:00`));
 }
 
+function formatTaWorkflowStatus(status?: string) {
+  if (!status) return "Not notified";
+  return status.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
 function parseLeadingNumber(value?: string) {
   if (!value) return 0;
   const normalized = value.replace(/,/g, "");
@@ -705,6 +723,8 @@ function RedemptionNextActionPanel({
   currentStatus,
   disabled,
   disabledReason,
+  buttonLabel,
+  waitState,
   secondaryActions,
   onOpen,
   onOpenSecondary,
@@ -714,6 +734,8 @@ function RedemptionNextActionPanel({
   currentStatus: string;
   disabled: boolean;
   disabledReason?: string;
+  buttonLabel?: string;
+  waitState?: RedemptionActionWaitState;
   secondaryActions: RedemptionWorkflowActionConfig[];
   onOpen: () => void;
   onOpenSecondary: (action: RedemptionWorkflowActionConfig) => void;
@@ -733,7 +755,7 @@ function RedemptionNextActionPanel({
               Next Action
             </div>
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-              <span>{currentStatus}</span>
+              <span>{waitState ? waitState.title : currentStatus}</span>
               <span className="text-slate-400">-&gt;</span>
               <span>{action.nextStatus}</span>
             </div>
@@ -764,6 +786,16 @@ function RedemptionNextActionPanel({
           </div>
 
           <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
+
+          {waitState && (
+            <div className="flex items-start gap-3 rounded-lg border border-teal-200 bg-white/90 px-3 py-3 text-sm">
+              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-teal-700" />
+              <div>
+                <div className="font-medium text-teal-900">{waitState.title}</div>
+                <div className="mt-1 text-muted-foreground">{waitState.description}</div>
+              </div>
+            </div>
+          )}
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {action.previewSummary.map((item) => (
@@ -853,8 +885,12 @@ function RedemptionNextActionPanel({
             title={disabled ? disabledReason : undefined}
             onClick={onOpen}
           >
-            <action.icon className="mr-2 h-4 w-4" />
-            {action.label}
+            {waitState ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <action.icon className="mr-2 h-4 w-4" />
+            )}
+            {buttonLabel || action.label}
           </Button>
         </div>
       </div>
@@ -2068,16 +2104,34 @@ export function FundRedemptionDetail() {
   });
   const primarySetupAction = setupActions.find((action) => action.variant === "default") || null;
   const secondarySetupActions = setupActions.filter((action) => action !== primarySetupAction);
-  const redemptionActionBlockReason =
-    primarySetupAction?.impactType === "hybrid"
-      ? !redemptionWorkflow
-        ? "Send this redemption to TA and wait for an acknowledged payment list before on-chain burn."
-        : redemptionWorkflow.status === "SubmittedToIssuer"
-          ? "Acknowledge the TA output before executing the on-chain burn."
-          : !["IssuerAcknowledged", "Reconciled"].includes(redemptionWorkflow.status)
-            ? `TA workflow is ${redemptionWorkflow.status}. Wait for TA to submit the holder snapshot and payment list.`
-            : undefined
-      : undefined;
+  const primaryActionNeedsTa =
+    primarySetupAction?.impactType === "ta" || primarySetupAction?.impactType === "hybrid";
+  const redemptionActionGate: RedemptionActionGate | undefined = primaryActionNeedsTa
+    ? !redemptionWorkflow
+      ? {
+          buttonLabel: "Notify TA",
+          disabled: false,
+          reason: "Notify TA before the issuer can move this redemption into the next controlled step.",
+        }
+      : redemptionWorkflow.status === "SubmittedToIssuer"
+        ? {
+            buttonLabel: "Acknowledge TA Output",
+            disabled: false,
+            reason: "TA feedback has returned. Acknowledge the payment-list package before burn.",
+          }
+        : !["IssuerAcknowledged", "Reconciled"].includes(redemptionWorkflow.status)
+          ? {
+              buttonLabel: "Waiting for TA Approval",
+              disabled: true,
+              reason: `TA workflow is ${formatTaWorkflowStatus(redemptionWorkflow.status)}. Wait for TA to submit the holder snapshot and payment list.`,
+              waitState: {
+                title: "Waiting for TA feedback",
+                description:
+                  "TA has been notified. The issuer stays here until TA submits the holder snapshot and payment list back for review.",
+              },
+            }
+          : undefined
+    : undefined;
   const redemptionWorkflowTimings: WorkflowStepTiming[] = isOpenEndFund
     ? [
         {
@@ -2402,30 +2456,30 @@ export function FundRedemptionDetail() {
 
     return {
       kind,
-      title: isAcknowledge ? "Acknowledge TA Output" : "Send Redemption To Transfer Agent",
+      title: isAcknowledge ? "Acknowledge TA Output" : "Notify Transfer Agent",
       description: isAcknowledge
         ? "Review the holder snapshot, payment list, and evidence pack before acknowledging TA output."
-        : "Verify issuer identity before creating the transfer-agent workflow request.",
+        : "Verify issuer identity before notifying TA to prepare the holder snapshot and payment list.",
       steps: buildStructuredRedemptionModalFlow({
-        reviewTitle: isAcknowledge ? "Review TA Output" : "Review TA Handoff",
+        reviewTitle: isAcknowledge ? "Review TA Output" : "Review TA Notification",
         reviewDescription: isAcknowledge
           ? "Confirm the payment list and evidence pack are ready to return to issuer control."
           : "Confirm the redemption source event, cut-off roster, and settlement route before requesting TA processing.",
         identityDescription: isAcknowledge
           ? "Issuer identity and output-acknowledgement authority are being verified."
-          : "Issuer identity and TA handoff authority are being verified.",
-        workflowTitle: isAcknowledge ? "Acknowledge TA Output" : "Create TA Workflow",
+          : "Issuer identity and TA notification authority are being verified.",
+        workflowTitle: isAcknowledge ? "Acknowledge TA Output" : "Notify TA",
         workflowDescription: isAcknowledge
           ? "The issuer acknowledgement is being recorded and the workflow is being released for TA close-out."
-          : "The redemption instruction is being created in the workflow engine.",
-        taTitle: isAcknowledge ? "Release To TA Close-out" : "Dispatch To TA Queue",
+          : "A controlled workflow request is being created for transfer-agent review.",
+        taTitle: isAcknowledge ? "Release To TA Close-out" : "TA Notified",
         taDescription: isAcknowledge
           ? "The transfer agent will see the workflow as ready for close-out reconciliation."
-          : "The transfer agent will receive a new workflow task for pull, respond, match, and snapshot lock.",
-        successTitle: isAcknowledge ? "TA output acknowledged" : "TA workflow created",
+          : "TA will receive a workflow task for pull, respond, match, snapshot lock, and payment-list generation.",
+        successTitle: isAcknowledge ? "TA output acknowledged" : "TA notified",
         successDescription: isAcknowledge
           ? "Issuer acknowledgement has been recorded."
-          : "The request is now visible in the TA workflow queue.",
+          : "The request is now visible in the TA workflow queue. This page will remain in waiting state until TA feedback returns.",
         requiresTa: true,
         requiresOnChain: false,
       }),
@@ -2438,7 +2492,7 @@ export function FundRedemptionDetail() {
       ],
       impactBadges: [
         { label: "Identity Required", kind: "identity" },
-        { label: isAcknowledge ? "Notify TA Close-out" : "Create TA Workflow", kind: "ta" },
+        { label: isAcknowledge ? "Notify TA Close-out" : "Notify TA", kind: "ta" },
       ],
       detailGroups: [
         {
@@ -2484,7 +2538,17 @@ export function FundRedemptionDetail() {
     }
 
     if (redemptionWorkflowTask) {
-      runTaCommand(workflowAcknowledgeTask(redemptionWorkflowTask.taskId));
+      const result = workflowAcknowledgeTask(redemptionWorkflowTask.taskId);
+      if (!result.success) {
+        runTaCommand(result);
+        return;
+      }
+
+      if (redemption.status === "Snapshot Locked") {
+        const advanced = updateRedemptionStatus(redemption.id, "Payment List Ready", "update");
+        if (!advanced) return;
+      }
+      toast.success("TA output acknowledged. Burn On Chain is now available.");
     }
   };
 
@@ -2554,16 +2618,22 @@ export function FundRedemptionDetail() {
                   !getPermissionResult(
                     getRedemptionPermissionAction(primarySetupAction.label),
                     "redemption",
-                  ).allowed || Boolean(redemptionActionBlockReason)
+                  ).allowed || Boolean(redemptionActionGate?.disabled)
                 }
                 disabledReason={
-                  redemptionActionBlockReason || getPermissionResult(
+                  redemptionActionGate?.reason || getPermissionResult(
                     getRedemptionPermissionAction(primarySetupAction.label),
                     "redemption",
                   ).reason
                 }
+                buttonLabel={redemptionActionGate?.buttonLabel}
+                waitState={redemptionActionGate?.waitState}
                 secondaryActions={secondarySetupActions}
                 onOpen={() => {
+                  if (redemptionActionGate && !redemptionActionGate.disabled) {
+                    openRedemptionTaAction();
+                    return;
+                  }
                   setPendingAction(primarySetupAction);
                   setActionModalOpen(true);
                 }}
