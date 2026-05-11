@@ -46,6 +46,7 @@ import {
   initialWalletLinks,
 } from "../data/fundDemoData";
 import {
+  acceptWorkflowTask,
   acknowledgeWorkflowTask,
   createIssuerWorkflowInstruction,
   loadWorkflowState,
@@ -180,6 +181,7 @@ interface AppContextType {
   settlementLists: SettlementList[];
   settlementListLines: SettlementListLine[];
   workflowState: WorkflowBackendState;
+  workflowAcceptTask: (taskId: string) => WorkflowCommandResult;
   workflowPullTask: (taskId: string) => WorkflowCommandResult;
   workflowRespondTask: (taskId: string) => WorkflowCommandResult;
   workflowUpdateChecklist: (taskId: string, checklist: Record<string, boolean>) => WorkflowCommandResult;
@@ -2112,6 +2114,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pullWorkflowTask(taskId, authSession?.role || "transferAgent", workflowCommandOptions(taskId, "Pull")),
     );
 
+  const workflowAcceptTask = (taskId: string) =>
+    finishWorkflowCommand(
+      acceptWorkflowTask(taskId, authSession?.role || "transferAgent", workflowCommandOptions(taskId, "Accept")),
+    );
+
   const workflowRespondTask = (taskId: string) =>
     finishWorkflowCommand(
       respondWorkflowTask(taskId, authSession?.role || "transferAgent", workflowCommandOptions(taskId, "Respond")),
@@ -2913,6 +2920,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         settlementLists,
         settlementListLines,
         workflowState,
+        workflowAcceptTask,
         workflowPullTask,
         workflowRespondTask,
         workflowUpdateChecklist,

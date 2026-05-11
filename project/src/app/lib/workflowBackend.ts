@@ -98,6 +98,7 @@ export interface WorkflowActionLog {
   stepId?: WorkflowStepId;
   action:
     | "create"
+    | "accept"
     | "pull"
     | "respond"
     | "match"
@@ -708,6 +709,57 @@ export function pullWorkflowTask(
   return result;
 }
 
+export function acceptWorkflowTask(
+  taskId: string,
+  actorRole: ActorRole,
+  options?: WorkflowCommandOptions,
+): WorkflowCommandResult {
+  let result: WorkflowCommandResult = { success: false, message: "Workflow task was not found.", error: "NOT_FOUND" };
+  updateState((state) => {
+    const { task, instance } = getWorkflowByTask(state, taskId);
+    if (!task || !instance) return state;
+    const conflict = getVersionConflict(task, options);
+    if (conflict) {
+      result = conflict;
+      return state;
+    }
+    if (!["IssuerSubmitted", "TAPulled"].includes(instance.status)) {
+      result = { success: false, message: "Only new issuer requests can be accepted.", error: "INVALID_STATE" };
+      return state;
+    }
+
+    const nextInstance = setInstanceStatus(instance, "TAResponded", "MatchData", actorRole, "accept");
+    result = {
+      success: true,
+      message: "TA accepted request into review. Complete review and match data.",
+      workflowId: instance.workflowId,
+      taskId,
+    };
+    return {
+      ...state,
+      instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
+      tasks: state.tasks.map((item) =>
+        item.taskId === taskId
+          ? { ...setTaskStatus(item, nextInstance, "Match Required", "transferAgent", true, true), assignee: "ta-operator-demo" }
+          : item,
+      ),
+      actionLogs: [
+        auditLog(
+          instance.workflowId,
+          actorRole,
+          "accept",
+          "TA accepted request into review.",
+          taskId,
+          options?.idempotencyKey,
+          "TARespond",
+        ),
+        ...state.actionLogs,
+      ],
+    };
+  });
+  return result;
+}
+
 export function respondWorkflowTask(
   taskId: string,
   actorRole: ActorRole,
@@ -1079,8 +1131,8 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType) {
   if (sourceType === "Issuance") {
     return [
       { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
-      { stepId: "TARespond" as const, label: "TA Respond", owner: "Transfer Agent" },
-      { stepId: "MatchData" as const, label: "Match Data", owner: "Transfer Agent" },
+      { stepId: "TARespond" as const, label: "TA Accept", owner: "Transfer Agent" },
+      { stepId: "MatchData" as const, label: "Review & Match", owner: "Transfer Agent" },
       { stepId: "SubmitIssuerReview" as const, label: "Submit Issuer Review", owner: "Transfer Agent" },
       { stepId: "IssuerAcknowledge" as const, label: "Issuer Acknowledge", owner: "Issuer" },
     ];
@@ -1088,8 +1140,8 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType) {
 
   return [
     { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
-    { stepId: "TARespond" as const, label: "TA Respond", owner: "Transfer Agent" },
-    { stepId: "MatchData" as const, label: "Match Data", owner: "Transfer Agent" },
+    { stepId: "TARespond" as const, label: "TA Accept", owner: "Transfer Agent" },
+    { stepId: "MatchData" as const, label: "Review & Match", owner: "Transfer Agent" },
     { stepId: "LockSnapshot" as const, label: "Lock Snapshot", owner: "Transfer Agent" },
     { stepId: "GenerateList" as const, label: sourceType === "Distribution" ? "Recipient List" : "Payment List", owner: "Transfer Agent" },
     { stepId: "SubmitIssuerReview" as const, label: "Submit Issuer Review", owner: "Transfer Agent" },
@@ -1101,9 +1153,8 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType) {
 export function getWorkflowTaskActionLabel(instance?: WorkflowInstance, task?: WorkflowTask) {
   if (!instance || !task) return "Open Workflow";
   if (task.taskStatus === "Completed") return "View Workflow";
-  if (instance.status === "IssuerSubmitted") return "Pull Request";
-  if (instance.status === "TAPulled") return "Respond / Accept";
-  if (instance.status === "TAResponded" || instance.status === "MatchException") return "Run Match";
+  if (instance.status === "IssuerSubmitted" || instance.status === "TAPulled") return "Accept Request";
+  if (instance.status === "TAResponded" || instance.status === "MatchException") return "Review & Match";
   if (instance.status === "MatchPassed") return instance.sourceType === "Issuance" ? "Submit TA Approval" : "Lock Snapshot";
   if (instance.status === "SnapshotLocked") return instance.sourceType === "Distribution" ? "Generate Recipient List" : "Generate Payment List";
   if (instance.status === "RecipientListGenerated" || instance.status === "PaymentListGenerated") return "Submit Issuer Review";
