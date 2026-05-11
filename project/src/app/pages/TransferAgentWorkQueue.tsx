@@ -284,7 +284,7 @@ export function TransferAgentWorkQueue() {
           <CardTitle>Workflow Tasks</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3 md:hidden">
+          <div className="space-y-3 xl:hidden">
             {filteredWorkflows.map(({ task, instance, match }) => {
               const meta = getWorkflowSourceMeta(instance!);
               return (
@@ -344,8 +344,8 @@ export function TransferAgentWorkQueue() {
             )}
           </div>
 
-          <div className="hidden overflow-x-auto md:block">
-            <Table>
+          <div className="hidden xl:block">
+            <Table className="min-w-[1180px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Status</TableHead>
@@ -354,7 +354,9 @@ export function TransferAgentWorkQueue() {
                   <TableHead>Current Step</TableHead>
                   <TableHead>Owner</TableHead>
                   <TableHead>Review / Match</TableHead>
-                  <TableHead>Action</TableHead>
+                  <TableHead className="sticky right-0 z-20 bg-card shadow-[-8px_0_12px_-12px_rgba(15,23,41,0.45)]">
+                    Action
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -393,7 +395,7 @@ export function TransferAgentWorkQueue() {
                           {match ? (match.matched ? "Match passed" : "Match exception") : "Match pending"}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="sticky right-0 z-10 bg-card shadow-[-8px_0_12px_-12px_rgba(15,23,41,0.45)]">
                         <Button asChild size="sm">
                           <Link to={`/ta/queue/${task.taskId}`}>
                             Open Workflow

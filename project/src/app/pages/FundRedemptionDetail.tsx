@@ -50,6 +50,7 @@ import {
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
+  TransferAgentOutputNotice,
 } from "../components/TransferAgentPanels";
 import { OnChainEvidencePanel, type OnChainRequirement } from "../components/OnChainEvidencePanel";
 import { useApp } from "../context/AppContext";
@@ -741,6 +742,8 @@ function RedemptionNextActionPanel({
   onOpenSecondary: (action: RedemptionWorkflowActionConfig) => void;
   onViewMore: (link: RedemptionViewLink) => void;
 }) {
+  const showTaOutputNotice = buttonLabel === "Acknowledge TA Output";
+
   return (
     <div
       className={cn(
@@ -871,6 +874,13 @@ function RedemptionNextActionPanel({
               </div>
             </div>
           )}
+
+          {showTaOutputNotice ? (
+            <TransferAgentOutputNotice
+              description="The transfer agent has returned the holder snapshot, payment list, and evidence package. Review this output, then acknowledge it before the burn leg continues."
+              items={action.affectedObjects.slice(0, 4)}
+            />
+          ) : null}
         </div>
 
         <div className="xl:w-56 xl:shrink-0">
@@ -2767,126 +2777,13 @@ export function FundRedemptionDetail() {
           </Card>
 
           {showTransferAgentLayer && (
-            <>
-              <Card>
-                <CardHeader>
-                  <CardTitle>TA Handoff</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 text-sm">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-lg border p-3">
-                      <div className="text-muted-foreground">Status</div>
-                      <div className="mt-1 font-medium">
-                        {redemptionWorkflow?.status || "Not sent to TA workflow"}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-muted-foreground">Included Holders</div>
-                      <div className="mt-1 font-medium">{redemptionTaProjection.includedCount}</div>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-muted-foreground">Register Version</div>
-                      <div className="mt-1 font-medium break-all">
-                        {redemptionTaProjection.registerVersionId || "Pending"}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-muted-foreground">Payment Amount</div>
-                      <div className="mt-1 font-medium">{redemptionTaProjection.totalAmount}</div>
-                    </div>
-                  </div>
-                  <div className="rounded-lg border bg-muted/40 p-3">
-                    <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      TA workflow linkage
-                    </div>
-                    <div className="grid gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground">Issuer source: </span>
-                        <span className="break-all font-mono">{`Redemption / ${redemption.id}`}</span>
-                      </div>
-                      {redemptionWorkflow?.sourceReference &&
-                      redemptionWorkflow.sourceReference !== redemption.id ? (
-                        <div>
-                          <span className="text-muted-foreground">Workflow source: </span>
-                          <span className="break-all font-mono">{`Redemption / ${redemptionWorkflow.sourceReference}`}</span>
-                        </div>
-                      ) : null}
-                      <div>
-                        <span className="text-muted-foreground">Workflow ID: </span>
-                        <span className="break-all font-mono">{redemptionWorkflow?.workflowId || "Not created"}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Task ID: </span>
-                        <span className="break-all font-mono">{redemptionWorkflowTask?.taskId || "Not created"}</span>
-                      </div>
-                    </div>
-                    {redemptionRelatedWorkflows.length > 1 ? (
-                      <div className="mt-3 border-t pt-3">
-                        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Related TA workflows
-                        </div>
-                        <div className="space-y-2">
-                          {redemptionRelatedWorkflows.map((workflow) => {
-                            const workflowTask = workflowState.tasks.find(
-                              (task) => task.workflowId === workflow.workflowId,
-                            );
-                            const sourceLabel =
-                              workflow.sourceReference === redemption.id
-                                ? `Event / ${workflow.sourceReference}`
-                                : `Order / ${workflow.sourceReference}`;
-
-                            return (
-                              <div
-                                key={workflow.workflowId}
-                                className="flex flex-col gap-1 rounded-md border bg-background p-2 sm:flex-row sm:items-center sm:justify-between"
-                              >
-                                <div className="min-w-0">
-                                  <div className="break-all font-mono text-[11px]">{sourceLabel}</div>
-                                  <div className="break-all text-[11px] text-muted-foreground">
-                                    {workflowTask?.taskId || workflow.workflowId}
-                                  </div>
-                                </div>
-                                <Badge variant="outline" className="w-fit">
-                                  {workflow.status}
-                                </Badge>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : null}
-                    {redemptionWorkflowTask ? (
-                      <Button asChild variant="outline" size="sm" className="mt-3 w-full bg-background">
-                        <Link to={`/ta/queue/${redemptionWorkflowTask.taskId}`}>
-                          Open TA Workflow
-                        </Link>
-                      </Button>
-                    ) : null}
-                  </div>
-                  {userRole === "issuer" && (
-                    <Button
-                      className="w-full"
-                      disabled={Boolean(redemptionWorkflow) && redemptionWorkflow.status !== "SubmittedToIssuer"}
-                      onClick={openRedemptionTaAction}
-                    >
-                      {redemptionWorkflow?.status === "SubmittedToIssuer"
-                        ? "Acknowledge TA Output"
-                        : redemptionWorkflow
-                          ? "Await Transfer Agent"
-                          : "Send To Transfer Agent"}
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-
-              <TransferAgentOperationsCard
-                description="This panel makes the transfer-agent operating role explicit: holder snapshot, payment-list generation, funding check, and close-out."
-                operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
-                status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
-                fields={transferAgentFields}
-                note="For this closed-end redemption event, the transfer agent controls the holder snapshot and publishes the payment list after the participation window closes."
-              />
-            </>
+            <TransferAgentOperationsCard
+              description="This panel makes the transfer-agent operating role explicit: holder snapshot, payment-list generation, funding check, and close-out."
+              operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
+              status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
+              fields={transferAgentFields}
+              note="For this closed-end redemption event, the transfer agent controls the holder snapshot and publishes the payment list after the participation window closes."
+            />
           )}
 
           <OnChainEvidencePanel

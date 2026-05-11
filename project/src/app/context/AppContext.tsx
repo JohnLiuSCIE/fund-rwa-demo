@@ -2202,7 +2202,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const workflowReconcileTask = (taskId: string): WorkflowCommandResult => {
     const { instance, snapshot, sourceEventReference } = getWorkflowRuntime(taskId);
-    if (!instance || !snapshot) return { success: false, message: "Workflow snapshot was not found.", error: "NOT_FOUND" };
+    if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
+    if (instance.sourceType === "Issuance") {
+      return {
+        success: true,
+        message: "Issuance TA approval is already closed after issuer acknowledgement. No holder snapshot close-out is required.",
+        workflowId: instance.workflowId,
+        taskId,
+      };
+    }
+    if (!snapshot) return { success: false, message: "Workflow snapshot was not found.", error: "NOT_FOUND" };
     const canonicalSourceReference = sourceEventReference || instance.sourceReference;
     const canonicalResult =
       instance.sourceType === "Distribution"

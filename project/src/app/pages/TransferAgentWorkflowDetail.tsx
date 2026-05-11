@@ -136,6 +136,7 @@ export function TransferAgentWorkflowDetail() {
       ? fundRedemptions.find((item) => item.id === redemptionEventReference)
       : undefined;
   const sourceIssuance = instance?.sourceType === "Issuance" ? fund : undefined;
+  const isIssuanceWorkflow = instance?.sourceType === "Issuance";
   const sourceEventName =
     sourceDistribution?.name ||
     sourceRedemption?.name ||
@@ -194,6 +195,17 @@ export function TransferAgentWorkflowDetail() {
           (item.sourceReference === instance.sourceReference || item.sourceReference === redemptionEventReference),
       )
     : undefined;
+  const registerReferenceLabel =
+    snapshot?.registerVersionId ||
+    (isIssuanceWorkflow
+      ? sourceIssuance?.transferAgentOps?.registerVersion ||
+        sourceIssuance?.tokenSymbol ||
+        "Issuance approval package"
+      : "Pending snapshot");
+  const registerReferenceHint =
+    isIssuanceWorkflow && !snapshot
+      ? "Issuance approval does not use a holder snapshot; TA signs off the order book, allocation workbook, and register package."
+      : undefined;
   const positions = snapshot ? holderSnapshotPositions.filter((item) => item.snapshotId === snapshot.snapshotId) : [];
   const list = snapshot ? settlementLists.find((item) => item.snapshotId === snapshot.snapshotId) : undefined;
   const lines = list ? settlementListLines.filter((item) => item.listId === list.listId) : [];
@@ -232,7 +244,7 @@ export function TransferAgentWorkflowDetail() {
       instance.status === "PaymentListGenerated") &&
     reviewComplete &&
     Boolean(match?.matched);
-  const canReconcile = instance.status === "IssuerAcknowledged";
+  const canReconcile = instance.status === "IssuerAcknowledged" && instance.sourceType !== "Issuance";
 
   const run = (result: { success: boolean; message: string }, options?: { quietSuccess?: boolean }) => {
     const toastOptions = { position: "top-center" as const };
@@ -263,6 +275,7 @@ export function TransferAgentWorkflowDetail() {
   };
 
   const primaryAction = () => {
+    if (instance.sourceType === "Issuance" && instance.status === "IssuerAcknowledged") return;
     if (instance.status === "IssuerSubmitted" || instance.status === "TAPulled") return requestSecureAction("accept");
     if (canRunMatch) return setReviewSheetOpen(true);
     if (canReconcile) return requestSecureAction("reconcile");
@@ -272,7 +285,8 @@ export function TransferAgentWorkflowDetail() {
   const primaryDisabled =
     (!canRunMatch && !canReconcile && !["IssuerSubmitted", "TAPulled"].includes(instance.status) && !canSubmit) ||
     instance.status === "SubmittedToIssuer" ||
-    instance.status === "Reconciled";
+    instance.status === "Reconciled" ||
+    (instance.sourceType === "Issuance" && instance.status === "IssuerAcknowledged");
 
   const steps = getWorkflowSteps(instance.sourceType);
   const currentIndex = Math.max(0, steps.findIndex((step) => step.stepId === instance.currentStepId));
@@ -284,7 +298,12 @@ export function TransferAgentWorkflowDetail() {
   ] as const;
   const completedChecklistCount = checklistItems.filter(([key]) => task.reviewChecklist[key]).length;
   const matchStatusLabel = match ? (match.matched ? "Match passed" : "Match exception") : "Not matched";
-  const primaryActionLabel = canRunMatch ? "Review & Match" : getWorkflowTaskActionLabel(instance, task);
+  const primaryActionLabel =
+    instance.sourceType === "Issuance" && instance.status === "IssuerAcknowledged"
+      ? "TA Approval Complete"
+      : canRunMatch
+        ? "Review & Match"
+        : getWorkflowTaskActionLabel(instance, task);
   const secureActionLabel =
     secureAction === "accept"
       ? "Accept Request"
@@ -296,7 +315,7 @@ export function TransferAgentWorkflowDetail() {
   const secureActionSummary: ActionModalSummaryItem[] = [
     { label: "Workflow", value: sourceReferenceLabel },
     { label: "Current step", value: instance.currentStepId },
-    { label: "Register version", value: snapshot?.registerVersionId || "Pending snapshot" },
+    { label: isIssuanceWorkflow ? "Register / approval ref" : "Register version", value: registerReferenceLabel },
     { label: "Action", value: secureActionLabel },
   ];
   const secureActionSteps: ActionModalStep[] = [
@@ -465,8 +484,13 @@ export function TransferAgentWorkflowDetail() {
                 <div className="break-all font-mono text-xs">{task.taskId}</div>
               </div>
               <div>
-                <div className="text-muted-foreground">Register Version</div>
-                <div className="break-all font-mono text-xs">{snapshot?.registerVersionId || "Pending snapshot"}</div>
+                <div className="text-muted-foreground">
+                  {isIssuanceWorkflow ? "Register / Approval Ref" : "Register Version"}
+                </div>
+                <div className="break-all font-mono text-xs">{registerReferenceLabel}</div>
+                {registerReferenceHint ? (
+                  <div className="mt-1 text-xs text-muted-foreground">{registerReferenceHint}</div>
+                ) : null}
               </div>
               {sourceScopeItems.map((item) => (
                 <div key={item.label}>

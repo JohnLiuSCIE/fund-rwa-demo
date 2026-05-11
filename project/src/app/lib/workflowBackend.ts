@@ -1084,6 +1084,15 @@ export function reconcileWorkflowTask(
       result = { success: false, message: "Workflow is not ready for close-out reconciliation.", error: "INVALID_STATE" };
       return state;
     }
+    if (instance.sourceType === "Issuance") {
+      result = {
+        success: true,
+        message: "Issuance workflow is already complete after issuer acknowledgement.",
+        workflowId: instance.workflowId,
+        taskId,
+      };
+      return state;
+    }
     const nextInstance = setInstanceStatus(instance, "Reconciled", "ReconcileCloseOut", actorRole, "reconcile");
     result = { success: true, message: "Workflow reconciled and closed.", workflowId: instance.workflowId, taskId };
     return {

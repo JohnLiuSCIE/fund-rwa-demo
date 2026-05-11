@@ -21,6 +21,40 @@ export interface ChecklistItem {
   status: "done" | "pending" | "attention";
 }
 
+export function TransferAgentOutputNotice({
+  title = "TA has approved the above operation.",
+  description,
+  items = [],
+}: {
+  title?: string;
+  description: string;
+  items?: string[];
+}) {
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-3 text-sm">
+      <div className="flex items-start gap-3">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+        <div className="min-w-0">
+          <div className="font-medium text-emerald-950">{title}</div>
+          <div className="mt-1 text-emerald-900/80">{description}</div>
+          {items.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {items.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-xs font-medium text-emerald-900"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WorkflowResponsibilityCard({
   title = "Workflow Responsibility Map",
   description,

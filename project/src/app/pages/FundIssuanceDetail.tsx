@@ -52,6 +52,7 @@ import { FundIssuanceWorkflow, type WorkflowStepTiming } from "../components/Fun
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
+  TransferAgentOutputNotice,
 } from "../components/TransferAgentPanels";
 import { RedeemModal, SubscribeModal } from "../components/modals/InvestorModals";
 import {
@@ -3305,6 +3306,8 @@ function IssuanceNextActionPanel({
   onViewMore: (link: ActionViewLink) => void;
   onOpen: () => void;
 }) {
+  const showTaOutputNotice = buttonLabel === "Acknowledge TA Output";
+
   return (
     <div
       className={cn(
@@ -3414,6 +3417,13 @@ function IssuanceNextActionPanel({
               </div>
             </div>
           )}
+
+          {showTaOutputNotice ? (
+            <TransferAgentOutputNotice
+              description="The transfer agent has returned the issuance approval package. Review this output, then acknowledge it to continue the issuer action."
+              items={action.affectedObjects.slice(0, 4)}
+            />
+          ) : null}
         </div>
 
         <div className="xl:w-56 xl:shrink-0">

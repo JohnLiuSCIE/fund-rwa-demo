@@ -36,6 +36,7 @@ import {
 import {
   TransferAgentChecklistCard,
   TransferAgentOperationsCard,
+  TransferAgentOutputNotice,
 } from "../components/TransferAgentPanels";
 import { OnChainEvidencePanel, type OnChainRequirement } from "../components/OnChainEvidencePanel";
 import {
@@ -508,6 +509,8 @@ function DistributionNextActionPanel({
   onOpen: () => void;
   onViewMore: (link: DistributionViewLink) => void;
 }) {
+  const showTaOutputNotice = buttonLabel === "Acknowledge TA Output";
+
   return (
     <div
       className={cn(
@@ -617,6 +620,13 @@ function DistributionNextActionPanel({
               </div>
             </div>
           )}
+
+          {showTaOutputNotice ? (
+            <TransferAgentOutputNotice
+              description="The transfer agent has returned the holder snapshot, recipient list, and evidence package. Review this output, then acknowledge it to continue the release step."
+              items={action.affectedObjects.slice(0, 4)}
+            />
+          ) : null}
         </div>
 
         <div className="xl:w-56 xl:shrink-0">
@@ -2336,82 +2346,14 @@ export function FundDistributionDetail() {
           </Card>
 
           {showTransferAgentLayer && (
-            <>
-              <Card className="mt-6">
-                <CardHeader>
-                  <CardTitle>TA Handoff</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 text-sm">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-lg border p-3">
-                      <div className="text-muted-foreground">Status</div>
-                      <div className="mt-1 font-medium">
-                        {distributionWorkflow?.status || "Not sent to TA workflow"}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-muted-foreground">Included holders</div>
-                      <div className="mt-1 font-medium">{distributionTaProjection.includedCount}</div>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-muted-foreground">Register version</div>
-                      <div className="mt-1 truncate font-mono text-xs">
-                        {distributionTaProjection.registerVersionId || "Pending"}
-                      </div>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-muted-foreground">Projected payout</div>
-                      <div className="mt-1 font-medium">{distributionTaProjection.totalAmount}</div>
-                    </div>
-                  </div>
-                  <div className="rounded-lg border bg-muted/40 p-3">
-                    <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      TA workflow linkage
-                    </div>
-                    <div className="grid gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground">Issuer source: </span>
-                        <span className="break-all font-mono">{`Distribution / ${distribution.id}`}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Workflow ID: </span>
-                        <span className="break-all font-mono">{distributionWorkflow?.workflowId || "Not created"}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Task ID: </span>
-                        <span className="break-all font-mono">{distributionWorkflowTask?.taskId || "Not created"}</span>
-                      </div>
-                    </div>
-                    {distributionWorkflowTask ? (
-                      <Button asChild variant="outline" size="sm" className="mt-3 w-full bg-background">
-                        <Link to={`/ta/queue/${distributionWorkflowTask.taskId}`}>
-                          Open TA Workflow
-                        </Link>
-                      </Button>
-                    ) : null}
-                  </div>
-                  <Button
-                    className="w-full"
-                    disabled={Boolean(distributionWorkflow) && distributionWorkflow.status !== "SubmittedToIssuer"}
-                    onClick={openDistributionTaAction}
-                  >
-                    {distributionWorkflow?.status === "SubmittedToIssuer"
-                      ? "Acknowledge TA Output"
-                      : distributionWorkflow
-                        ? "Await Transfer Agent"
-                        : "Send To Transfer Agent"}
-                  </Button>
-                </CardContent>
-              </Card>
-              <TransferAgentOperationsCard
-                className="mt-6"
-                description="Use the transfer-agent operating layer to prove who locked the snapshot, who generated the recipient list, and whether funding is ready."
-                operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
-                status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
-                fields={transferAgentFields}
-                note="Eligibility logic for this distribution is fixed: all holders on the record date are included in the recipient list."
-              />
-            </>
+            <TransferAgentOperationsCard
+              className="mt-6"
+              description="Use the transfer-agent operating layer to prove who locked the snapshot, who generated the recipient list, and whether funding is ready."
+              operatorName={transferAgentOps?.transferAgentName || "Transfer agent assignment pending"}
+              status={transferAgentOps?.transferAgentStatus || "Pending Snapshot"}
+              fields={transferAgentFields}
+              note="Eligibility logic for this distribution is fixed: all holders on the record date are included in the recipient list."
+            />
           )}
 
           <div className="mt-6">
