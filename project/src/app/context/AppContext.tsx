@@ -895,7 +895,7 @@ function defaultAuthSession(): AuthSession {
 function loadAuthSession(): AuthSession {
   if (typeof window === "undefined") return defaultAuthSession();
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY) || "null") as AuthSession | null;
+    const parsed = JSON.parse(window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY) || "null") as AuthSession | null;
     if (!parsed?.role || !parsed.walletAddress || !parsed.signedAt) return defaultAuthSession();
     return parsed;
   } catch {
@@ -985,7 +985,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return;
     const onStorage = (event: StorageEvent) => {
       if (event.key === CANONICAL_STORAGE_KEY) refreshCanonicalStateFromStorage();
-      if (event.key === AUTH_SESSION_STORAGE_KEY) setAuthSession(loadAuthSession());
     };
     window.addEventListener("storage", onStorage);
     let channel: BroadcastChannel | null = null;
@@ -1001,10 +1000,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
     if (authSession) {
-      window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(authSession));
+      window.sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(authSession));
     } else {
-      window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+      window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
     }
   }, [authSession]);
 
