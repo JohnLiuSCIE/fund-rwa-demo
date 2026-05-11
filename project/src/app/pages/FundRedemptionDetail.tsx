@@ -2010,6 +2010,10 @@ export function FundRedemptionDetail() {
   );
   const localPaymentRows = buildRedemptionPaymentRows(activeSettlementRequests);
   const localHolderSnapshotRows = buildHolderSnapshotRows(activeSettlementRequests);
+  const redemptionRelatedSourceReferences = new Set([
+    redemption.id,
+    ...requests.map((request) => request.id),
+  ]);
   const batches = fundBatches.filter(
     (batch) => batch.fundId === redemption.fundId && batch.type === "redemption",
   );
@@ -2028,9 +2032,19 @@ export function FundRedemptionDetail() {
     settlementListLines,
     evidenceRecords,
   });
-  const redemptionWorkflow = workflowState.instances.find(
-    (workflow) => workflow.sourceType === "Redemption" && workflow.sourceReference === redemption.id,
+  const redemptionRelatedWorkflows = workflowState.instances.filter(
+    (workflow) =>
+      workflow.sourceType === "Redemption" &&
+      (workflow.sourceReference === redemption.id ||
+        workflow.sourceEventReference === redemption.id ||
+        redemptionRelatedSourceReferences.has(workflow.sourceReference) ||
+        workflow.relatedOrderIds?.some((orderId) => redemptionRelatedSourceReferences.has(orderId))),
   );
+  const redemptionWorkflow =
+    redemptionRelatedWorkflows.find(
+      (workflow) =>
+        workflow.sourceReference === redemption.id || workflow.sourceEventReference === redemption.id,
+    ) || redemptionRelatedWorkflows[0];
   const redemptionWorkflowTask = redemptionWorkflow
     ? workflowState.tasks.find((task) => task.workflowId === redemptionWorkflow.workflowId)
     : undefined;
@@ -2208,8 +2222,12 @@ export function FundRedemptionDetail() {
   const editIntentRequested = new URLSearchParams(location.search).get("mode") === "edit";
   const showTransferAgentLayer =
     !isOpenEndFund || Boolean(redemption.transferAgentOps) || Boolean(redemptionTaProjection.instruction);
-  const scopedOnChainEvents = onChainEvents.filter((event) => event.sourceReference === redemption.id);
-  const scopedAnchoringEvents = anchoringEvents.filter((event) => event.sourceReference === redemption.id);
+  const scopedOnChainEvents = onChainEvents.filter((event) =>
+    redemptionRelatedSourceReferences.has(event.sourceReference),
+  );
+  const scopedAnchoringEvents = anchoringEvents.filter((event) =>
+    redemptionRelatedSourceReferences.has(event.sourceReference),
+  );
   const hasChainEvent = (eventTypes: string[]) =>
     scopedOnChainEvents.some((event) => eventTypes.includes(event.eventType));
   const hasAnchor = (anchorType: string) =>
@@ -2698,8 +2716,8 @@ export function FundRedemptionDetail() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1 space-y-6">
+      <div className="grid gap-8 lg:grid-cols-3">
+        <div className="min-w-0 space-y-6 lg:col-span-1">
           <Card>
             <CardHeader>
               <CardTitle>Configuration</CardTitle>
@@ -2784,17 +2802,59 @@ export function FundRedemptionDetail() {
                     <div className="grid gap-2 text-xs">
                       <div>
                         <span className="text-muted-foreground">Issuer source: </span>
-                        <span className="font-mono">{`Redemption / ${redemption.id}`}</span>
+                        <span className="break-all font-mono">{`Redemption / ${redemption.id}`}</span>
                       </div>
+                      {redemptionWorkflow?.sourceReference &&
+                      redemptionWorkflow.sourceReference !== redemption.id ? (
+                        <div>
+                          <span className="text-muted-foreground">Workflow source: </span>
+                          <span className="break-all font-mono">{`Redemption / ${redemptionWorkflow.sourceReference}`}</span>
+                        </div>
+                      ) : null}
                       <div>
                         <span className="text-muted-foreground">Workflow ID: </span>
-                        <span className="font-mono">{redemptionWorkflow?.workflowId || "Not created"}</span>
+                        <span className="break-all font-mono">{redemptionWorkflow?.workflowId || "Not created"}</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Task ID: </span>
-                        <span className="font-mono">{redemptionWorkflowTask?.taskId || "Not created"}</span>
+                        <span className="break-all font-mono">{redemptionWorkflowTask?.taskId || "Not created"}</span>
                       </div>
                     </div>
+                    {redemptionRelatedWorkflows.length > 1 ? (
+                      <div className="mt-3 border-t pt-3">
+                        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Related TA workflows
+                        </div>
+                        <div className="space-y-2">
+                          {redemptionRelatedWorkflows.map((workflow) => {
+                            const workflowTask = workflowState.tasks.find(
+                              (task) => task.workflowId === workflow.workflowId,
+                            );
+                            const sourceLabel =
+                              workflow.sourceReference === redemption.id
+                                ? `Event / ${workflow.sourceReference}`
+                                : `Order / ${workflow.sourceReference}`;
+
+                            return (
+                              <div
+                                key={workflow.workflowId}
+                                className="flex flex-col gap-1 rounded-md border bg-background p-2 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div className="min-w-0">
+                                  <div className="break-all font-mono text-[11px]">{sourceLabel}</div>
+                                  <div className="break-all text-[11px] text-muted-foreground">
+                                    {workflowTask?.taskId || workflow.workflowId}
+                                  </div>
+                                </div>
+                                <Badge variant="outline" className="w-fit">
+                                  {workflow.status}
+                                </Badge>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                     {redemptionWorkflowTask ? (
                       <Button asChild variant="outline" size="sm" className="mt-3 w-full bg-background">
                         <Link to={`/ta/queue/${redemptionWorkflowTask.taskId}`}>
@@ -2832,6 +2892,7 @@ export function FundRedemptionDetail() {
           <OnChainEvidencePanel
             title="Chain Execution"
             sourceReference={redemption.id}
+            sourceReferences={Array.from(redemptionRelatedSourceReferences)}
             onChainEvents={onChainEvents}
             anchoringEvents={anchoringEvents}
             requirements={chainRequirements}
@@ -2899,21 +2960,39 @@ export function FundRedemptionDetail() {
           )}
         </div>
 
-        <div ref={detailSectionRef} className="lg:col-span-2 scroll-mt-24">
+        <div ref={detailSectionRef} className="min-w-0 scroll-mt-24 lg:col-span-2">
           <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as RedemptionTab)} className="space-y-6">
             <TabsList
               className={cn(
-                "grid w-full",
+                "grid w-full min-w-0",
                 isOpenEndFund ? "grid-cols-4" : userRole === "issuer" ? "grid-cols-6" : "grid-cols-5",
               )}
             >
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              {!isOpenEndFund && <TabsTrigger value="snapshot">Holder Snapshot</TabsTrigger>}
-              <TabsTrigger value="requests">Requests</TabsTrigger>
-              <TabsTrigger value="payment-list">Payment List</TabsTrigger>
-              <TabsTrigger value="batches">Batch History</TabsTrigger>
+              <TabsTrigger value="overview" className="min-w-0 px-2 text-xs sm:text-sm">
+                Overview
+              </TabsTrigger>
+              {!isOpenEndFund && (
+                <TabsTrigger value="snapshot" className="min-w-0 px-2 text-xs sm:text-sm">
+                  <span className="hidden sm:inline">Holder Snapshot</span>
+                  <span className="sm:hidden">Snapshot</span>
+                </TabsTrigger>
+              )}
+              <TabsTrigger value="requests" className="min-w-0 px-2 text-xs sm:text-sm">
+                Requests
+              </TabsTrigger>
+              <TabsTrigger value="payment-list" className="min-w-0 px-2 text-xs sm:text-sm">
+                <span className="hidden sm:inline">Payment List</span>
+                <span className="sm:hidden">Payments</span>
+              </TabsTrigger>
+              <TabsTrigger value="batches" className="min-w-0 px-2 text-xs sm:text-sm">
+                <span className="hidden sm:inline">Batch History</span>
+                <span className="sm:hidden">Batches</span>
+              </TabsTrigger>
               {!isOpenEndFund && userRole === "issuer" && (
-                <TabsTrigger value="manual">Manual Override</TabsTrigger>
+                <TabsTrigger value="manual" className="min-w-0 px-2 text-xs sm:text-sm">
+                  <span className="hidden sm:inline">Manual Override</span>
+                  <span className="sm:hidden">Manual</span>
+                </TabsTrigger>
               )}
             </TabsList>
 

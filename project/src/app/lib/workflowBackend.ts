@@ -46,6 +46,8 @@ export interface WorkflowInstance {
   workflowId: string;
   sourceType: WorkflowSourceType;
   sourceReference: string;
+  sourceEventReference?: string;
+  relatedOrderIds?: string[];
   instructionId: string;
   snapshotId?: string;
   fundId: string;
@@ -204,6 +206,8 @@ function createInitialWorkflowState(): WorkflowBackendState {
   const seededWorkflows: Array<{
     sourceType: WorkflowSourceType;
     sourceReference: string;
+    sourceEventReference?: string;
+    relatedOrderIds?: string[];
     status: WorkflowStatus;
     currentStepId: WorkflowStepId;
     taskStatus: WorkflowTaskStatus;
@@ -283,6 +287,8 @@ function createInitialWorkflowState(): WorkflowBackendState {
     {
       sourceType: "Redemption",
       sourceReference: "red-ce-001",
+      sourceEventReference: "redemption-003",
+      relatedOrderIds: ["red-ce-001"],
       status: "MatchException",
       currentStepId: "MatchData",
       taskStatus: "Blocked",
@@ -347,12 +353,16 @@ function createInitialWorkflowState(): WorkflowBackendState {
           (seed.sourceType === "Redemption" && item.instructionType === "Redemption")),
     );
     const snapshot = initialHolderSnapshots.find(
-      (item) => item.sourceType === seed.sourceType && item.sourceReference === seed.sourceReference,
+      (item) =>
+        item.sourceType === seed.sourceType &&
+        (item.sourceReference === seed.sourceReference || item.sourceReference === seed.sourceEventReference),
     );
     const instance: WorkflowInstance = {
       workflowId,
       sourceType: seed.sourceType,
       sourceReference: seed.sourceReference,
+      sourceEventReference: seed.sourceEventReference,
+      relatedOrderIds: seed.relatedOrderIds,
       instructionId: instruction?.instructionId || `instr-${seed.sourceType.toLowerCase()}-${seed.sourceReference}`,
       snapshotId: snapshot?.snapshotId,
       fundId: instruction?.fundId || snapshot?.fundId || "fund-closed-001",
@@ -547,6 +557,8 @@ function setTaskStatus(
 export function createIssuerWorkflowInstruction(input: {
   sourceType: WorkflowSourceType;
   sourceReference: string;
+  sourceEventReference?: string;
+  relatedOrderIds?: string[];
   instructionId: string;
   snapshotId?: string;
   fundId: string;
@@ -578,6 +590,8 @@ export function createIssuerWorkflowInstruction(input: {
       workflowId: makeWorkflowId(input.sourceType, input.sourceReference),
       sourceType: input.sourceType,
       sourceReference: input.sourceReference,
+      sourceEventReference: input.sourceEventReference,
+      relatedOrderIds: input.relatedOrderIds,
       instructionId: input.instructionId,
       snapshotId: input.snapshotId,
       fundId: input.fundId,

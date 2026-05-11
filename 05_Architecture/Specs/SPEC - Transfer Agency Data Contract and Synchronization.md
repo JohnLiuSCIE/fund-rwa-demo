@@ -480,6 +480,8 @@ type WorkflowInstance = {
     | "SecondaryTransfer";
   instructionId: string;
   sourceReference?: string;
+  sourceEventReference?: string;
+  relatedOrderIds?: string[];
   productId: string;
   classId: string;
   status:
@@ -504,6 +506,12 @@ type WorkflowInstance = {
   version: number;
 };
 ```
+
+Implementation note:
+
+- `sourceReference` is the workflow's immediate source. It may be a distribution event, redemption event, issuance action, or a specific accepted order.
+- `sourceEventReference` maps an order-level workflow back to the issuer-level event page.
+- `relatedOrderIds` lets issuer and TA projections show the same event/order scope. Example: `sourceReference = "red-ce-001"` and `sourceEventReference = "redemption-003"`.
 
 ### 6.11 Workflow task
 
@@ -1131,11 +1139,12 @@ Recommended order:
 9. Update Issuer detail pages to read TA status from workflow and register projections.
 10. Only then remove compatibility fallback from local `transferAgentOps`.
 
-Current implementation audit as of 2026-05-08:
+Current implementation audit as of 2026-05-11:
 
 | Requirement | Status | Gap |
 | --- | --- | --- |
 | Issuer / TA shared state | Implemented for MVP | Mock backend uses React context, localStorage persistence, and BroadcastChannel sync rather than a real service |
+| Per-window role split | Implemented | Role auth session is stored in tab-scoped sessionStorage; backend state remains shared |
 | Issuer sends TA instruction | Implemented for distribution/redemption | Creates canonical instruction/snapshot and `WorkflowInstance` |
 | TA pull / respond | Implemented | `/ta/queue` projects `WorkflowTask`; `/ta/queue/:taskId` executes pull/respond |
 | TA match | Implemented | `MatchResult` supports pass/fail and return-to-issuer path |
@@ -1143,6 +1152,8 @@ Current implementation audit as of 2026-05-08:
 | Review before submit | Implemented | checklist + match are required before lock/generate/submit actions |
 | State machine | Implemented for MVP | workflow reducer is in `workflowBackend.ts`; maker/checker sub-role split remains future scope |
 | Menu redesign | Implemented | TA nav is compact: Console, Workflows, Register, Exceptions, Evidence, More |
+| Event/order linkage | Implemented for redemption demo | `sourceEventReference` and `relatedOrderIds` map `red-ce-001` back to `redemption-003` |
+| Missing task repair | Implemented for TA-owned distribution/redemption stages | Mock repair creates a TA workflow if issuer state says it is waiting for TA but `/ta/queue` has no task |
 
 ## 16. Product Decision
 

@@ -99,6 +99,7 @@ export function TransferAgentWorkflowDetail() {
     fundIssuances,
     fundDistributions,
     fundRedemptions,
+    fundOrders,
     workflowState,
     holderSnapshots,
     holderSnapshotPositions,
@@ -121,9 +122,21 @@ export function TransferAgentWorkflowDetail() {
     instance?.sourceType === "Distribution"
       ? fundDistributions.find((item) => item.id === instance.sourceReference)
       : undefined;
+  const relatedRedemptionOrder =
+    instance?.sourceType === "Redemption"
+      ? fundOrders.find(
+          (item) => item.id === instance.sourceReference || instance.relatedOrderIds?.includes(item.id),
+        )
+      : undefined;
+  const redemptionEventReference =
+    instance?.sourceType === "Redemption"
+      ? instance.sourceEventReference ||
+        (fundRedemptions.some((item) => item.id === instance.sourceReference) ? instance.sourceReference : undefined) ||
+        fundRedemptions.find((item) => item.fundId === relatedRedemptionOrder?.fundId)?.id
+      : undefined;
   const sourceRedemption =
     instance?.sourceType === "Redemption"
-      ? fundRedemptions.find((item) => item.id === instance.sourceReference)
+      ? fundRedemptions.find((item) => item.id === redemptionEventReference)
       : undefined;
   const sourceIssuance = instance?.sourceType === "Issuance" ? fund : undefined;
   const sourceEventName =
@@ -134,6 +147,14 @@ export function TransferAgentWorkflowDetail() {
       : instance?.sourceReference) ||
     "Workflow";
   const sourceFundName = sourceDistribution?.fundName || sourceRedemption?.fundName || sourceIssuance?.name || fund?.name || instance?.fundId || "Fund";
+  const sourceReferenceLabel =
+    sourceRedemption && relatedRedemptionOrder
+      ? `Redemption / ${sourceRedemption.id} · Order ${relatedRedemptionOrder.id}`
+      : sourceRedemption
+        ? `Redemption / ${sourceRedemption.id}`
+        : instance
+          ? `${instance.sourceType} / ${instance.sourceReference}`
+          : "Workflow";
   const issuerDetailPath = sourceDistribution
     ? `/fund-distribution/${sourceDistribution.id}`
     : sourceRedemption
@@ -152,6 +173,14 @@ export function TransferAgentWorkflowDetail() {
           { label: "Window / cut-off", value: sourceRedemption.windowEnd || sourceRedemption.effectiveDate || "Pending" },
           { label: "Settlement", value: sourceRedemption.settlementCycle || "Pending" },
           { label: "Redemption mode", value: sourceRedemption.redemptionMode || "Pending" },
+          ...(relatedRedemptionOrder
+            ? [
+                {
+                  label: "Related order",
+                  value: `${relatedRedemptionOrder.id} / ${relatedRedemptionOrder.investorName}`,
+                },
+              ]
+            : []),
         ]
       : sourceIssuance
         ? [
@@ -162,7 +191,11 @@ export function TransferAgentWorkflowDetail() {
         : [];
   const snapshot = instance
     ? holderSnapshots.find((item) => item.snapshotId === instance.snapshotId) ||
-      holderSnapshots.find((item) => item.sourceType === instance.sourceType && item.sourceReference === instance.sourceReference)
+      holderSnapshots.find(
+        (item) =>
+          item.sourceType === instance.sourceType &&
+          (item.sourceReference === instance.sourceReference || item.sourceReference === redemptionEventReference),
+      )
     : undefined;
   const positions = snapshot ? holderSnapshotPositions.filter((item) => item.snapshotId === snapshot.snapshotId) : [];
   const list = snapshot ? settlementLists.find((item) => item.snapshotId === snapshot.snapshotId) : undefined;
@@ -261,7 +294,7 @@ export function TransferAgentWorkflowDetail() {
                 : getWorkflowTaskActionLabel(instance, task);
   const secureActionIsMatch = secureAction === "match-pass" || secureAction === "match-exception";
   const secureActionSummary: ActionModalSummaryItem[] = [
-    { label: "Workflow", value: `${instance.sourceType} / ${instance.sourceReference}` },
+    { label: "Workflow", value: sourceReferenceLabel },
     { label: "Current step", value: instance.currentStepId },
     { label: "Register version", value: snapshot?.registerVersionId || "Pending snapshot" },
     { label: "Action", value: secureActionLabel },
@@ -347,7 +380,7 @@ export function TransferAgentWorkflowDetail() {
                 {sourceEventName}
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                {sourceFundName} · {instance.sourceType} / {instance.sourceReference}
+                {sourceFundName} · {sourceReferenceLabel}
               </p>
             </div>
             <Button disabled={primaryDisabled} onClick={primaryAction}>
@@ -432,7 +465,7 @@ export function TransferAgentWorkflowDetail() {
               </div>
               <div>
                 <div className="text-muted-foreground">Source Reference</div>
-                <div className="font-mono text-xs">{instance.sourceType} / {instance.sourceReference}</div>
+                <div className="font-mono text-xs">{sourceReferenceLabel}</div>
               </div>
               <div>
                 <div className="text-muted-foreground">Workflow ID</div>

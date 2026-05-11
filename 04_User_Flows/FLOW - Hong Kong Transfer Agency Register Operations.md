@@ -1,11 +1,12 @@
 # FLOW - Hong Kong Transfer Agency Register Operations
 
-Date: 2026-05-08  
-Scope: Transfer Agent / Registrar client for Hong Kong fund RWA platform  
+Date: 2026-05-11
+Scope: Transfer Agent / Registrar client for Hong Kong fund RWA platform
 Related:
 
 - `05_Architecture/Specs/SPEC - Hong Kong Transfer Agent Client.md`
 - `03_Tickets/Active/TICKET - Hong Kong Transfer Agent Client UI.md`
+- `05_Architecture/Diagrams/ARCH - Fund Lifecycle Sequence Diagrams.md`
 
 ## 1. Core Flow
 
@@ -14,6 +15,23 @@ The Transfer Agent client should be designed around controlled register movement
 Important update:
 
 > TA transaction work must be modeled as an approval workflow. A TA work queue row is only an entry point into a review task. It should not directly execute `Lock Snapshot`, `Generate Recipient List`, `Generate Payment List`, or `Submit Issuer Review`.
+
+Current implemented UI mapping:
+
+| Operating need | Route | Notes |
+| --- | --- | --- |
+| TA operating console | `/ta` | Book of Record summary, workflow health, exceptions, and evidence entry points |
+| TA intake and work queue | `/ta/queue` | Projects `WorkflowTask`; filters first by workflow area, then by task stage |
+| Dedicated TA approval page | `/ta/queue/:taskId` | Pull, respond, match, identity-gated submit, issuer review, and reconcile actions |
+| Book of Record / holder register | `/ta/register` | Holder ownership, register versions, wallet links, restrictions |
+| Exceptions | `/ta/reconciliation` | Reconciliation breaks and close-out handling |
+| Evidence | `/ta/evidence` | Evidence packs, register/snapshot/list anchors |
+
+Demo implementation note:
+
+- Role is scoped per browser tab with `sessionStorage`, so one window can be Issuer and another can be Transfer Agent.
+- Workflow and canonical register data are shared through `localStorage` and `BroadcastChannel`.
+- If an issuer distribution or redemption page is already waiting for TA but the workflow task is missing, the mock backend repairs the missing TA workflow so `/ta/queue` can show it.
 
 ```mermaid
 flowchart LR
@@ -70,6 +88,46 @@ flowchart LR
     Register -->|"snapshot + recipient/payment list"| IssuerReview
     IssuerReview -->|"acknowledge"| Workflow
     Workflow -->|"close-out reconcile"| Evidence
+```
+
+Current two-tab sequence:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Issuer as Issuer browser tab
+    actor TAUser as Transfer Agent browser tab
+    participant IssuerUI as Issuer detail page
+    participant Backend as Mock Workflow Backend
+    participant Store as localStorage\ncanonical + workflow state
+    participant Bus as BroadcastChannel
+    participant TAQueue as /ta/queue
+    participant TADetail as /ta/queue/:taskId
+    participant Register as Holder Register Projection
+
+    note over Issuer,TAUser: Role is tab-scoped. Shared data is backend-scoped.
+    Issuer->>IssuerUI: Notify TA / Send to TA
+    IssuerUI->>Backend: create issuer instruction + workflow instance
+    Backend->>Store: persist WorkflowInstance + WorkflowTask
+    Backend-->>Bus: broadcast workflow-state-updated
+    Bus-->>TAQueue: reload tasks
+    TAQueue-->>TAUser: New TA work item appears
+
+    TAUser->>TAQueue: Open Workflow
+    TAQueue->>TADetail: route to task detail
+    TAUser->>TADetail: Pull + Respond
+    TADetail->>Backend: update task state
+    TAUser->>TADetail: Complete checklist + Match
+    TADetail->>Backend: save MatchResult
+    alt Match passed
+        TAUser->>TADetail: Submit next workflow step
+        TADetail->>Backend: lock snapshot / generate list / submit issuer review
+        Backend->>Register: update snapshot, settlement list, evidence
+        Backend-->>Bus: broadcast canonical-state-updated
+        Bus-->>IssuerUI: issuer detail shows TA feedback
+    else Match exception
+        Backend-->>IssuerUI: show exception / returned state
+    end
 ```
 
 Review gate:
@@ -152,6 +210,28 @@ sequenceDiagram
     TA->>A: Store reconciliation evidence
 ```
 
+Redemption event/order linkage:
+
+```mermaid
+flowchart LR
+    RedemptionEvent["Issuer redemption event\nexample: redemption-003"]
+    InvestorOrder["Accepted investor order\nexample: red-ce-001"]
+    Workflow["WorkflowInstance\nsourceReference may be event or order"]
+    Mapping["sourceEventReference + relatedOrderIds"]
+    TAQueue["TA Work Queue"]
+    IssuerDetail["Issuer Redemption Detail"]
+
+    RedemptionEvent --> Mapping
+    InvestorOrder --> Mapping
+    Mapping --> Workflow
+    Workflow --> TAQueue
+    Workflow --> IssuerDetail
+```
+
+Rule:
+
+> When a TA task is created at order level, the issuer event page must still surface it through `sourceEventReference` / `relatedOrderIds`, and the TA page must show both the issuer event and the related order.
+
 Blocking conditions:
 
 - insufficient register balance
@@ -231,13 +311,12 @@ Important rule:
 
 Minimum implementation:
 
-- `TA Dashboard`
-- `Work Queue`
-- `Register Delta Drawer`
-- `Holder Register`
-- `Dealing Cycle Detail`
-- `Reconciliation Breaks`
-- `Evidence Pack`
+- `TA Dashboard` / `/ta`
+- `Work Queue` / `/ta/queue`
+- `Dedicated Workflow Detail` / `/ta/queue/:taskId`
+- `Book of Record / Holder Register` / `/ta/register`
+- `Reconciliation Breaks` / `/ta/reconciliation`
+- `Evidence Pack` / `/ta/evidence`
 
 Secondary-trading implementation:
 

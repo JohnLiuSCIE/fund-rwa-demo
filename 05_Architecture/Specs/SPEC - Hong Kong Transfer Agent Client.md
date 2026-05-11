@@ -410,6 +410,23 @@ type ReconciliationBreak = {
 
 ## 8. Workflow Design
 
+Current demo route model:
+
+| TA capability | Route | Purpose |
+| --- | --- | --- |
+| Console | `/ta` | Daily register health, workflow summary, exceptions, evidence entry |
+| Workflow queue | `/ta/queue` | Pull issuer-originated workflow tasks |
+| Workflow detail | `/ta/queue/:taskId` | Review-gated approval page for respond, match, snapshot/list, issuer review, and close-out |
+| Book of Record | `/ta/register` | Search who owns which assets, wallet links, restrictions, register versions |
+| Exceptions | `/ta/reconciliation` | Resolve or waive reconciliation breaks |
+| Evidence | `/ta/evidence` | Inspect evidence packs and hash anchors |
+
+Implementation note:
+
+- The TA client is now a dedicated interface, not a hidden service call inside issuer pages.
+- Each browser tab can run a different simulated role; issuer and TA state sync through the mock workflow backend.
+- Distribution and redemption actions that need TA feedback should create or repair a `WorkflowInstance`, then wait for the TA workflow to submit output back to issuer review.
+
 ### 8.1 Investor onboarding and wallet binding
 
 State flow:

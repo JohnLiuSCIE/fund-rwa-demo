@@ -40,6 +40,7 @@ function requirementVariant(status: OnChainRequirement["status"]): "default" | "
 interface OnChainEvidencePanelProps {
   title?: string;
   sourceReference: string;
+  sourceReferences?: string[];
   onChainEvents: OnChainEvent[];
   anchoringEvents: AnchoringEvent[];
   requirements?: OnChainRequirement[];
@@ -48,12 +49,14 @@ interface OnChainEvidencePanelProps {
 export function OnChainEvidencePanel({
   title = "On-chain Evidence",
   sourceReference,
+  sourceReferences,
   onChainEvents,
   anchoringEvents,
   requirements = [],
 }: OnChainEvidencePanelProps) {
-  const scopedChainEvents = onChainEvents.filter((event) => event.sourceReference === sourceReference);
-  const scopedAnchors = anchoringEvents.filter((event) => event.sourceReference === sourceReference);
+  const sourceReferenceSet = new Set(sourceReferences?.length ? sourceReferences : [sourceReference]);
+  const scopedChainEvents = onChainEvents.filter((event) => sourceReferenceSet.has(event.sourceReference));
+  const scopedAnchors = anchoringEvents.filter((event) => sourceReferenceSet.has(event.sourceReference));
   const confirmedCount =
     scopedChainEvents.filter((event) => ["Confirmed", "Finalized"].includes(event.status)).length +
     scopedAnchors.filter((event) => event.status === "Confirmed").length;

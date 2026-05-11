@@ -428,6 +428,79 @@ Target design:
 - TA pulls the request, responds, matches canonical data, and only then advances the workflow.
 - Snapshot locking, recipient/payment-list generation, issuer review, and reconciliation are workflow steps with ownership, audit, and review gates.
 - Direct `Lock Snapshot` or `Generate List` buttons in a table are insufficient unless they open a dedicated task review page first.
+- Current demo implementation uses a separate TA interface:
+  - `/ta` for the console
+  - `/ta/queue` for workflow intake
+  - `/ta/queue/:taskId` for the review-gated approval page
+  - `/ta/register` for Book of Record / holder register lookup
+  - `/ta/reconciliation` and `/ta/evidence` for exceptions and evidence
+- Demo role is tab-scoped with `sessionStorage`; canonical workflow data is shared through `localStorage` and `BroadcastChannel`.
+- Redemption workflows may be event-level or order-level. Use `sourceEventReference` and `relatedOrderIds` to map an order task such as `red-ce-001` back to the issuer event such as `redemption-003`.
+
+### 4.0 Current Mock UI / Backend Sequence
+
+This is the implementation trace for the current React mock backend. It is the canonical diagram for the demo now that TA has a dedicated UI.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Issuer as Issuer Tab
+    actor TAUser as TA Tab
+    participant IssuerUI as Issuer UI\n/fund-distribution/:id or /fund-redemption/:id
+    participant MockAPI as Mock Workflow API\nworkflowBackend.ts
+    participant Store as Shared Mock Store\nlocalStorage
+    participant Bus as BroadcastChannel\nfund-rwa-workflow
+    participant TAQueue as TA Workflows\n/ta/queue
+    participant TADetail as TA Workflow Detail\n/ta/queue/:taskId
+    participant Register as Canonical TA Register\nsnapshots + lists + deltas
+    participant Evidence as Evidence / Chain Anchors
+
+    note over Issuer,TAUser: Each browser tab keeps its own role in sessionStorage.\nBackend workflow/register state is shared across tabs.
+
+    Issuer->>IssuerUI: Notify TA / Send To Transfer Agent
+    IssuerUI->>MockAPI: createIssuerWorkflowInstruction(sourceType, sourceReference,\nsourceEventReference?, relatedOrderIds?)
+    MockAPI->>Store: Persist WorkflowInstance + WorkflowTask + ActionLog
+    MockAPI-->>Bus: workflow-state-updated
+    Bus-->>TAQueue: refresh workflow projection
+    TAQueue-->>TAUser: New Request visible
+
+    TAUser->>TAQueue: Open Workflow
+    TAQueue->>TADetail: Navigate to /ta/queue/:taskId
+    TAUser->>TADetail: Pull Request
+    TADetail->>MockAPI: pullWorkflowTask(taskId, expectedVersion, idempotencyKey)
+    MockAPI->>Store: status -> TAPulled
+    MockAPI-->>Bus: workflow-state-updated
+
+    TAUser->>TADetail: Respond / Accept
+    TADetail->>MockAPI: respondWorkflowTask(taskId)
+    MockAPI->>Store: status -> TAResponded
+    TAUser->>TADetail: Complete checklist + Run Match
+    TADetail->>MockAPI: matchWorkflowTask(taskId, matched)
+    alt Match exception
+        MockAPI->>Evidence: Store MatchResult exception
+        MockAPI->>Store: status -> MatchException
+        MockAPI-->>IssuerUI: issuer view refreshes from shared state
+    else Match passed
+        MockAPI->>Store: status -> MatchPassed
+        TAUser->>TADetail: Submit current step
+        TADetail->>MockAPI: workflowSubmitCurrentStep(taskId)
+        MockAPI->>Register: lockHolderSnapshot / generate list / submit issuer review
+        Register-->>MockAPI: snapshot/list/register projection updated
+        MockAPI->>Store: persist canonical + workflow state
+        MockAPI-->>Bus: canonical-state-updated + workflow-state-updated
+        Bus-->>IssuerUI: issuer detail updates without refresh
+    end
+
+    Issuer->>IssuerUI: Acknowledge TA output
+    IssuerUI->>MockAPI: workflowAcknowledgeTask(taskId)
+    MockAPI->>Register: acknowledgeIssuerReview(snapshotId)
+    MockAPI-->>Bus: workflow-state-updated
+    TAUser->>TADetail: Reconcile Close-out
+    TADetail->>MockAPI: workflowReconcileTask(taskId)
+    MockAPI->>Register: reconcile snapshot/list
+    MockAPI->>Evidence: store reconciliation evidence / anchors
+    MockAPI-->>IssuerUI: reconciled status visible
+```
 
 ### 4.1 Distribution / Record-date Handoff
 
@@ -439,7 +512,7 @@ sequenceDiagram
     participant IssuerUI as Issuer Client
     participant Workflow as Workflow Service
     participant Instruction as Instruction Service
-    participant TAUI as TA Client
+    participant TAUI as TA Client\n/ta/queue + /ta/queue/:taskId
     actor TAReviewer as TA Reviewer
     participant Register as Register Service
     participant Evidence as Evidence Store
@@ -454,11 +527,11 @@ sequenceDiagram
     Workflow->>Instruction: Create TransferAgencyInstruction\nsource=IssuerPortal, type=RecordDate
     Instruction->>Workflow: InstructionReceived\nversion + idempotency key
     Workflow->>Workflow: Create TA workflow instance\nstatus=IssuerSubmitted, step=TARespond
-    TAUI->>Workflow: Pull assigned TA intake tasks
+    TAUI->>Workflow: Pull assigned TA intake tasks\nfrom /ta/queue
     Workflow-->>TAUI: Request payload + evidence references
 
     note over TAReviewer,Workflow: 3. TA respond and match
-    TAReviewer->>TAUI: Open dedicated review page
+    TAReviewer->>TAUI: Open dedicated review page\n/ta/queue/:taskId
     TAUI->>Workflow: Respond: Accept for review
     Workflow->>Register: Fetch latest register version\nrecord date + class
     Register-->>Workflow: Register version + holder rows
@@ -503,7 +576,7 @@ sequenceDiagram
     participant IssuerUI as Issuer Client
     participant Workflow as Workflow Service
     participant Instruction as Instruction Service
-    participant TAUI as TA Client
+    participant TAUI as TA Client\n/ta/queue + /ta/queue/:taskId
     actor TAReviewer as TA Reviewer
     participant Register as Register Service
     participant Settlement as Settlement / Cash Rail
@@ -514,9 +587,10 @@ sequenceDiagram
     IssuerUI->>Workflow: Submit issuer approval request
     IssuerChecker->>Workflow: Approve event and accepted request roster
     Workflow->>Instruction: Create TransferAgencyInstruction\ntype=Redemption
+    Workflow->>Workflow: Link event/order scope\nsourceEventReference + relatedOrderIds
 
     note over TAUI,TAReviewer: 2. Pull, respond, match
-    TAUI->>Workflow: Pull TA intake tasks
+    TAUI->>Workflow: Pull TA intake tasks\nfrom /ta/queue
     Workflow-->>TAUI: Redemption request + accepted roster + evidence
     TAReviewer->>TAUI: Respond and import into TA workflow
     TAUI->>Register: Fetch current holdings and restrictions

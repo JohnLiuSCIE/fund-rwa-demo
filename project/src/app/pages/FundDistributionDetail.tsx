@@ -2219,9 +2219,9 @@ export function FundDistributionDetail() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-3 gap-8">
+      <div className="grid gap-8 lg:grid-cols-3">
         {/* Left Sidebar - Information Panel */}
-        <div className="lg:col-span-1">
+        <div className="min-w-0 lg:col-span-1">
           <Card>
             <CardHeader>
               <CardTitle>Information</CardTitle>
@@ -2238,8 +2238,8 @@ export function FundDistributionDetail() {
                 <div className="text-sm text-muted-foreground mb-1">
                   Token Contract Address
                 </div>
-                <div className="flex items-center gap-2">
-                  <code className="text-sm">
+                <div className="flex min-w-0 items-center gap-2">
+                  <code className="min-w-0 break-all text-sm">
                     {distribution.tokenAddress || "–"}
                   </code>
                   {distribution.tokenAddress && (
@@ -2371,15 +2371,15 @@ export function FundDistributionDetail() {
                     <div className="grid gap-2 text-xs">
                       <div>
                         <span className="text-muted-foreground">Issuer source: </span>
-                        <span className="font-mono">{`Distribution / ${distribution.id}`}</span>
+                        <span className="break-all font-mono">{`Distribution / ${distribution.id}`}</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Workflow ID: </span>
-                        <span className="font-mono">{distributionWorkflow?.workflowId || "Not created"}</span>
+                        <span className="break-all font-mono">{distributionWorkflow?.workflowId || "Not created"}</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Task ID: </span>
-                        <span className="font-mono">{distributionWorkflowTask?.taskId || "Not created"}</span>
+                        <span className="break-all font-mono">{distributionWorkflowTask?.taskId || "Not created"}</span>
                       </div>
                     </div>
                     {distributionWorkflowTask ? (
@@ -2487,19 +2487,24 @@ export function FundDistributionDetail() {
         </div>
 
         {/* Main Content - Tabs */}
-        <div ref={detailSectionRef} className="lg:col-span-2 scroll-mt-24">
+        <div ref={detailSectionRef} className="min-w-0 scroll-mt-24 lg:col-span-2">
           <Tabs
             value={detailTab}
             onValueChange={(value) => setDetailTab(value as DistributionTab)}
             className="space-y-6"
           >
-            <TabsList className={cn("grid w-full", userRole === "issuer" ? "grid-cols-4" : "grid-cols-3")}>
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="recipients">
+            <TabsList className={cn("grid w-full min-w-0", userRole === "issuer" ? "grid-cols-4" : "grid-cols-3")}>
+              <TabsTrigger value="overview" className="min-w-0 px-2 text-xs sm:text-sm">Overview</TabsTrigger>
+              <TabsTrigger value="recipients" className="min-w-0 px-2 text-xs sm:text-sm">
                 {isClosedEndDistribution ? "Recipient List" : "Recipients"}
               </TabsTrigger>
-              <TabsTrigger value="payout">Distribution</TabsTrigger>
-              {userRole === "issuer" && <TabsTrigger value="manual">Manual Override</TabsTrigger>}
+              <TabsTrigger value="payout" className="min-w-0 px-2 text-xs sm:text-sm">Distribution</TabsTrigger>
+              {userRole === "issuer" && (
+                <TabsTrigger value="manual" className="min-w-0 px-2 text-xs sm:text-sm">
+                  <span className="hidden sm:inline">Manual Override</span>
+                  <span className="sm:hidden">Manual</span>
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">

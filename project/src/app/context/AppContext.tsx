@@ -1616,6 +1616,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, [fundDistributions, workflowState.instances, transferAgencyInstructions, holderSnapshots]);
 
+  useEffect(() => {
+    const taOwnedRedemptionStatuses = new Set(["Snapshot Locked", "Payment List Ready"]);
+    fundRedemptions.forEach((redemption) => {
+      if (!taOwnedRedemptionStatuses.has(redemption.status)) return;
+      const relatedOrderIds = fundOrders
+        .filter((order) => order.fundId === redemption.fundId && order.type === "redemption")
+        .map((order) => order.id);
+      const hasWorkflow = workflowState.instances.some(
+        (item) =>
+          item.sourceType === "Redemption" &&
+          (item.sourceReference === redemption.id ||
+            item.sourceEventReference === redemption.id ||
+            relatedOrderIds.includes(item.sourceReference) ||
+            item.relatedOrderIds?.some((orderId) => relatedOrderIds.includes(orderId))),
+      );
+      if (hasWorkflow) return;
+      repairTransferAgencyWorkflow("Redemption", redemption.id);
+    });
+  }, [fundRedemptions, fundOrders, workflowState.instances, transferAgencyInstructions, holderSnapshots]);
+
   const buildSnapshotPositions = (snapshot: HolderSnapshot): HolderSnapshotPosition[] => {
     const accounts = registerAccounts.filter((account) => account.fundId === snapshot.fundId);
     const distribution = snapshot.sourceType === "Distribution"
@@ -2052,16 +2072,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const instance = task
       ? workflowState.instances.find((item) => item.workflowId === task.workflowId)
       : undefined;
+    const relatedRedemptionOrder =
+      instance?.sourceType === "Redemption"
+        ? fundOrders.find(
+            (item) => item.id === instance.sourceReference || instance.relatedOrderIds?.includes(item.id),
+          )
+        : undefined;
+    const sourceEventReference =
+      instance?.sourceEventReference ||
+      (instance?.sourceType === "Redemption"
+        ? fundRedemptions.find((item) => item.id === instance.sourceReference)?.id ||
+          fundRedemptions.find((item) => item.fundId === relatedRedemptionOrder?.fundId)?.id
+        : undefined);
     const snapshot = instance
       ? holderSnapshots.find((item) => item.snapshotId === instance.snapshotId) ||
         holderSnapshots.find(
-          (item) => item.sourceType === instance.sourceType && item.sourceReference === instance.sourceReference,
+          (item) =>
+            item.sourceType === instance.sourceType &&
+            (item.sourceReference === instance.sourceReference ||
+              item.sourceReference === sourceEventReference),
         )
       : undefined;
     const instruction = instance
       ? transferAgencyInstructions.find((item) => item.instructionId === instance.instructionId)
       : undefined;
-    return { task, instance, snapshot, instruction };
+    return { task, instance, snapshot, instruction, sourceEventReference };
   };
 
   const workflowCommandOptions = (taskId: string, action: string) => {
@@ -2159,12 +2194,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const workflowReconcileTask = (taskId: string): WorkflowCommandResult => {
-    const { instance, snapshot } = getWorkflowRuntime(taskId);
+    const { instance, snapshot, sourceEventReference } = getWorkflowRuntime(taskId);
     if (!instance || !snapshot) return { success: false, message: "Workflow snapshot was not found.", error: "NOT_FOUND" };
+    const canonicalSourceReference = sourceEventReference || instance.sourceReference;
     const canonicalResult =
       instance.sourceType === "Distribution"
-        ? reconcileDistributionPayout(instance.sourceReference, snapshot.version)
-        : reconcileRedemptionPayout(instance.sourceReference, snapshot.version);
+        ? reconcileDistributionPayout(canonicalSourceReference, snapshot.version)
+        : reconcileRedemptionPayout(canonicalSourceReference, snapshot.version);
     if (!canonicalResult.success) {
       return {
         success: false,

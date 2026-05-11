@@ -56,16 +56,28 @@ function getTaskStageLabel(status: WorkflowTaskStatus) {
 }
 
 export function TransferAgentWorkQueue() {
-  const { fundIssuances, fundDistributions, fundRedemptions, workflowState } = useApp();
+  const { fundIssuances, fundDistributions, fundRedemptions, fundOrders, workflowState } = useApp();
   const fundNameById = new Map(fundIssuances.map((fund) => [fund.id, fund.name]));
   const getWorkflowSourceMeta = (instance: WorkflowInstance) => {
     const distribution =
       instance.sourceType === "Distribution"
         ? fundDistributions.find((item) => item.id === instance.sourceReference)
         : undefined;
+    const relatedRedemptionOrder =
+      instance.sourceType === "Redemption"
+        ? fundOrders.find(
+            (item) => item.id === instance.sourceReference || instance.relatedOrderIds?.includes(item.id),
+          )
+        : undefined;
+    const redemptionEventReference =
+      instance.sourceType === "Redemption"
+        ? instance.sourceEventReference ||
+          (fundRedemptions.some((item) => item.id === instance.sourceReference) ? instance.sourceReference : undefined) ||
+          fundRedemptions.find((item) => item.fundId === relatedRedemptionOrder?.fundId)?.id
+        : undefined;
     const redemption =
       instance.sourceType === "Redemption"
-        ? fundRedemptions.find((item) => item.id === instance.sourceReference)
+        ? fundRedemptions.find((item) => item.id === redemptionEventReference)
         : undefined;
     const issuance = instance.sourceType === "Issuance" ? fundIssuances.find((item) => item.id === instance.fundId) : undefined;
     const eventName =
@@ -84,7 +96,11 @@ export function TransferAgentWorkQueue() {
     return {
       eventName,
       fundName,
-      sourceLabel: `${instance.sourceType} / ${instance.sourceReference}`,
+      sourceLabel:
+        instance.sourceType === "Redemption" && redemption
+          ? `Redemption / ${redemption.id}`
+          : `${instance.sourceType} / ${instance.sourceReference}`,
+      relatedLabel: relatedRedemptionOrder ? `Related order: ${relatedRedemptionOrder.id}` : undefined,
       primaryScope:
         instance.sourceType === "Distribution"
           ? `Record date: ${primaryDate}`
@@ -278,6 +294,9 @@ export function TransferAgentWorkQueue() {
                       <div className="font-medium">{meta.eventName}</div>
                       <div className="text-xs text-muted-foreground">{meta.fundName}</div>
                       <div className="mt-1 font-mono text-[11px] text-muted-foreground">{meta.sourceLabel}</div>
+                      {meta.relatedLabel ? (
+                        <div className="mt-1 text-[11px] text-muted-foreground">{meta.relatedLabel}</div>
+                      ) : null}
                     </div>
                     <Badge variant={statusVariant(task.taskStatus)}>{task.taskStatus}</Badge>
                   </div>
@@ -352,6 +371,9 @@ export function TransferAgentWorkQueue() {
                         <div className="text-xs text-muted-foreground">{meta.fundName}</div>
                         <div className="text-xs text-muted-foreground">{getWorkflowAreaLabel(instance!.sourceType)}</div>
                         <div className="font-mono text-xs text-muted-foreground">{meta.sourceLabel}</div>
+                        {meta.relatedLabel ? (
+                          <div className="text-xs text-muted-foreground">{meta.relatedLabel}</div>
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <div className="text-xs">{meta.primaryScope}</div>
