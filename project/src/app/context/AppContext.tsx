@@ -70,6 +70,7 @@ type PermissionAction =
   | "manage"
   | "submit"
   | "approve"
+  | "reject"
   | "list"
   | "open"
   | "pause"
@@ -168,6 +169,21 @@ interface AppContextType {
   transferAgencyInstructions: TransferAgencyInstruction[];
   registerAccounts: RegisterAccount[];
   walletLinks: WalletLink[];
+  approveWalletLink: (
+    walletLinkId: string,
+    expectedVersion?: number,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
+  rejectWalletLink: (
+    walletLinkId: string,
+    expectedVersion?: number,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
+  removeWalletFromWhitelist: (
+    walletLinkId: string,
+    expectedVersion?: number,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
   registerDeltas: RegisterDelta[];
   registerVersions: RegisterVersion[];
   cashMovements: CashMovement[];
@@ -303,6 +319,7 @@ const permissionMatrix: Record<UserRole, Record<string, PermissionResource[]>> =
     lock: ["register"],
     generate: ["register"],
     approve: ["register", "reconciliation"],
+    reject: ["register"],
     post: ["register"],
     resolve: ["reconciliation"],
     reconcile: ["reconciliation"],
@@ -323,6 +340,7 @@ function normalizeAction(action: string): string {
   const normalized = action.trim().toLowerCase().replace(/\s+/g, "_");
   if (normalized.includes("submit")) return "submit";
   if (normalized.includes("approve")) return "approve";
+  if (normalized.includes("reject")) return "reject";
   if (normalized.includes("list")) return "list";
   if (normalized.includes("open")) return "open";
   if (normalized.includes("pause")) return "pause";
@@ -821,6 +839,7 @@ interface CanonicalPersistedState {
   fundDistributions: FundDistribution[];
   transferAgencyInstructions: TransferAgencyInstruction[];
   registerAccounts: RegisterAccount[];
+  walletLinks: WalletLink[];
   registerDeltas: RegisterDelta[];
   registerVersions: RegisterVersion[];
   tokenEvents: TokenEvent[];
@@ -846,6 +865,7 @@ const initialCanonicalState: CanonicalPersistedState = {
   fundDistributions: initialDistributions,
   transferAgencyInstructions: initialTransferAgencyInstructions,
   registerAccounts: initialRegisterAccounts,
+  walletLinks: initialWalletLinks,
   registerDeltas: initialRegisterDeltas,
   registerVersions: initialRegisterVersions,
   tokenEvents: initialTokenEvents,
@@ -876,6 +896,8 @@ function loadCanonicalState(): CanonicalPersistedState {
     return {
       ...initialCanonicalState,
       ...parsed,
+      registerAccounts: mergeByKey(initialRegisterAccounts, parsed.registerAccounts, "registerAccountId"),
+      walletLinks: mergeByKey(initialWalletLinks, parsed.walletLinks, "walletLinkId"),
       onChainEvents: mergeByKey(initialOnChainEvents, parsed.onChainEvents, "onChainEventId"),
       anchoringEvents: mergeByKey(initialAnchoringEvents, parsed.anchoringEvents, "anchoringEventId"),
     };
@@ -922,7 +944,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [transferAgencyInstructions, setTransferAgencyInstructions] =
     useState<TransferAgencyInstruction[]>(persistedCanonical.transferAgencyInstructions);
   const [registerAccounts, setRegisterAccounts] = useState<RegisterAccount[]>(persistedCanonical.registerAccounts);
-  const [walletLinks] = useState<WalletLink[]>(initialWalletLinks);
+  const [walletLinks, setWalletLinks] = useState<WalletLink[]>(persistedCanonical.walletLinks);
   const [registerDeltas, setRegisterDeltas] = useState<RegisterDelta[]>(persistedCanonical.registerDeltas);
   const [registerVersions, setRegisterVersions] = useState<RegisterVersion[]>(persistedCanonical.registerVersions);
   const [cashMovements] = useState<CashMovement[]>(initialCashMovements);
@@ -950,6 +972,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setFundDistributions(next.fundDistributions);
     setTransferAgencyInstructions(next.transferAgencyInstructions);
     setRegisterAccounts(next.registerAccounts);
+    setWalletLinks(next.walletLinks);
     setRegisterDeltas(next.registerDeltas);
     setRegisterVersions(next.registerVersions);
     setTokenEvents(next.tokenEvents);
@@ -1044,6 +1067,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       fundDistributions,
       transferAgencyInstructions,
       registerAccounts,
+      walletLinks,
       registerDeltas,
       registerVersions,
       tokenEvents,
@@ -1074,6 +1098,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     anchoringEvents,
     reconciliationBreaks,
     registerAccounts,
+    walletLinks,
     registerDeltas,
     registerVersions,
     settlementListLines,
@@ -1354,6 +1379,98 @@ export function AppProvider({ children }: { children: ReactNode }) {
       message: "This record changed after it was opened. Refresh the task before continuing.",
     };
   };
+
+  const updateWalletLinkAdmission = (
+    walletLinkId: string,
+    expectedVersion: number | undefined,
+    idempotencyKey: string,
+    action: "approve" | "reject" | "remove",
+  ): TransferAgencyCommandResult => {
+    if (!ensureIdentitySource("authSession") || !ensurePermission(action === "remove" ? "manage" : action, "register")) {
+      return buildCommandDeniedResult();
+    }
+
+    const current = walletLinks.find((link) => link.walletLinkId === walletLinkId);
+    if (!current) return { success: false, error: "NOT_FOUND", message: "Wallet link was not found." };
+    const conflict = assertExpectedVersion(current.version, expectedVersion ?? current.version);
+    if (conflict) return conflict;
+
+    const now = new Date().toISOString();
+    setWalletLinks((prev) =>
+      prev.map((link) => {
+        if (link.walletLinkId !== walletLinkId) return link;
+        if (action === "approve") {
+          return {
+            ...link,
+            proofStatus: ["Submitted", "Expired", "Rejected"].includes(link.proofStatus) ? "Verified" : link.proofStatus,
+            whitelistStatus: "Whitelisted",
+            verifiedAt: now,
+            idempotencyKey,
+            version: link.version + 1,
+            ...transferAgencyAuditFields("approve-whitelist", "transferAgent"),
+          };
+        }
+        if (action === "reject") {
+          return {
+            ...link,
+            proofStatus: "Rejected",
+            whitelistStatus: "Removed",
+            verifiedAt: undefined,
+            idempotencyKey,
+            version: link.version + 1,
+            ...transferAgencyAuditFields("reject-whitelist", "transferAgent"),
+          };
+        }
+        return {
+          ...link,
+          whitelistStatus: "Removed",
+          idempotencyKey,
+          version: link.version + 1,
+          ...transferAgencyAuditFields("remove-whitelist", "transferAgent"),
+        };
+      }),
+    );
+
+    if (action === "approve" || action === "reject" || action === "remove") {
+      setRegisterAccounts((prev) =>
+        prev.map((account) => {
+          if (account.registerAccountId !== current.registerAccountId) return account;
+          if (action === "approve" && account.accountStatus === "Pending") {
+            return { ...account, accountStatus: "Active", version: account.version + 1 };
+          }
+          if ((action === "reject" || action === "remove") && account.accountStatus !== "Closed") {
+            return { ...account, accountStatus: "Suspended", version: account.version + 1 };
+          }
+          return account;
+        }),
+      );
+    }
+
+    const messageByAction = {
+      approve: "Wallet approved and added to the whitelist.",
+      reject: "Wallet admission rejected.",
+      remove: "Wallet removed from the whitelist.",
+    };
+    return { success: true, message: messageByAction[action], id: walletLinkId };
+  };
+
+  const approveWalletLink = (
+    walletLinkId: string,
+    expectedVersion?: number,
+    idempotencyKey = `TAConsole:${walletLinkId}:ApproveWhitelist:${formatDateTag(new Date())}`,
+  ) => updateWalletLinkAdmission(walletLinkId, expectedVersion, idempotencyKey, "approve");
+
+  const rejectWalletLink = (
+    walletLinkId: string,
+    expectedVersion?: number,
+    idempotencyKey = `TAConsole:${walletLinkId}:RejectWhitelist:${formatDateTag(new Date())}`,
+  ) => updateWalletLinkAdmission(walletLinkId, expectedVersion, idempotencyKey, "reject");
+
+  const removeWalletFromWhitelist = (
+    walletLinkId: string,
+    expectedVersion?: number,
+    idempotencyKey = `TAConsole:${walletLinkId}:RemoveWhitelist:${formatDateTag(new Date())}`,
+  ) => updateWalletLinkAdmission(walletLinkId, expectedVersion, idempotencyKey, "remove");
 
   const updateInstructionStatus = (
     instructionId: string,
@@ -2934,6 +3051,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transferAgencyInstructions,
         registerAccounts,
         walletLinks,
+        approveWalletLink,
+        rejectWalletLink,
+        removeWalletFromWhitelist,
         registerDeltas,
         registerVersions,
         cashMovements,

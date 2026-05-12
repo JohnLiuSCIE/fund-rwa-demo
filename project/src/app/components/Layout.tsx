@@ -64,6 +64,7 @@ export function Layout() {
   const transferAgentNavItems = [
     { label: "Console", to: "/ta" },
     { label: "Workflows", to: "/ta/queue" },
+    { label: "Admissions", to: "/ta/admissions" },
     { label: "Book of Record", to: "/ta/register" },
     { label: "Exceptions", to: "/ta/reconciliation" },
     { label: "Evidence", to: "/ta/evidence" },

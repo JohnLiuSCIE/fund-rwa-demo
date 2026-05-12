@@ -774,8 +774,19 @@ export function HolderRegister() {
 
         <TabsContent value="wallets">
           <Card>
-            <CardHeader>
-              <CardTitle>Wallet Links</CardTitle>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle>Wallet Links</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Whitelist decisions are managed in TA admissions and reflected here.
+                </p>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/ta/admissions">
+                  Manage Admissions
+                  <ArrowUpRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">

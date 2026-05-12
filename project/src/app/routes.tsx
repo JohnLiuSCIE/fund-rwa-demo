@@ -20,6 +20,7 @@ import { ConnectWalletPage } from "./pages/ConnectWalletPage";
 import { UserRole, useApp } from "./context/AppContext";
 import { FundsWorkspace } from "./pages/FundsWorkspace";
 import { TransferAgentDashboard } from "./pages/TransferAgentDashboard";
+import { TransferAgentAdmissions } from "./pages/TransferAgentAdmissions";
 import { TransferAgentWorkQueue } from "./pages/TransferAgentWorkQueue";
 import { TransferAgentWorkflowDetail } from "./pages/TransferAgentWorkflowDetail";
 import { HolderRegister } from "./pages/HolderRegister";
@@ -82,6 +83,7 @@ export function AppRoutes() {
         <Route element={<ProtectedRoute allow={["transferAgent"]} />}>
           <Route path="ta">
             <Route index element={<TransferAgentDashboard />} />
+            <Route path="admissions" element={<TransferAgentAdmissions />} />
             <Route path="queue" element={<TransferAgentWorkQueue />} />
             <Route path="queue/:taskId" element={<TransferAgentWorkflowDetail />} />
             <Route path="register" element={<HolderRegister />} />

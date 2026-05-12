@@ -396,6 +396,10 @@ export interface WalletLink {
   whitelistStatus: "NotRequired" | "Pending" | "Whitelisted" | "Removed" | "Suspended";
   proofRefId?: string;
   verifiedAt?: string;
+  idempotencyKey?: string;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
   version: number;
 }
 
@@ -1424,6 +1428,19 @@ export const initialRegisterAccounts: RegisterAccount[] = [
     version: 1,
   },
   {
+    registerAccountId: "ra-rea-northstar",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    holderId: "holder-northstar",
+    holderName: "Northstar Capital SPV",
+    registeredAddress: "Central, Hong Kong SAR",
+    holderType: "Direct",
+    units: "0",
+    accountStatus: "Pending",
+    source: "Direct",
+    version: 1,
+  },
+  {
     registerAccountId: "ra-rea-harbor",
     fundId: "fund-closed-001",
     classId: "REA-HKD",
@@ -1478,6 +1495,16 @@ export const initialWalletLinks: WalletLink[] = [
     whitelistStatus: "Pending",
     proofRefId: "ev-wallet-acme-expired",
     verifiedAt: "2026-03-01 09:00:00",
+    version: 1,
+  },
+  {
+    walletLinkId: "wl-rea-northstar",
+    registerAccountId: "ra-rea-northstar",
+    walletAddress: "0x64F0B8d24cA1e39D7b56E9A3F2d8C4b71A6e90C2",
+    chainId: "wb-hk-chain",
+    proofStatus: "Submitted",
+    whitelistStatus: "Pending",
+    proofRefId: "ev-wallet-northstar-submitted",
     version: 1,
   },
   {

@@ -8,6 +8,7 @@ import {
   ListChecks,
   LockKeyhole,
   ShieldCheck,
+  UserPlus,
   WalletCards,
 } from "lucide-react";
 
@@ -17,7 +18,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { useApp } from "../context/AppContext";
-import { buildRegisterHealth, buildTransferAgentSnapshotQueue, buildTransferAgentTasks } from "../lib/transferAgency";
+import { buildTransferAgentSnapshotQueue, buildTransferAgentTasks } from "../lib/transferAgency";
 import { getWorkflowTaskActionLabel, type WorkflowTaskStatus } from "../lib/workflowBackend";
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
@@ -47,7 +48,6 @@ export function TransferAgentDashboard() {
     transferAgencyInstructions,
     registerDeltas,
     reconciliationBreaks,
-    cashMovements,
     walletLinks,
     registerVersions,
     registerAccounts,
@@ -56,13 +56,6 @@ export function TransferAgentDashboard() {
     workflowState,
   } = useApp();
 
-  const health = buildRegisterHealth({
-    registerDeltas,
-    reconciliationBreaks,
-    cashMovements,
-    walletLinks,
-    registerVersions,
-  });
   const tasks = [
     ...buildTransferAgentSnapshotQueue({
       funds: fundIssuances,
@@ -107,6 +100,10 @@ export function TransferAgentDashboard() {
   const newRequestCount = workflowState.tasks.filter((task) => task.taskStatus === "New Request").length;
   const waitingIssuerCount = workflowState.tasks.filter((task) => task.taskStatus === "Awaiting Issuer").length;
   const completedWorkflowCount = workflowState.tasks.filter((task) => task.taskStatus === "Completed").length;
+  const pendingAdmissions = walletLinks.filter(
+    (link) => link.whitelistStatus === "Pending" || link.proofStatus === "Submitted",
+  ).length;
+  const whitelistedWallets = walletLinks.filter((link) => link.whitelistStatus === "Whitelisted").length;
 
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
@@ -121,20 +118,29 @@ export function TransferAgentDashboard() {
             Maintain the legal ownership register, holder snapshots, evidence, and reconciliation from one shared operating record.
           </p>
         </div>
-        <Button asChild>
-          <Link to="/ta/queue">
-            Open Workflows
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/ta/admissions">
+              Review Admissions
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link to="/ta/queue">
+              Open Workflows
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
       </div>
 
-      <div className="mb-6 grid gap-4 md:grid-cols-5">
+      <div className="mb-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard icon={ShieldCheck} label="Registered Holders" value={registerAccounts.length} variant="primary" />
         <MetricCard icon={ListChecks} label="Registered Units" value={totalUnits.toLocaleString()} />
+        <MetricCard icon={UserPlus} label="Pending Admissions" value={pendingAdmissions} variant="warning" />
+        <MetricCard icon={WalletCards} label="Whitelisted Wallets" value={whitelistedWallets} variant="success" />
         <MetricCard icon={LockKeyhole} label="Restricted Holders" value={restrictedHolders} variant="warning" />
         <MetricCard icon={AlertTriangle} label="Unreconciled Snapshots" value={unreconciledSnapshots} variant="warning" />
-        <MetricCard icon={WalletCards} label="Wallet Exceptions" value={health.walletMappingExceptions} variant="warning" />
       </div>
 
       <Card className="mb-6 min-w-0">
