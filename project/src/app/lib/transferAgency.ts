@@ -543,8 +543,8 @@ function buildIssuerTaHandoffProjection({
   const nextActionLabel =
     status === "NotSent"
       ? "Send To Transfer Agent"
-      : status === "SubmittedToIssuer"
-        ? "Acknowledge TA Output"
+    : status === "SubmittedToIssuer"
+        ? "TA Approved"
         : status === "IssuerAcknowledged"
           ? "Await TA Reconciliation"
           : status === "Reconciled"

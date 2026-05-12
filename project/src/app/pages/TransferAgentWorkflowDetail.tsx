@@ -25,6 +25,7 @@ import {
 import { useApp } from "../context/AppContext";
 import { cn } from "../components/ui/utils";
 import {
+  getWorkflowReviewChecklist,
   getWorkflowSteps,
   getWorkflowTaskActionLabel,
   type WorkflowActionLog,
@@ -235,7 +236,8 @@ export function TransferAgentWorkflowDetail() {
     );
   }
 
-  const reviewComplete = Object.values(task.reviewChecklist).every(Boolean);
+  const checklistItems = getWorkflowReviewChecklist(instance.sourceType, instance.sourceReference);
+  const reviewComplete = checklistItems.every((item) => Boolean(task.reviewChecklist[item.key]));
   const canRunMatch = instance.status === "TAResponded" || instance.status === "MatchException";
   const canSubmit =
     (instance.status === "MatchPassed" ||
@@ -290,13 +292,7 @@ export function TransferAgentWorkflowDetail() {
 
   const steps = getWorkflowSteps(instance.sourceType);
   const currentIndex = Math.max(0, steps.findIndex((step) => step.stepId === instance.currentStepId));
-  const checklistItems = [
-    ["sourceInstruction", "Issuer instruction matches source event"],
-    ["registerVersion", "Register version is available for record date"],
-    ["holderData", "Holder data can derive snapshot/list"],
-    ["evidencePack", "Evidence pack references are attached"],
-  ] as const;
-  const completedChecklistCount = checklistItems.filter(([key]) => task.reviewChecklist[key]).length;
+  const completedChecklistCount = checklistItems.filter((item) => task.reviewChecklist[item.key]).length;
   const matchStatusLabel = match ? (match.matched ? "Match passed" : "Match exception") : "Not matched";
   const primaryActionLabel =
     instance.sourceType === "Issuance" && instance.status === "IssuerAcknowledged"
@@ -543,7 +539,7 @@ export function TransferAgentWorkflowDetail() {
                     <div>
                       <div className="font-medium">Review & Match</div>
                       <div className="text-xs text-muted-foreground">
-                        {completedChecklistCount}/4 checks complete · {matchStatusLabel}
+                        {completedChecklistCount}/{checklistItems.length} checks complete · {matchStatusLabel}
                       </div>
                     </div>
                     <Button variant="outline" size="sm" onClick={() => setReviewSheetOpen(true)}>
@@ -642,21 +638,21 @@ export function TransferAgentWorkflowDetail() {
               </div>
               <div>
                 <div className="text-muted-foreground">Review state</div>
-                <div className="font-medium">{completedChecklistCount}/4 complete</div>
+                <div className="font-medium">{completedChecklistCount}/{checklistItems.length} complete</div>
               </div>
             </div>
 
             <div>
               <div className="mb-3 font-medium">Review Checklist</div>
               <div className="space-y-3">
-                {checklistItems.map(([key, label]) => (
-                  <label key={key} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
+                {checklistItems.map((item) => (
+                  <label key={item.key} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
                     <Checkbox
-                      checked={Boolean(task.reviewChecklist[key])}
-                      onCheckedChange={(checked) => updateChecklistItem(key, Boolean(checked))}
+                      checked={Boolean(task.reviewChecklist[item.key])}
+                      onCheckedChange={(checked) => updateChecklistItem(item.key, Boolean(checked))}
                       disabled={["IssuerSubmitted", "SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(instance.status)}
                     />
-                    <span>{label}</span>
+                    <span>{item.label}</span>
                   </label>
                 ))}
               </div>

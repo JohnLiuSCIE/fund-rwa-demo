@@ -54,6 +54,7 @@ import {
   pullWorkflowTask,
   reconcileWorkflowTask,
   respondWorkflowTask,
+  resetWorkflowState,
   returnWorkflowTask,
   submitWorkflowStep,
   subscribeWorkflowState,
@@ -254,6 +255,7 @@ interface AppContextType {
   authSession: AuthSession | null;
   createAuthSession: (role: UserRole, walletAddress: string, isSimulated?: boolean) => void;
   clearAuthSession: () => void;
+  resetDemoData: () => void;
   isAuthSessionExpired: (session?: AuthSession | null) => boolean;
   currentInvestor: InvestorProfile;
   can: (role: UserRole, action: PermissionAction | string, resource: PermissionResource) => boolean;
@@ -857,11 +859,15 @@ const initialCanonicalState: CanonicalPersistedState = {
   settlementListLines: initialSettlementListLines,
 };
 
+function cloneInitialCanonicalState(): CanonicalPersistedState {
+  return JSON.parse(JSON.stringify(initialCanonicalState)) as CanonicalPersistedState;
+}
+
 function loadCanonicalState(): CanonicalPersistedState {
-  if (typeof window === "undefined") return initialCanonicalState;
+  if (typeof window === "undefined") return cloneInitialCanonicalState();
   try {
     const parsed = JSON.parse(window.localStorage.getItem(CANONICAL_STORAGE_KEY) || "null") as Partial<CanonicalPersistedState> | null;
-    if (!parsed) return initialCanonicalState;
+    if (!parsed) return cloneInitialCanonicalState();
     const mergeByKey = <T extends Record<string, unknown>>(seed: T[], saved: T[] | undefined, key: keyof T) => {
       const savedItems = saved || [];
       const savedKeys = new Set(savedItems.map((item) => item[key]));
@@ -874,7 +880,7 @@ function loadCanonicalState(): CanonicalPersistedState {
       anchoringEvents: mergeByKey(initialAnchoringEvents, parsed.anchoringEvents, "anchoringEventId"),
     };
   } catch {
-    return initialCanonicalState;
+    return cloneInitialCanonicalState();
   }
 }
 
@@ -1095,6 +1101,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const clearAuthSession = () => {
     setAuthSession(null);
+  };
+
+  const resetDemoData = () => {
+    const nextCanonical = cloneInitialCanonicalState();
+    const nextWorkflow = resetWorkflowState();
+    const serialized = JSON.stringify(nextCanonical);
+    canonicalSyncRef.current = serialized;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(CANONICAL_STORAGE_KEY, serialized);
+    }
+    applyCanonicalState(nextCanonical);
+    applyWorkflowState(nextWorkflow);
+    broadcastCanonicalState();
   };
 
   const userRole = authSession?.role ?? "investor";
@@ -2956,6 +2975,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         authSession,
         createAuthSession,
         clearAuthSession,
+        resetDemoData,
         isAuthSessionExpired,
         currentInvestor: defaultInvestor,
         can,

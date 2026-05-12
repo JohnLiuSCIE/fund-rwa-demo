@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
+import { CheckCircle2, CircleDashed, Loader2, TriangleAlert } from "lucide-react";
 
 import { Badge } from "./ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -21,33 +21,57 @@ export interface ChecklistItem {
   status: "done" | "pending" | "attention";
 }
 
-export function TransferAgentOutputNotice({
-  title = "TA has approved the above operation.",
-  description,
-  items = [],
-}: {
-  title?: string;
+export interface TransferAgentApprovalLockState {
+  status: "waiting" | "approved";
+  title: string;
   description: string;
-  items?: string[];
+  statusLabel?: string;
+}
+
+export function TransferAgentApprovalLock({
+  state,
+}: {
+  state?: TransferAgentApprovalLockState;
 }) {
+  if (!state) return null;
+
+  const isApproved = state.status === "approved";
+  const Icon = isApproved ? CheckCircle2 : Loader2;
+
   return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 p-3 text-sm">
-      <div className="flex items-start gap-3">
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+    <div
+      className={cn(
+        "relative rounded-lg border p-3 text-sm shadow-sm xl:mt-3",
+        "before:absolute before:-top-2 before:right-8 before:h-4 before:w-4 before:rotate-45 before:border-l before:border-t before:bg-inherit",
+        isApproved
+          ? "border-emerald-200 bg-emerald-50 text-emerald-950 before:border-emerald-200"
+          : "border-teal-200 bg-teal-50 text-teal-950 before:border-teal-200",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <Icon
+          className={cn(
+            "mt-0.5 h-4 w-4 shrink-0",
+            isApproved ? "text-emerald-700" : "animate-spin text-teal-700",
+          )}
+        />
         <div className="min-w-0">
-          <div className="font-medium text-emerald-950">{title}</div>
-          <div className="mt-1 text-emerald-900/80">{description}</div>
-          {items.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {items.map((item) => (
-                <span
-                  key={item}
-                  className="rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-xs font-medium text-emerald-900"
-                >
-                  {item}
-                </span>
-              ))}
-            </div>
+          <div className="font-medium">{state.title}</div>
+          <div className={cn("mt-1", isApproved ? "text-emerald-900/80" : "text-teal-900/80")}>
+            {state.description}
+          </div>
+          {state.statusLabel ? (
+            <Badge
+              variant="outline"
+              className={cn(
+                "mt-3 w-fit bg-white/80",
+                isApproved
+                  ? "border-emerald-200 text-emerald-800"
+                  : "border-teal-200 text-teal-800",
+              )}
+            >
+              {state.statusLabel}
+            </Badge>
           ) : null}
         </div>
       </div>

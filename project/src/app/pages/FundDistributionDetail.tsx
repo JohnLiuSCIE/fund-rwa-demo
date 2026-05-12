@@ -35,8 +35,9 @@ import {
 } from "../components/ui/table";
 import {
   TransferAgentChecklistCard,
+  TransferAgentApprovalLock,
   TransferAgentOperationsCard,
-  TransferAgentOutputNotice,
+  type TransferAgentApprovalLockState,
 } from "../components/TransferAgentPanels";
 import { OnChainEvidencePanel, type OnChainRequirement } from "../components/OnChainEvidencePanel";
 import {
@@ -77,7 +78,7 @@ interface DistributionWorkflowActionConfig {
   viewLinks: DistributionViewLink[];
 }
 
-type DistributionTaHandoffActionKind = "send" | "acknowledge";
+type DistributionTaHandoffActionKind = "send";
 
 interface DistributionTaHandoffActionConfig {
   kind: DistributionTaHandoffActionKind;
@@ -89,16 +90,12 @@ interface DistributionTaHandoffActionConfig {
   detailGroups: ActionModalDetailGroup[];
 }
 
-interface DistributionActionWaitState {
-  title: string;
-  description: string;
-}
-
 interface DistributionActionGate {
   buttonLabel: string;
   disabled: boolean;
   reason: string;
-  waitState?: DistributionActionWaitState;
+  mode?: DistributionTaHandoffActionKind;
+  taLock?: TransferAgentApprovalLockState;
 }
 
 type DistributionEditableSection = "details" | "payout";
@@ -496,7 +493,7 @@ function DistributionNextActionPanel({
   disabled,
   disabledReason,
   buttonLabel,
-  waitState,
+  taLock,
   onOpen,
   onViewMore,
 }: {
@@ -505,12 +502,10 @@ function DistributionNextActionPanel({
   disabled: boolean;
   disabledReason?: string;
   buttonLabel?: string;
-  waitState?: DistributionActionWaitState;
+  taLock?: TransferAgentApprovalLockState;
   onOpen: () => void;
   onViewMore: (link: DistributionViewLink) => void;
 }) {
-  const showTaOutputNotice = buttonLabel === "Acknowledge TA Output";
-
   return (
     <div
       className={cn(
@@ -525,7 +520,7 @@ function DistributionNextActionPanel({
               Next Action
             </div>
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
-              <span>{waitState ? waitState.title : currentStatus}</span>
+              <span>{currentStatus}</span>
               <span className="text-slate-400">-&gt;</span>
               <span>{action.nextStatus}</span>
             </div>
@@ -557,15 +552,7 @@ function DistributionNextActionPanel({
 
           <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
 
-          {waitState ? (
-            <div className="flex items-start gap-3 rounded-lg border border-teal-200 bg-white/90 px-3 py-3 text-sm">
-              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-teal-700" />
-              <div>
-                <div className="font-medium text-teal-900">{waitState.title}</div>
-                <div className="mt-1 text-muted-foreground">{waitState.description}</div>
-              </div>
-            </div>
-          ) : disabledReason ? (
+          {!taLock && disabledReason ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {disabled ? "Blocked: " : "Required first: "}
               {disabledReason}
@@ -621,15 +608,9 @@ function DistributionNextActionPanel({
             </div>
           )}
 
-          {showTaOutputNotice ? (
-            <TransferAgentOutputNotice
-              description="The transfer agent has returned the holder snapshot, recipient list, and evidence package. Review this output, then acknowledge it to continue the release step."
-              items={action.affectedObjects.slice(0, 4)}
-            />
-          ) : null}
         </div>
 
-        <div className="xl:w-56 xl:shrink-0">
+        <div className="xl:w-64 xl:shrink-0">
           <Button
             type="button"
             variant={action.variant}
@@ -641,9 +622,10 @@ function DistributionNextActionPanel({
             title={disabled ? disabledReason : undefined}
             onClick={onOpen}
           >
-            {waitState && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {taLock?.status === "waiting" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {buttonLabel || action.label}
           </Button>
+          <TransferAgentApprovalLock state={taLock} />
         </div>
       </div>
     </div>
@@ -1812,28 +1794,44 @@ export function FundDistributionDetail() {
     structuredAction?.impactType === "hybrid"
       ? !distributionWorkflow
         ? {
+            mode: "send",
             buttonLabel: "Notify TA",
             disabled: false,
             reason: "Notify TA before the issuer can move this distribution into the on-chain release step.",
           }
         : distributionWorkflow.status === "SubmittedToIssuer"
           ? {
-              buttonLabel: "Acknowledge TA Output",
               disabled: false,
-              reason: "Issuer acknowledgement is required before the chain release can proceed.",
+              reason: "TA has approved this action. Continue with the issuer step.",
+              taLock: {
+                status: "approved",
+                title: "TA approved",
+                description: "The holder snapshot and recipient list have been approved. The next action is unlocked.",
+                statusLabel: distributionWorkflowTask?.taskStatus || "Approved",
+              },
             }
           : !["IssuerAcknowledged", "Reconciled"].includes(distributionWorkflow.status)
             ? {
-                buttonLabel: "Waiting for TA Approval",
                 disabled: true,
                 reason: `TA workflow is ${distributionWorkflow.status}. Wait for TA to submit the holder snapshot and recipient list.`,
-                waitState: {
-                  title: "Waiting for TA feedback",
+                taLock: {
+                  status: "waiting",
+                  title: "Waiting for TA",
                   description:
                     "TA has been notified. The issuer stays here until TA submits the holder snapshot and recipient list back for review.",
+                  statusLabel: distributionWorkflowTask?.taskStatus || distributionWorkflow.status,
                 },
               }
-            : undefined
+            : {
+                disabled: false,
+                reason: "TA approval is recorded for this action.",
+                taLock: {
+                  status: "approved",
+                  title: "TA approved",
+                  description: "TA approval is already recorded. You can continue this issuer step.",
+                  statusLabel: "Approved",
+                },
+              }
       : undefined;
   const distributionWorkflowTimings: WorkflowStepTiming[] = isOpenEndDistribution
     ? [
@@ -1984,6 +1982,7 @@ export function FundDistributionDetail() {
   const handleStatusChange = (nextStatus: string, message: string) => {
     if (!pendingAction) return;
     if (!maybeCreateDistributionWorkflowForAction(pendingAction)) return;
+    if (!acknowledgeDistributionTaApprovalIfReady(pendingAction)) return;
     const updated = updateDistributionStatus(
       distribution.id,
       nextStatus,
@@ -1992,6 +1991,25 @@ export function FundDistributionDetail() {
     if (!updated) return;
     setCurrentStatus(nextStatus);
     toast.success(message);
+  };
+
+  const acknowledgeDistributionTaApprovalIfReady = (action: DistributionWorkflowActionConfig) => {
+    if (!["ta", "hybrid"].includes(action.impactType) || !distributionWorkflow) return true;
+    if (["IssuerAcknowledged", "Reconciled"].includes(distributionWorkflow.status)) return true;
+    if (distributionWorkflow.status !== "SubmittedToIssuer") {
+      toast.error("Waiting for TA approval before this action can proceed.");
+      return false;
+    }
+    if (!distributionWorkflowTask) {
+      toast.error("TA workflow task was not found.");
+      return false;
+    }
+    const result = workflowAcknowledgeTask(distributionWorkflowTask.taskId);
+    if (!result.success) {
+      toast.error(result.message || "Unable to accept TA approval.");
+      return false;
+    }
+    return true;
   };
 
   const runTaCommand = (result: { success: boolean; message?: string }) => {
@@ -2009,37 +2027,24 @@ export function FundDistributionDetail() {
     return result.success;
   };
 
-  const buildDistributionTaActionConfig = (
-    kind: DistributionTaHandoffActionKind,
-  ): DistributionTaHandoffActionConfig => {
-    const isAcknowledge = kind === "acknowledge";
-
+  const buildDistributionTaActionConfig = (): DistributionTaHandoffActionConfig => {
     return {
-      kind,
-      title: isAcknowledge ? "Acknowledge TA Output" : "Notify Transfer Agent",
-      description: isAcknowledge
-        ? "Review the locked snapshot, recipient list, and evidence pack before acknowledging TA output."
-        : "Verify issuer identity before notifying TA to prepare the holder snapshot and recipient list.",
+      kind: "send",
+      title: "Notify Transfer Agent",
+      description: "Verify issuer identity before notifying TA to prepare the holder snapshot and recipient list.",
       steps: buildDistributionModalFlow({
-        reviewTitle: isAcknowledge ? "Review TA Output" : "Review TA Notification",
-        reviewDescription: isAcknowledge
-          ? "Confirm the recipient list and evidence pack are ready to return to issuer control."
-          : "Confirm the distribution event, record date, and payout route before requesting TA processing.",
-        identityDescription: isAcknowledge
-          ? "Issuer identity and output-acknowledgement authority are being verified."
-          : "Issuer identity and TA notification authority are being verified.",
-        workflowTitle: isAcknowledge ? "Acknowledge TA Output" : "Notify TA",
-        workflowDescription: isAcknowledge
-          ? "The issuer acknowledgement is being recorded and the workflow is being released for TA close-out."
-          : "A controlled workflow request is being created for transfer-agent review.",
-        taTitle: isAcknowledge ? "Release To TA Close-out" : "TA Notified",
-        taDescription: isAcknowledge
-          ? "The transfer agent will see the workflow as ready for close-out reconciliation."
-          : "TA will receive a workflow task for pull, respond, match, snapshot lock, and recipient-list generation.",
-        successTitle: isAcknowledge ? "TA output acknowledged" : "TA notified",
-        successDescription: isAcknowledge
-          ? "Issuer acknowledgement has been recorded."
-          : "The request is now visible in the TA workflow queue. This page will remain in waiting state until TA feedback returns.",
+        reviewTitle: "Review TA Notification",
+        reviewDescription:
+          "Confirm the distribution event, record date, and payout route before requesting TA processing.",
+        identityDescription: "Issuer identity and TA notification authority are being verified.",
+        workflowTitle: "Notify TA",
+        workflowDescription: "A controlled workflow request is being created for transfer-agent review.",
+        taTitle: "TA Notified",
+        taDescription:
+          "TA will receive a workflow task for pull, respond, match, snapshot lock, and recipient-list generation.",
+        successTitle: "TA notified",
+        successDescription:
+          "The request is now visible in the TA workflow queue. This page will remain in waiting state until TA feedback returns.",
         requiresTa: true,
         requiresOnChain: false,
       }),
@@ -2052,7 +2057,7 @@ export function FundDistributionDetail() {
       ],
       impactBadges: [
         { label: "Identity Required", kind: "identity" },
-        { label: isAcknowledge ? "Notify TA Close-out" : "Notify TA", kind: "ta" },
+        { label: "Notify TA", kind: "ta" },
       ],
       detailGroups: [
         {
@@ -2079,25 +2084,14 @@ export function FundDistributionDetail() {
 
   const openDistributionTaAction = () => {
     if (!distributionWorkflow) {
-      setPendingTaAction(buildDistributionTaActionConfig("send"));
-      setTaActionModalOpen(true);
-      return;
-    }
-    if (distributionWorkflow?.status === "SubmittedToIssuer" && distributionWorkflowTask) {
-      setPendingTaAction(buildDistributionTaActionConfig("acknowledge"));
+      setPendingTaAction(buildDistributionTaActionConfig());
       setTaActionModalOpen(true);
     }
   };
 
   const executeDistributionTaAction = () => {
     if (!pendingTaAction) return;
-    if (pendingTaAction.kind === "send") {
-      runTaCommand(createTransferAgencyInstructionFromIssuer("Distribution", distribution.id));
-      return;
-    }
-    if (distributionWorkflowTask) {
-      runTaCommand(workflowAcknowledgeTask(distributionWorkflowTask.taskId));
-    }
+    runTaCommand(createTransferAgencyInstructionFromIssuer("Distribution", distribution.id));
   };
 
   return (
@@ -2159,9 +2153,9 @@ export function FundDistributionDetail() {
                 disabled={!getActionPermission().allowed || Boolean(distributionActionGate?.disabled)}
                 disabledReason={distributionActionGate?.reason || getActionPermission().reason}
                 buttonLabel={distributionActionGate?.buttonLabel}
-                waitState={distributionActionGate?.waitState}
+                taLock={distributionActionGate?.taLock}
                 onOpen={() => {
-                  if (distributionActionGate && !distributionActionGate.disabled) {
+                  if (distributionActionGate?.mode === "send" && !distributionActionGate.disabled) {
                     openDistributionTaAction();
                     return;
                   }

@@ -51,8 +51,9 @@ import { StatusBadge } from "../components/StatusBadge";
 import { FundIssuanceWorkflow, type WorkflowStepTiming } from "../components/FundIssuanceWorkflow";
 import {
   TransferAgentChecklistCard,
+  TransferAgentApprovalLock,
   TransferAgentOperationsCard,
-  TransferAgentOutputNotice,
+  type TransferAgentApprovalLockState,
 } from "../components/TransferAgentPanels";
 import { RedeemModal, SubscribeModal } from "../components/modals/InvestorModals";
 import {
@@ -1364,18 +1365,14 @@ interface IssuanceActionConfig extends IssuanceActionBaseConfig {
   impactBadges: ActionModalImpactBadge[];
 }
 
-type IssuanceTaActionMode = "notify" | "acknowledge";
+type IssuanceTaActionMode = "notify";
 
 interface IssuanceTaWorkflowGate {
   mode?: IssuanceTaActionMode;
   buttonLabel: string;
   disabled: boolean;
   disabledReason?: string;
-  waitState?: {
-    title: string;
-    description: string;
-    statusLabel: string;
-  };
+  taLock?: TransferAgentApprovalLockState;
 }
 
 interface ActionViewLink {
@@ -1515,20 +1512,14 @@ function buildIssuanceModalSteps(action: IssuanceActionBaseConfig): ActionModalS
   return steps;
 }
 
-function buildIssuanceTaHandoffSteps(
-  action: IssuanceActionConfig,
-  mode: IssuanceTaActionMode,
-): ActionModalStep[] {
-  const isNotify = mode === "notify";
+function buildIssuanceTaHandoffSteps(action: IssuanceActionConfig): ActionModalStep[] {
   return [
     {
       label: "Review",
-      title: isNotify ? "Review TA Notification" : "Review TA Output",
-      description: isNotify
-        ? action.taNotificationDescription ||
-          "Confirm the issuer package before notifying the transfer agent."
-        : action.taConfirmationDescription ||
-          "Confirm the transfer-agent response before unlocking the issuer action.",
+      title: "Review TA Request",
+      description:
+        action.taNotificationDescription ||
+        "Confirm the issuer package before sending it to the transfer agent workflow.",
       state: "review",
       kind: "review",
     },
@@ -1540,23 +1531,18 @@ function buildIssuanceTaHandoffSteps(
       kind: "identity",
     },
     {
-      label: isNotify ? "Notify TA" : "Acknowledge",
-      title: isNotify ? action.taNotificationTitle || "Notify Transfer Agent" : "Acknowledge TA Output",
-      description: isNotify
-        ? action.taNotificationDescription ||
-          "The request is being sent to the transfer agent workflow queue."
-        : "The issuer acknowledgement is being recorded against the TA workflow output.",
+      label: "TA Dispatch",
+      title: "Dispatch TA Request",
+      description:
+        action.taNotificationDescription ||
+        "The request is being sent to the transfer agent workflow queue.",
       state: "loading",
       kind: "ta",
     },
     {
       label: "Completed",
-      title: isNotify ? "TA notified" : "TA output acknowledged",
-      description: isNotify
-        ? "The transfer agent can now pull, match, and approve the request from TA Workflows."
-        : action.impactType === "ta"
-          ? "The transfer-agent approval has been accepted and the issuance stage has advanced."
-          : "The transfer-agent approval has been accepted. The issuer action is now unlocked.",
+      title: "TA request sent",
+      description: "The transfer agent can now pull, match, and approve the request from TA Workflows.",
       state: "success",
       kind: "success",
     },
@@ -1575,17 +1561,22 @@ function buildIssuanceExecutionImpactBadges(action: IssuanceActionConfig) {
   );
 }
 
-function getIssuanceTaHandoffTitle(action: IssuanceActionConfig, mode: IssuanceTaActionMode) {
-  return mode === "notify" ? `Notify TA: ${action.label}` : `Acknowledge TA Output: ${action.label}`;
+function buildIssuanceTaHandoffImpactBadges(action: IssuanceActionConfig) {
+  return action.impactBadges
+    .filter((badge) => badge.kind !== "onchain")
+    .map((badge) =>
+      badge.kind === "ta"
+        ? { ...badge, label: "TA Approval Required" }
+        : badge,
+    );
 }
 
-function getIssuanceTaHandoffDescription(action: IssuanceActionConfig, mode: IssuanceTaActionMode) {
-  if (mode === "notify") {
-    return "Send this issuer action into the transfer-agent workflow. The main page will wait for TA response before the next action can proceed.";
-  }
-  return action.impactType === "ta"
-    ? "Accept the transfer-agent approval and advance the issuance workflow."
-    : "Accept the transfer-agent approval so the issuer can continue with the on-chain action.";
+function getIssuanceTaHandoffTitle(action: IssuanceActionConfig) {
+  return `TA Request: ${action.label}`;
+}
+
+function getIssuanceTaHandoffDescription() {
+  return "Send this issuer action into the transfer-agent workflow. The main page will wait for TA response before the next action can proceed.";
 }
 
 function buildIssuanceActionPreview(
@@ -3291,7 +3282,7 @@ function IssuanceNextActionPanel({
   disabled,
   disabledReason,
   buttonLabel,
-  waitState,
+  taLock,
   viewLinks,
   onViewMore,
   onOpen,
@@ -3301,13 +3292,11 @@ function IssuanceNextActionPanel({
   disabled: boolean;
   disabledReason?: string;
   buttonLabel?: string;
-  waitState?: IssuanceTaWorkflowGate["waitState"];
+  taLock?: TransferAgentApprovalLockState;
   viewLinks: ActionViewLink[];
   onViewMore: (link: ActionViewLink) => void;
   onOpen: () => void;
 }) {
-  const showTaOutputNotice = buttonLabel === "Acknowledge TA Output";
-
   return (
     <div
       className={cn(
@@ -3353,21 +3342,6 @@ function IssuanceNextActionPanel({
           </div>
 
           <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
-
-          {waitState ? (
-            <div className="flex flex-col gap-3 rounded-lg border border-teal-200 bg-white/90 p-3 text-sm md:flex-row md:items-center md:justify-between">
-              <div className="flex items-start gap-3">
-                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-teal-700" />
-                <div>
-                  <div className="font-medium text-teal-900">{waitState.title}</div>
-                  <div className="mt-1 text-muted-foreground">{waitState.description}</div>
-                </div>
-              </div>
-              <Badge variant="outline" className="w-fit border-teal-200 bg-teal-50 text-teal-700">
-                {waitState.statusLabel}
-              </Badge>
-            </div>
-          ) : null}
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {action.previewSummary.map((item) => (
@@ -3418,15 +3392,9 @@ function IssuanceNextActionPanel({
             </div>
           )}
 
-          {showTaOutputNotice ? (
-            <TransferAgentOutputNotice
-              description="The transfer agent has returned the issuance approval package. Review this output, then acknowledge it to continue the issuer action."
-              items={action.affectedObjects.slice(0, 4)}
-            />
-          ) : null}
         </div>
 
-        <div className="xl:w-56 xl:shrink-0">
+        <div className="xl:w-64 xl:shrink-0">
           <Button
             type="button"
             variant={action.variant}
@@ -3438,13 +3406,14 @@ function IssuanceNextActionPanel({
             )}
             onClick={onOpen}
           >
-            {waitState ? (
+            {taLock?.status === "waiting" ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <action.icon className="mr-2 h-4 w-4" />
             )}
             {buttonLabel || action.label}
           </Button>
+          <TransferAgentApprovalLock state={taLock} />
         </div>
       </div>
     </div>
@@ -3953,6 +3922,7 @@ export function FundIssuanceDetail() {
 
   const transitionFundStatus = (nextStatus: string, description: string) => {
     if (!pendingIssuerAction) return;
+    if (!acknowledgeIssuanceTaApprovalIfReady(pendingIssuerAction)) return;
     const updated = updateFundStatus(
       fundData.id,
       nextStatus,
@@ -3962,10 +3932,34 @@ export function FundIssuanceDetail() {
     toast.success(description);
   };
 
+  const acknowledgeIssuanceTaApprovalIfReady = (action: IssuanceActionConfig) => {
+    if (!action.requiresTa) return true;
+    const sourceReference = buildIssuanceWorkflowSourceReference(fundData.id, action.previewKey);
+    const instance = workflowState.instances.find(
+      (item) => item.sourceType === "Issuance" && item.sourceReference === sourceReference,
+    );
+    if (!instance) return true;
+    if (instance.status === "IssuerAcknowledged") return true;
+    if (instance.status !== "SubmittedToIssuer") {
+      toast.error("Waiting for TA approval before this action can proceed.");
+      return false;
+    }
+    const task = workflowState.tasks.find((item) => item.workflowId === instance.workflowId);
+    if (!task) {
+      toast.error("TA workflow task was not found.");
+      return false;
+    }
+    const result = workflowAcknowledgeTask(task.taskId);
+    if (!result.success) {
+      toast.error(result.message || "Unable to accept TA approval.");
+      return false;
+    }
+    return true;
+  };
+
   const handleIssuerTaHandoffSuccess = () => {
     if (!pendingIssuerTaAction) return;
     const { action, mode } = pendingIssuerTaAction;
-    const sourceReference = buildIssuanceWorkflowSourceReference(fundData.id, action.previewKey);
 
     if (mode === "notify") {
       const result = createIssuanceWorkflowFromIssuer(fundData.id, action.previewKey);
@@ -3976,30 +3970,6 @@ export function FundIssuanceDetail() {
       toast.success("TA notified. Waiting for TA feedback.");
       return;
     }
-
-    const instance = workflowState.instances.find(
-      (item) => item.sourceType === "Issuance" && item.sourceReference === sourceReference,
-    );
-    const task = instance ? workflowState.tasks.find((item) => item.workflowId === instance.workflowId) : undefined;
-    if (!task) {
-      toast.error("TA workflow task was not found.");
-      return;
-    }
-
-    const result = workflowAcknowledgeTask(task.taskId);
-    if (!result.success) {
-      toast.error(result.message || "Unable to acknowledge TA output.");
-      return;
-    }
-
-    if (action.impactType === "ta") {
-      const updated = updateFundStatus(fundData.id, action.nextStatus, getIssuerPermissionAction(action.label));
-      if (!updated) return;
-      toast.success(action.message);
-      return;
-    }
-
-    toast.success("TA output acknowledged. Issuer action is now available.");
   };
 
   const handleExcludeFromAllocation = (order: FundOrder) => {
@@ -4175,19 +4145,32 @@ export function FundIssuanceDetail() {
         }
       : issuerActionWorkflow.status === "SubmittedToIssuer"
         ? {
-            mode: "acknowledge",
-            buttonLabel: "Acknowledge TA Output",
             disabled: false,
-            disabledReason: "Review and acknowledge the transfer-agent response.",
+            disabledReason: "TA has approved this action. Continue with the issuer step.",
+            taLock: {
+              status: "approved",
+              title: "TA approved",
+              description: "The transfer agent has approved the request. The next issuer action is now unlocked.",
+              statusLabel: issuerActionWorkflowTask?.taskStatus || "Approved",
+            },
           }
         : issuerActionWorkflow.status === "IssuerAcknowledged" || issuerActionWorkflowTask?.taskStatus === "Completed"
-          ? undefined
+          ? {
+              disabled: false,
+              disabledReason: "TA approval is recorded for this action.",
+              taLock: {
+                status: "approved",
+                title: "TA approved",
+                description: "TA approval is already recorded. You can continue this issuer step.",
+                statusLabel: "Approved",
+              },
+            }
           : {
-              buttonLabel: "Waiting For TA Approval",
               disabled: true,
               disabledReason: `TA workflow is currently ${issuerActionWorkflow.status}.`,
-              waitState: {
-                title: "Waiting for TA feedback",
+              taLock: {
+                status: "waiting",
+                title: "Waiting for TA",
                 description:
                   "TA has been notified. Continue once the transfer agent pulls the request, matches the source data, and submits approval back to issuer review.",
                 statusLabel: issuerActionWorkflowTask?.taskStatus || issuerActionWorkflow.status,
@@ -4379,7 +4362,7 @@ export function FundIssuanceDetail() {
                 disabled={!issuerActionPermission.allowed || Boolean(issuerActionTaGate?.disabled)}
                 disabledReason={issuerActionTaGate?.disabledReason || issuerActionPermission.reason}
                 buttonLabel={issuerActionTaGate?.buttonLabel}
-                waitState={issuerActionTaGate?.waitState}
+                taLock={issuerActionTaGate?.taLock}
                 viewLinks={getActionViewLinks(issuerAction)}
                 onViewMore={(link) => openClosedEndSnapshot(link.tab, link.ordersTab)}
                 onOpen={() => {
@@ -5710,12 +5693,12 @@ export function FundIssuanceDetail() {
             }
           }}
           onSuccess={handleIssuerTaHandoffSuccess}
-          title={getIssuanceTaHandoffTitle(pendingIssuerTaAction.action, pendingIssuerTaAction.mode)}
-          description={getIssuanceTaHandoffDescription(pendingIssuerTaAction.action, pendingIssuerTaAction.mode)}
-          steps={buildIssuanceTaHandoffSteps(pendingIssuerTaAction.action, pendingIssuerTaAction.mode)}
-          impactBadges={pendingIssuerTaAction.action.impactBadges.filter((badge) => badge.kind !== "onchain")}
+          title={getIssuanceTaHandoffTitle(pendingIssuerTaAction.action)}
+          description={getIssuanceTaHandoffDescription()}
+          steps={buildIssuanceTaHandoffSteps(pendingIssuerTaAction.action)}
+          impactBadges={buildIssuanceTaHandoffImpactBadges(pendingIssuerTaAction.action)}
           detailGroups={pendingIssuerTaAction.action.previewDetails}
-          startLabel={pendingIssuerTaAction.mode === "notify" ? "Notify TA" : "Acknowledge"}
+          startLabel="Confirm And Send"
           completionLabel="Done"
           summary={pendingIssuerTaAction.action.previewSummary}
         />

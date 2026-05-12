@@ -133,6 +133,14 @@ export interface WorkflowCommandOptions {
   idempotencyKey?: string;
 }
 
+export interface WorkflowReviewChecklistItem {
+  key: string;
+  label: string;
+  matchLabel: string;
+  passDetail: string;
+  failDetail: string;
+}
+
 const STORAGE_KEY = "fund-rwa-workflow-state-v4";
 const CHANNEL_NAME = "fund-rwa-workflow";
 
@@ -150,6 +158,171 @@ function makeWorkflowId(sourceType: WorkflowSourceType, sourceReference: string)
 
 function makeTaskId(workflowId: string) {
   return `task-${workflowId}`;
+}
+
+export function getWorkflowReviewChecklist(
+  sourceType: WorkflowSourceType,
+  sourceReference?: string,
+): WorkflowReviewChecklistItem[] {
+  if (sourceType === "Distribution") {
+    return [
+      {
+        key: "distributionInstruction",
+        label: "Distribution instruction matches approved event",
+        matchLabel: "Distribution instruction present",
+        passDetail: "Record-date, fund, class, and payout mode match the issuer event.",
+        failDetail: "Distribution source terms do not match the issuer instruction.",
+      },
+      {
+        key: "recordDateRegister",
+        label: "Record-date register version is available",
+        matchLabel: "Record-date register available",
+        passDetail: "A register version is available for the distribution record date.",
+        failDetail: "No usable record-date register version is available.",
+      },
+      {
+        key: "entitlementEligibility",
+        label: "Holder entitlements and restrictions are checked",
+        matchLabel: "Entitlement eligibility ready",
+        passDetail: "Eligible holders, restricted accounts, and excluded rows can be derived.",
+        failDetail: "Holder eligibility or restrictions require issuer correction.",
+      },
+      {
+        key: "recipientEvidence",
+        label: "Recipient list and evidence pack are linked",
+        matchLabel: "Recipient evidence linked",
+        passDetail: "Recipient list, snapshot evidence, and payout references are attached.",
+        failDetail: "Recipient list evidence is incomplete.",
+      },
+    ];
+  }
+
+  if (sourceType === "Redemption") {
+    return [
+      {
+        key: "redemptionInstruction",
+        label: "Redemption request matches cut-off roster",
+        matchLabel: "Redemption instruction present",
+        passDetail: "Redemption event, order roster, and cut-off terms match the issuer request.",
+        failDetail: "Redemption source terms do not match the issuer request.",
+      },
+      {
+        key: "ownershipBalance",
+        label: "Holder ownership and restriction checks are valid",
+        matchLabel: "Ownership balance available",
+        passDetail: "Register balance, wallet link, and transfer restrictions support the redemption.",
+        failDetail: "Holder ownership or restriction status blocks this redemption.",
+      },
+      {
+        key: "paymentList",
+        label: "Payment list and cash route are prepared",
+        matchLabel: "Payment list ready",
+        passDetail: "Payment rows, destination, currency, and settlement cycle can be derived.",
+        failDetail: "Payment list or cash route is incomplete.",
+      },
+      {
+        key: "burnEvidence",
+        label: "Burn and cash evidence references are attached",
+        matchLabel: "Burn/cash evidence linked",
+        passDetail: "Burn package, cash evidence, and reconciliation references are available.",
+        failDetail: "Burn or cash evidence is incomplete.",
+      },
+    ];
+  }
+
+  if (sourceReference?.includes("close-book") || sourceReference?.includes("calculate-allocation")) {
+    return [
+      {
+        key: "subscriptionWindow",
+        label: "Subscription window and close-book instruction match",
+        matchLabel: "Subscription window closed",
+        passDetail: "Issuer close-book instruction matches the active subscription window.",
+        failDetail: "Subscription window or close-book source terms are inconsistent.",
+      },
+      {
+        key: "acceptedOrderBook",
+        label: "Accepted order book and cash confirmations are reconciled",
+        matchLabel: "Accepted order book ready",
+        passDetail: "Accepted subscriptions, cash confirmations, and manual overrides are aligned.",
+        failDetail: "Accepted order book or cash confirmation requires review.",
+      },
+      {
+        key: "allocationWorkbook",
+        label: "Allocation workbook can derive register delta",
+        matchLabel: "Allocation workbook ready",
+        passDetail: "Allocation rows can be converted into the initial register package.",
+        failDetail: "Allocation workbook cannot derive a clean register delta.",
+      },
+      {
+        key: "registerPackage",
+        label: "Register package and on-chain allocation evidence are linked",
+        matchLabel: "Register package linked",
+        passDetail: "Register package, token allocation evidence, and approval references are attached.",
+        failDetail: "Register package or on-chain evidence is incomplete.",
+      },
+    ];
+  }
+
+  return [
+    {
+      key: "launchInstruction",
+      label: "Issuer launch instruction matches approved fund setup",
+      matchLabel: "Launch instruction present",
+      passDetail: "Fund setup, token class, and issuer approval package are aligned.",
+      failDetail: "Launch instruction does not match the approved setup package.",
+    },
+    {
+      key: "dealingWindow",
+      label: "Dealing window and investor eligibility controls are ready",
+      matchLabel: "Dealing controls ready",
+      passDetail: "Subscription window, eligibility rules, and investor intake controls are ready.",
+      failDetail: "Dealing window or eligibility controls are incomplete.",
+    },
+    {
+      key: "collectionRoute",
+      label: "Collection route and cash control package are verified",
+      matchLabel: "Collection route verified",
+      passDetail: "Settlement account, currency, and cash control references are available.",
+      failDetail: "Collection route or cash control evidence is incomplete.",
+    },
+    {
+      key: "issuanceEvidence",
+      label: "Issuance evidence and register setup are linked",
+      matchLabel: "Issuance evidence linked",
+      passDetail: "Register setup, approval evidence, and token control references are attached.",
+      failDetail: "Issuance evidence or register setup is incomplete.",
+    },
+  ];
+}
+
+function buildInitialChecklist(sourceType: WorkflowSourceType, sourceReference?: string) {
+  return Object.fromEntries(
+    getWorkflowReviewChecklist(sourceType, sourceReference).map((item) => [item.key, false]),
+  );
+}
+
+function migrateChecklist(
+  checklist: Record<string, boolean> | undefined,
+  sourceType: WorkflowSourceType,
+  sourceReference?: string,
+) {
+  if (!checklist) return buildInitialChecklist(sourceType, sourceReference);
+  const configured = getWorkflowReviewChecklist(sourceType, sourceReference);
+  if (configured.some((item) => item.key in checklist)) {
+    return Object.fromEntries(configured.map((item) => [item.key, Boolean(checklist[item.key])]));
+  }
+
+  const legacyValues = Object.values(checklist);
+  const legacyComplete = legacyValues.length > 0 && legacyValues.every(Boolean);
+  return Object.fromEntries(configured.map((item, index) => [item.key, legacyComplete || Boolean(legacyValues[index])]));
+}
+
+function isChecklistComplete(
+  checklist: Record<string, boolean>,
+  sourceType: WorkflowSourceType,
+  sourceReference?: string,
+) {
+  return getWorkflowReviewChecklist(sourceType, sourceReference).every((item) => Boolean(checklist[item.key]));
 }
 
 function auditLog(
@@ -191,12 +364,7 @@ function buildTask(
     currentStepId: instance.currentStepId,
     reviewRequired,
     matchRequired,
-    reviewChecklist: {
-      sourceInstruction: false,
-      registerVersion: false,
-      holderData: false,
-      evidencePack: false,
-    },
+    reviewChecklist: buildInitialChecklist(instance.sourceType, instance.sourceReference),
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
     version: 1,
@@ -380,14 +548,7 @@ function createInitialWorkflowState(): WorkflowBackendState {
     const task = {
       ...buildTask(instance, seed.taskStatus, seed.ownerRole, true, true),
       assignee: seed.assignee,
-      reviewChecklist:
-        seed.reviewChecklist ||
-        {
-          sourceInstruction: false,
-          registerVersion: false,
-          holderData: false,
-          evidencePack: false,
-        },
+      reviewChecklist: migrateChecklist(seed.reviewChecklist, seed.sourceType, seed.sourceReference),
       updatedAt: seed.updatedAt,
       version: seed.status === "IssuerSubmitted" ? 1 : 2,
     };
@@ -396,32 +557,12 @@ function createInitialWorkflowState(): WorkflowBackendState {
         matchResultId: `match-${workflowId}-seed`,
         workflowId,
         matched: seed.matchResult.matched,
-        checks: [
-          {
-            checkId: "sourceInstruction",
-            label: "Source instruction present",
-            passed: true,
-            detail: "Instruction links to issuer event.",
-          },
-          {
-            checkId: "registerVersion",
-            label: "Register version available",
-            passed: true,
-            detail: "Register version and holder account are available.",
-          },
-          {
-            checkId: "holderData",
-            label: "Holder data ready",
-            passed: seed.matchResult.matched,
-            detail: seed.matchResult.matched ? "Holder positions can be derived." : "Holder data requires exception review.",
-          },
-          {
-            checkId: "evidencePack",
-            label: "Evidence pack linked",
-            passed: seed.matchResult.matched,
-            detail: seed.matchResult.matched ? "Evidence references are available." : "Evidence package is incomplete.",
-          },
-        ],
+        checks: getWorkflowReviewChecklist(seed.sourceType, seed.sourceReference).map((item, index) => ({
+          checkId: item.key,
+          label: item.matchLabel,
+          passed: index === 0 ? true : seed.matchResult!.matched,
+          detail: index === 0 || seed.matchResult!.matched ? item.passDetail : item.failDetail,
+        })),
         exception: seed.matchResult.exception,
         createdAt: seed.updatedAt,
         actorRole: "transferAgent",
@@ -819,7 +960,7 @@ export function matchWorkflowTask(
       result = conflict;
       return state;
     }
-    const reviewComplete = Object.values(task.reviewChecklist).every(Boolean);
+    const reviewComplete = isChecklistComplete(task.reviewChecklist, instance.sourceType, instance.sourceReference);
     if (!reviewComplete) {
       result = { success: false, message: "Complete the review checklist before matching data.", error: "INVALID_STATE" };
       return state;
@@ -832,12 +973,12 @@ export function matchWorkflowTask(
       matchResultId: `match-${instance.workflowId}-${Date.now()}`,
       workflowId: instance.workflowId,
       matched,
-      checks: [
-        { checkId: "sourceInstruction", label: "Source instruction present", passed: true, detail: "Instruction links to issuer event." },
-        { checkId: "registerVersion", label: "Register version available", passed: matched, detail: matched ? "Record-date register version found." : "Register version mismatch." },
-        { checkId: "holderData", label: "Holder data ready", passed: matched, detail: matched ? "Holder positions can be derived." : "Holder data requires issuer correction." },
-        { checkId: "evidencePack", label: "Evidence pack linked", passed: matched, detail: matched ? "Evidence references are available." : "Evidence package is incomplete." },
-      ],
+      checks: getWorkflowReviewChecklist(instance.sourceType, instance.sourceReference).map((item, index) => ({
+        checkId: item.key,
+        label: item.matchLabel,
+        passed: index === 0 ? true : matched,
+        detail: index === 0 || matched ? item.passDetail : item.failDetail,
+      })),
       exception,
       createdAt: now(),
       actorRole,
@@ -951,7 +1092,7 @@ export function submitWorkflowStep(
       return state;
     }
     const match = task.matchResultId ? state.matchResults.find((item) => item.matchResultId === task.matchResultId) : undefined;
-    if (task.reviewRequired && !Object.values(task.reviewChecklist).every(Boolean)) {
+    if (task.reviewRequired && !isChecklistComplete(task.reviewChecklist, instance.sourceType, instance.sourceReference)) {
       result = { success: false, message: "Complete review before submitting workflow action.", error: "INVALID_STATE" };
       return state;
     }

@@ -5,13 +5,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { ChevronDown, Coins } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "./ui/alert-dialog";
+import { Button } from "./ui/button";
+import { ChevronDown, Coins, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import { RoleSwitcher } from "./RoleSwitcher";
 import { useApp } from "../context/AppContext";
 
 export function Layout() {
   const location = useLocation();
-  const { userRole } = useApp();
+  const { resetDemoData, userRole } = useApp();
 
   const isActive = (path: string) => {
     return location.pathname.startsWith(path);
@@ -56,11 +69,49 @@ export function Layout() {
     { label: "Evidence", to: "/ta/evidence" },
   ];
 
+  const handleResetDemoData = () => {
+    resetDemoData();
+    toast.success("Demo data reset to the original seed state.");
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur-md shadow-sm supports-[backdrop-filter]:bg-white/90">
         <div className="container mx-auto flex min-h-16 flex-wrap items-center gap-2 px-4 py-2 md:h-16 md:flex-nowrap md:px-6 md:py-0">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                aria-label="Reset demo data"
+                className="shrink-0"
+                data-testid="reset-demo-data-trigger"
+                size="icon"
+                title="Reset demo data"
+                variant="outline"
+              >
+                <RotateCcw className="size-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset demo data?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This restores the shared mock backend, TA workflows, holder register, orders, distributions,
+                  redemptions, and on-chain evidence back to the original demo seed. Your current tab role stays signed in.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-white hover:bg-destructive/90"
+                  data-testid="reset-demo-data-confirm"
+                  onClick={handleResetDemoData}
+                >
+                  Reset Demo Data
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Link to="/" className="mr-0 flex shrink-0 items-center gap-2 md:mr-8">
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--navy-700)] to-[var(--navy-900)] flex items-center justify-center">
               <Coins className="w-6 h-6 text-[var(--gold-500)]" />
