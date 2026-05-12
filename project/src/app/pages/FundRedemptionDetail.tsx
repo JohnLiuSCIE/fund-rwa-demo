@@ -39,6 +39,14 @@ import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
 import { InfoAlert } from "../components/InfoAlert";
 import { StatusBadge } from "../components/StatusBadge";
+import {
+  ApprovalReviewWorkspace,
+  type ApprovalReviewCashFlow,
+  type ApprovalReviewEvidenceRow,
+  type ApprovalReviewMetric,
+  type ApprovalReviewTableRow,
+  type ReviewTone,
+} from "../components/ApprovalReviewWorkspace";
 import { FundRedemptionWorkflow, type WorkflowStepTiming } from "../components/FundIssuanceWorkflow";
 import {
   OperationActionModal,
@@ -57,6 +65,7 @@ import { OnChainEvidencePanel, type OnChainRequirement } from "../components/OnC
 import { useApp } from "../context/AppContext";
 import { FundIssuance, FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
 import { buildIssuerRedemptionTaProjection } from "../lib/transferAgency";
+import { isRedemptionCloseOutReference } from "../lib/workflowBackend";
 import { cn } from "../components/ui/utils";
 
 type RedemptionTab =
@@ -92,6 +101,7 @@ interface RedemptionWorkflowActionConfig {
   previewSummary: ActionModalSummaryItem[];
   previewDetails: ActionModalDetailGroup[];
   viewLinks: RedemptionViewLink[];
+  taWorkflowPhase?: "snapshot" | "closeOut";
 }
 
 type RedemptionTaHandoffActionKind = "send";
@@ -104,6 +114,7 @@ interface RedemptionTaHandoffActionConfig {
   summary: ActionModalSummaryItem[];
   impactBadges: ActionModalImpactBadge[];
   detailGroups: ActionModalDetailGroup[];
+  workflowPhase: NonNullable<RedemptionWorkflowActionConfig["taWorkflowPhase"]>;
 }
 
 interface RedemptionActionGate {
@@ -577,6 +588,39 @@ function formatRedemptionNumber(value: number, digits = 2) {
   }).format(value);
 }
 
+function getReviewTone(status?: string): ReviewTone {
+  const normalized = status?.toLowerCase() || "";
+  if (
+    normalized.includes("complete") ||
+    normalized.includes("confirmed") ||
+    normalized.includes("cleared") ||
+    normalized.includes("matched") ||
+    normalized.includes("paid") ||
+    normalized.includes("ready") ||
+    normalized.includes("approved") ||
+    normalized.includes("included")
+  ) {
+    return "success";
+  }
+  if (
+    normalized.includes("blocked") ||
+    normalized.includes("failed") ||
+    normalized.includes("rejected") ||
+    normalized.includes("excluded")
+  ) {
+    return "danger";
+  }
+  if (
+    normalized.includes("pending") ||
+    normalized.includes("awaiting") ||
+    normalized.includes("expected") ||
+    normalized.includes("proof")
+  ) {
+    return "warning";
+  }
+  return "default";
+}
+
 function buildRedemptionImpactBadges({
   requiresTa,
   requiresOnChain,
@@ -950,6 +994,7 @@ function buildRedemptionActionConfig({
   previewSummary,
   previewDetails = [],
   viewLinks = [],
+  taWorkflowPhase,
 }: {
   label: string;
   actionOwner?: WorkflowActionOwner;
@@ -978,6 +1023,7 @@ function buildRedemptionActionConfig({
   previewSummary: ActionModalSummaryItem[];
   previewDetails?: ActionModalDetailGroup[];
   viewLinks?: RedemptionViewLink[];
+  taWorkflowPhase?: RedemptionWorkflowActionConfig["taWorkflowPhase"];
 }): RedemptionWorkflowActionConfig {
   return {
     label,
@@ -1010,6 +1056,7 @@ function buildRedemptionActionConfig({
     previewSummary,
     previewDetails,
     viewLinks,
+    taWorkflowPhase,
   };
 }
 
@@ -1340,32 +1387,29 @@ function getStructuredRedemptionActions(
     case "Snapshot Locked":
       return [
         buildRedemptionActionConfig({
-          label: "Prepare Payment List",
+          label: "Confirm Payment List",
           nextStatus: "Payment List Ready",
-          message: "Redemption payment list prepared",
+          message: "Redemption payment list confirmed",
           icon: ShieldCheck,
-          modalTitle: "Prepare Redemption Payment List",
+          modalTitle: "Confirm Redemption Payment List",
           modalDescription:
             "Verify issuer identity before confirming the TA payment list package.",
-          reviewTitle: "Review Payment Preparation",
+          reviewTitle: "Review TA Payment Output",
           reviewDescription:
-            "Confirm the locked snapshot is ready for payment-file generation and funding review.",
+            "Confirm the locked snapshot and TA payment output are ready for issuer-side burn preparation.",
           identityDescription:
-            "Issuer identity and payment-file authority are being verified.",
-          workflowTitle: "Queue Payment Prep",
+            "Issuer identity and payment-list confirmation authority are being verified.",
+          workflowTitle: "Confirm Payment List",
           workflowDescription:
-            "The settlement package is being advanced to the TA payment-list stage.",
-          taTitle: "Generate Payment List",
-          taDescription:
-            "The transfer agent is validating accepted units and preparing the payment file.",
+            "The acknowledged TA payment package is being recorded on the issuer event.",
           successTitle: "Payment list ready",
           successDescription:
-            "The redemption payment list is now ready for burn and cash release.",
-          impactType: "ta",
-          requiresTa: true,
+            "The redemption payment list is now ready for issuer burn and cash release preparation.",
+          impactType: "internal",
+          requiresTa: false,
           requiresOnChain: false,
           nextStepHint:
-            "This action will notify TA to generate the payment list and confirm the settlement roster.",
+            "TA has already handed the snapshot and payment list back. This issuer step records the package and prepares the burn leg.",
           affectedObjects: ["Payment list", "Funding confirmation pack", "Accepted unit ledger"],
           previewSummary: [
             { label: "Snapshot ID", value: context.transferAgentOps?.holderSnapshotId || "Pending" },
@@ -1404,20 +1448,17 @@ function getStructuredRedemptionActions(
           workflowTitle: "Queue Burn Instruction",
           workflowDescription:
             "The burn instruction is being posted to the settlement workflow.",
-          taTitle: "Confirm Payment List",
-          taDescription:
-            "The transfer agent is confirming the payment file and funding pack before broadcast.",
           onChainTitle: "Execute Burn On Chain",
           onChainDescription:
             "Accepted redemption units are being moved into the on-chain burn leg.",
           successTitle: "Burn instruction posted",
           successDescription:
             "The redemption event is ready for final close-out and reconciliation.",
-          impactType: "hybrid",
-          requiresTa: true,
+          impactType: "onchain",
+          requiresTa: false,
           requiresOnChain: true,
           nextStepHint:
-            "This action will confirm the payment list with TA and execute the on-chain burn leg for accepted units.",
+            "This issuer action executes the on-chain burn using the TA-approved payment list. TA is not asked to approve this burn step.",
           affectedObjects: ["Payment list", "Funding confirmation pack", "On-chain burn instruction"],
           previewSummary: [
             { label: "Payment Rows", value: `${context.paymentRows.length}` },
@@ -1441,24 +1482,24 @@ function getStructuredRedemptionActions(
     case "Burn On Chain":
       return [
         buildRedemptionActionConfig({
-          label: "Close Window",
+          label: "Close Redemption",
           nextStatus: "Window Closed",
           message: "Redemption close-out completed",
           icon: CheckCircle2,
-          modalTitle: "Close Redemption Event",
+          modalTitle: "Notify TA For Close-out Reconciliation",
           modalDescription:
-            "Verify issuer identity before closing the redemption event and handing it into reconciliation.",
-          reviewTitle: "Review Close-out",
+            "Verify issuer identity before sending burn and cash evidence back to TA for final reconciliation.",
+          reviewTitle: "Review Close-out Package",
           reviewDescription:
-            "Confirm the burn instruction and payment list are complete before closing the current redemption event.",
+            "Confirm the burn instruction, payment list, and cash evidence are complete before asking TA to reconcile close-out.",
           identityDescription:
-            "Issuer identity and close-out authority are being verified.",
-          workflowTitle: "Close Redemption Event",
+            "Issuer identity and close-out notification authority are being verified.",
+          workflowTitle: "Create Close-out Workflow",
           workflowDescription:
-            "The redemption event is being moved into its final close-out state.",
-          taTitle: "Close TA Event",
+            "A dedicated TA close-out workflow is being created for reconciliation.",
+          taTitle: "Notify TA Close-out",
           taDescription:
-            "The transfer agent is releasing the final payment file and marking the event for reconciliation.",
+            "TA will receive burn/cash evidence and reconcile against the previously acknowledged payment list.",
           successTitle: "Redemption closed",
           successDescription:
             "The redemption event has entered its completed reconciliation stage.",
@@ -1466,8 +1507,9 @@ function getStructuredRedemptionActions(
           requiresTa: true,
           requiresOnChain: false,
           nextStepHint:
-            "This action will close the redemption event, release the final TA settlement package, and mark the event complete.",
-          affectedObjects: ["Released payment list", "Reconciliation memo", "Closed event record"],
+            "This action hands the completed burn and cash evidence back to TA. The issuer can close only after TA reconciles the close-out workflow.",
+          affectedObjects: ["Burn evidence", "Payment list", "Reconciliation memo", "Closed event record"],
+          taWorkflowPhase: "closeOut",
           previewSummary: [
             { label: "Payment Rows", value: `${context.paymentRows.length}` },
             { label: "Batches", value: `${context.batchesCount}` },
@@ -1957,11 +1999,13 @@ export function FundRedemptionDetail() {
     holderSnapshotPositions,
     settlementLists,
     settlementListLines,
+    cashMovements,
     evidenceRecords,
     onChainEvents,
     anchoringEvents,
     workflowState,
     createTransferAgencyInstructionFromIssuer,
+    createRedemptionCloseOutWorkflowFromIssuer,
     workflowAcknowledgeTask,
     getPermissionResult,
     userRole,
@@ -2030,11 +2074,22 @@ export function FundRedemptionDetail() {
         redemptionRelatedSourceReferences.has(workflow.sourceReference) ||
         workflow.relatedOrderIds?.some((orderId) => redemptionRelatedSourceReferences.has(orderId))),
   );
-  const redemptionWorkflow =
+  const redemptionSnapshotWorkflow =
     redemptionRelatedWorkflows.find(
       (workflow) =>
-        workflow.sourceReference === redemption.id || workflow.sourceEventReference === redemption.id,
-    ) || redemptionRelatedWorkflows[0];
+        !isRedemptionCloseOutReference(workflow.sourceType, workflow.sourceReference) &&
+        (workflow.sourceReference === redemption.id || workflow.sourceEventReference === redemption.id),
+    ) ||
+    redemptionRelatedWorkflows.find(
+      (workflow) => !isRedemptionCloseOutReference(workflow.sourceType, workflow.sourceReference),
+    );
+  const redemptionCloseOutWorkflow = redemptionRelatedWorkflows.find(
+    (workflow) =>
+      isRedemptionCloseOutReference(workflow.sourceType, workflow.sourceReference) &&
+      (workflow.sourceEventReference === redemption.id ||
+        workflow.sourceReference === `${redemption.id}--close-out`.replace(/[^a-zA-Z0-9-]/g, "-")),
+  );
+  const redemptionWorkflow = redemptionSnapshotWorkflow;
   const redemptionWorkflowTask = redemptionWorkflow
     ? workflowState.tasks.find((task) => task.workflowId === redemptionWorkflow.workflowId)
     : undefined;
@@ -2108,49 +2163,76 @@ export function FundRedemptionDetail() {
   });
   const primarySetupAction = setupActions.find((action) => action.variant === "default") || null;
   const secondarySetupActions = setupActions.filter((action) => action !== primarySetupAction);
+  const getWorkflowForRedemptionAction = (action?: RedemptionWorkflowActionConfig | null) =>
+    action?.taWorkflowPhase === "closeOut" ? redemptionCloseOutWorkflow : redemptionSnapshotWorkflow;
+  const getWorkflowTaskForRedemptionAction = (action?: RedemptionWorkflowActionConfig | null) => {
+    const workflow = getWorkflowForRedemptionAction(action);
+    return workflow ? workflowState.tasks.find((task) => task.workflowId === workflow.workflowId) : undefined;
+  };
+  const workflowForPrimaryAction = getWorkflowForRedemptionAction(primarySetupAction);
+  const workflowTaskForPrimaryAction = getWorkflowTaskForRedemptionAction(primarySetupAction);
   const primaryActionNeedsTa =
     primarySetupAction?.impactType === "ta" || primarySetupAction?.impactType === "hybrid";
   const redemptionActionGate: RedemptionActionGate | undefined = primaryActionNeedsTa
-    ? !redemptionWorkflow
+    ? !workflowForPrimaryAction
       ? {
           mode: "send",
           buttonLabel: "Notify TA",
           disabled: false,
-          reason: "Notify TA before the issuer can move this redemption into the next controlled step.",
+          reason:
+            primarySetupAction?.taWorkflowPhase === "closeOut"
+              ? "Notify TA for close-out reconciliation before closing this redemption event."
+              : "Notify TA before the issuer can move this redemption into the next controlled step.",
         }
-      : redemptionWorkflow.status === "SubmittedToIssuer"
+      : primarySetupAction?.taWorkflowPhase === "closeOut" && workflowForPrimaryAction.status === "Reconciled"
         ? {
             disabled: false,
-            reason: "TA has approved this action. Continue with the issuer step.",
+            reason: "TA has reconciled close-out. Continue with the issuer close step.",
             taLock: {
               status: "approved",
-              title: "TA approved",
-              description: "The holder snapshot and payment list have been approved. The next action is unlocked.",
-              statusLabel: redemptionWorkflowTask?.taskStatus || "Approved",
+              title: "TA reconciled",
+              description: "TA has reconciled the burn/cash evidence against the acknowledged payment list. The close step is unlocked.",
+              statusLabel: workflowTaskForPrimaryAction?.taskStatus || "Reconciled",
             },
           }
-        : !["IssuerAcknowledged", "Reconciled"].includes(redemptionWorkflow.status)
+        : workflowForPrimaryAction.status === "SubmittedToIssuer"
           ? {
-              disabled: true,
-              reason: `TA workflow is ${formatTaWorkflowStatus(redemptionWorkflow.status)}. Wait for TA to submit the holder snapshot and payment list.`,
-              taLock: {
-                status: "waiting",
-                title: "Waiting for TA",
-                description:
-                  "TA has been notified. The issuer stays here until TA submits the holder snapshot and payment list back for review.",
-                statusLabel: redemptionWorkflowTask?.taskStatus || redemptionWorkflow.status,
-              },
-            }
-          : {
               disabled: false,
-              reason: "TA approval is recorded for this action.",
+              reason: "TA has approved this action. Continue with the issuer step.",
               taLock: {
                 status: "approved",
                 title: "TA approved",
-                description: "TA approval is already recorded. You can continue this issuer step.",
-                statusLabel: "Approved",
+                description: "The holder snapshot and payment list have been approved. The next action is unlocked.",
+                statusLabel: workflowTaskForPrimaryAction?.taskStatus || "Approved",
               },
             }
+          : !["IssuerAcknowledged", "Reconciled"].includes(workflowForPrimaryAction.status)
+            ? {
+                disabled: true,
+                reason:
+                  primarySetupAction?.taWorkflowPhase === "closeOut"
+                    ? `TA close-out workflow is ${formatTaWorkflowStatus(workflowForPrimaryAction.status)}. Wait for TA reconciliation.`
+                    : `TA workflow is ${formatTaWorkflowStatus(workflowForPrimaryAction.status)}. Wait for TA to submit the holder snapshot and payment list.`,
+                taLock: {
+                  status: "waiting",
+                  title: "Waiting for TA",
+                  description:
+                    primarySetupAction?.taWorkflowPhase === "closeOut"
+                      ? "TA has been notified for close-out. The issuer stays here until TA reconciles the burn/cash evidence."
+                      : "TA has been notified. The issuer stays here until TA submits the holder snapshot and payment list back for review.",
+                  statusLabel: workflowTaskForPrimaryAction?.taskStatus || workflowForPrimaryAction.status,
+                },
+              }
+            : {
+                disabled: false,
+                reason: "TA approval is recorded for this action.",
+                taLock: {
+                  status: "approved",
+                  title: "TA approved",
+                  description: "TA approval is already recorded. You can continue this issuer step.",
+                  statusLabel: "Approved",
+                },
+              }
     : undefined;
   const redemptionWorkflowTimings: WorkflowStepTiming[] = isOpenEndFund
     ? [
@@ -2459,23 +2541,168 @@ export function FundRedemptionDetail() {
   };
 
   const acknowledgeRedemptionTaApprovalIfReady = (action: RedemptionWorkflowActionConfig) => {
-    if (!["ta", "hybrid"].includes(action.impactType) || !redemptionWorkflow) return true;
-    if (["IssuerAcknowledged", "Reconciled"].includes(redemptionWorkflow.status)) return true;
-    if (redemptionWorkflow.status !== "SubmittedToIssuer") {
+    const workflow = getWorkflowForRedemptionAction(action);
+    const workflowTask = getWorkflowTaskForRedemptionAction(action);
+    if (!["ta", "hybrid"].includes(action.impactType) || !workflow) return true;
+    if (action.taWorkflowPhase === "closeOut") {
+      if (workflow.status === "Reconciled") return true;
+      toast.error("Waiting for TA close-out reconciliation before this action can proceed.");
+      return false;
+    }
+    if (["IssuerAcknowledged", "Reconciled"].includes(workflow.status)) return true;
+    if (workflow.status !== "SubmittedToIssuer") {
       toast.error("Waiting for TA approval before this action can proceed.");
       return false;
     }
-    if (!redemptionWorkflowTask) {
+    if (!workflowTask) {
       toast.error("TA workflow task was not found.");
       return false;
     }
-    const result = workflowAcknowledgeTask(redemptionWorkflowTask.taskId);
+    const result = workflowAcknowledgeTask(workflowTask.taskId);
     if (!result.success) {
       toast.error(result.message || "Unable to accept TA approval.");
       return false;
     }
     return true;
   };
+
+  const approvalSnapshotRows: ApprovalReviewTableRow[] = holderSnapshotRows.map((row) => {
+    const sourceRequest = requests.find(
+      (request) => request.id === row.id || request.investorName === row.investorName,
+    );
+    const excluded = sourceRequest ? manualExcludedRequestIds.includes(sourceRequest.id) : false;
+    const rowStatus = excluded ? "Excluded" : row.requestStatus;
+
+    return {
+      id: row.id,
+      title: row.investorName,
+      subtitle: row.destinationAccount,
+      status: rowStatus,
+      statusTone: getReviewTone(rowStatus),
+      cells: [
+        { label: "Snapshot units", value: row.snapshotUnits },
+        { label: "Estimated cash", value: row.estimatedCash },
+        {
+          label: "Source request",
+          value: sourceRequest?.id || "TA snapshot row",
+        },
+        {
+          label: "Roster control",
+          value: excluded ? "Manual overwrite: excluded" : "Included in approval package",
+        },
+      ],
+      action:
+        userRole === "issuer" && sourceRequest
+          ? {
+              label: excluded ? "Restore" : "Exclude",
+              onClick: () =>
+                excluded
+                  ? handleRestoreToSettlement(sourceRequest)
+                  : handleExcludeFromSettlement(sourceRequest),
+            }
+          : undefined,
+    };
+  });
+  const approvalPaymentRows: ApprovalReviewTableRow[] = paymentRows.map((row) => ({
+    id: row.id,
+    title: row.investorName,
+    subtitle: row.destinationAccount,
+    status: row.paymentStatus,
+    statusTone: getReviewTone(row.paymentStatus),
+    cells: [
+      { label: "Accepted units", value: row.unitsAccepted },
+      { label: "Price / unit", value: row.pricePerUnit || "Pending NAV" },
+      { label: "Gross amount", value: row.grossAmount },
+      { label: "Payment reference", value: row.paymentReference },
+    ],
+  }));
+  const canonicalCashFlows: ApprovalReviewCashFlow[] = cashMovements
+    .filter((movement) => movement.fundId === redemption.fundId)
+    .map((movement) => ({
+      id: movement.cashMovementId,
+      title: movement.direction === "In" ? "Subscription cash receipt" : "Redemption cash payout",
+      direction: movement.direction === "In" ? "Cash in" : "Cash out",
+      amount: `${movement.amount} ${movement.currency}`,
+      rail: movement.owner,
+      account: movement.reference || movement.instructionId,
+      status: movement.status,
+      statusTone: getReviewTone(movement.status),
+      reference: movement.reference || movement.cashMovementId,
+      timestamp: movement.confirmedAt || "Pending confirmation",
+      owner: movement.owner,
+    }));
+  const expectedRedemptionCashFlows: ApprovalReviewCashFlow[] = activeSettlementRequests.map((request) => ({
+    id: `expected-${request.id}`,
+    title: `${request.investorName} redemption payout`,
+    direction: "Expected cash out",
+    amount: request.confirmedSharesOrCash || request.estimatedSharesOrCash,
+    rail: request.paymentMethod || "Fiat bank transfer",
+    account: request.payerBankAccountMasked || request.investorWallet,
+    status: request.paymentStatus || request.status,
+    statusTone: getReviewTone(request.paymentStatus || request.status),
+    reference: request.paymentReference || request.id,
+    timestamp: request.cashConfirmedAt || request.cashReceivedAt || request.settlementTime || request.submitTime,
+    owner: request.cashConfirmedBy || "Issuer Ops / Bank",
+  }));
+  const approvalCashFlows = [...canonicalCashFlows, ...expectedRedemptionCashFlows];
+  const approvalEvidenceRows: ApprovalReviewEvidenceRow[] = [
+    ...evidenceRecords
+      .filter(
+        (record) =>
+          record.fundId === redemption.fundId &&
+          (!record.instructionId || record.instructionId === redemptionTaProjection.instruction?.instructionId),
+      )
+      .map((record) => ({
+        id: record.evidenceRefId,
+        title: record.label,
+        type: record.evidenceType,
+        status: record.contentHash ? "Hash linked" : record.retentionClass,
+        statusTone: record.contentHash ? "success" : "default",
+        detail: record.storageUri || record.createdAt,
+        reference: record.contentHash || record.evidenceRefId,
+      })),
+    ...chainRequirements.map((requirement) => ({
+      id: `chain-${requirement.label}`,
+      title: requirement.label,
+      type: requirement.category,
+      status: requirement.status,
+      statusTone: getReviewTone(requirement.status),
+      detail: requirement.detail,
+      reference: requirement.category,
+    })),
+  ];
+  const approvalMetrics: ApprovalReviewMetric[] = [
+    {
+      label: "Snapshot rows",
+      value: `${holderSnapshotRows.length}`,
+      detail: `${formatRedemptionNumber(totalSnapshotUnits, 2)} units`,
+      tone: holderSnapshotRows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Payment rows",
+      value: `${paymentRows.length}`,
+      detail: `${formatRedemptionNumber(
+        paymentRows.reduce((sum, row) => sum + parseLeadingNumber(row.grossAmount), 0),
+        2,
+      )} ${redemptionCurrency}`.trim(),
+      tone: paymentRows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Cash movements",
+      value: `${approvalCashFlows.length}`,
+      detail:
+        canonicalCashFlows.length > 0
+          ? `${canonicalCashFlows.length} backend movement(s)`
+          : "Expected rows only",
+      tone: canonicalCashFlows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Manual overwrites",
+      value: `${manuallyExcludedRequests.length}`,
+      detail: "Issuer-controlled roster changes",
+      tone: manuallyExcludedRequests.length > 0 ? "warning" : "muted",
+    },
+  ];
 
   const runTaCommand = (result: { success: boolean; message?: string }) => {
     if (result.success) {
@@ -2487,36 +2714,54 @@ export function FundRedemptionDetail() {
   };
 
   const maybeCreateRedemptionWorkflowForAction = (action: RedemptionWorkflowActionConfig) => {
-    if (!["ta", "hybrid"].includes(action.impactType) || redemptionWorkflow) return true;
-    const result = createTransferAgencyInstructionFromIssuer("Redemption", redemption.id);
+    const workflow = getWorkflowForRedemptionAction(action);
+    if (!["ta", "hybrid"].includes(action.impactType) || workflow) return true;
+    const result =
+      action.taWorkflowPhase === "closeOut"
+        ? createRedemptionCloseOutWorkflowFromIssuer(redemption.id)
+        : createTransferAgencyInstructionFromIssuer("Redemption", redemption.id);
     runTaCommand(result);
     return result.success;
   };
 
-  const buildRedemptionTaActionConfig = (): RedemptionTaHandoffActionConfig => {
+  const buildRedemptionTaActionConfig = (action: RedemptionWorkflowActionConfig): RedemptionTaHandoffActionConfig => {
+    const isCloseOut = action.taWorkflowPhase === "closeOut";
     return {
       kind: "send",
-      title: "Notify Transfer Agent",
-      description: "Verify issuer identity before notifying TA to prepare the holder snapshot and payment list.",
+      workflowPhase: isCloseOut ? "closeOut" : "snapshot",
+      title: isCloseOut ? "Notify TA For Close-out" : "Notify Transfer Agent",
+      description: isCloseOut
+        ? "Verify issuer identity before sending burn and cash evidence to TA for reconciliation."
+        : "Verify issuer identity before notifying TA to prepare the holder snapshot and payment list.",
       steps: buildStructuredRedemptionModalFlow({
-        reviewTitle: "Review TA Notification",
+        reviewTitle: isCloseOut ? "Review Close-out Notification" : "Review TA Notification",
         reviewDescription:
-          "Confirm the redemption source event, cut-off roster, and settlement route before requesting TA processing.",
-        identityDescription: "Issuer identity and TA notification authority are being verified.",
-        workflowTitle: "Notify TA",
-        workflowDescription: "A controlled workflow request is being created for transfer-agent review.",
-        taTitle: "TA Notified",
+          isCloseOut
+            ? "Confirm the burn instruction, cash evidence, and acknowledged payment list before requesting TA close-out."
+            : "Confirm the redemption source event, cut-off roster, and settlement route before requesting TA processing.",
+        identityDescription: isCloseOut
+          ? "Issuer identity and close-out notification authority are being verified."
+          : "Issuer identity and TA notification authority are being verified.",
+        workflowTitle: isCloseOut ? "Notify TA Close-out" : "Notify TA",
+        workflowDescription: isCloseOut
+          ? "A close-out reconciliation workflow is being created for transfer-agent review."
+          : "A controlled workflow request is being created for transfer-agent review.",
+        taTitle: isCloseOut ? "Close-out Sent" : "TA Notified",
         taDescription:
-          "TA will receive a workflow task for pull, respond, match, snapshot lock, and payment-list generation.",
-        successTitle: "TA notified",
+          isCloseOut
+            ? "TA will receive a workflow task for pull, respond, match, and close-out reconciliation."
+            : "TA will receive a workflow task for pull, respond, match, snapshot lock, and payment-list generation.",
+        successTitle: isCloseOut ? "TA close-out notified" : "TA notified",
         successDescription:
-          "The request is now visible in the TA workflow queue. This page will remain in waiting state until TA feedback returns.",
+          isCloseOut
+            ? "The close-out request is now visible in the TA workflow queue. This page will wait until TA reconciles the event."
+            : "The request is now visible in the TA workflow queue. This page will remain in waiting state until TA feedback returns.",
         requiresTa: true,
         requiresOnChain: false,
       }),
       summary: [
         { label: "Linked Fund", value: fund?.name || redemption.fundName },
-        { label: "Source", value: `Redemption / ${redemption.id}` },
+        { label: "Source", value: isCloseOut ? `Redemption close-out / ${redemption.id}` : `Redemption / ${redemption.id}` },
         { label: "Cut-off", value: redemption.cutOffTime || "Pending" },
         { label: "Register Version", value: redemptionTaProjection.registerVersionId || "Pending" },
         { label: "Payment Amount", value: redemptionTaProjection.totalAmount },
@@ -2539,7 +2784,11 @@ export function FundRedemptionDetail() {
           title: "TA Payload",
           kind: "ta",
           items: [
-            `Instruction: ${redemptionTaProjection.instruction?.instructionId || "New instruction will be created"}`,
+            `Instruction: ${
+              isCloseOut
+                ? redemptionCloseOutWorkflow?.workflowId || "New close-out workflow will be created"
+                : redemptionTaProjection.instruction?.instructionId || "New instruction will be created"
+            }`,
             `Snapshot: ${redemptionTaProjection.snapshot?.snapshotId || "Pending TA lock"}`,
             `Included holders: ${redemptionTaProjection.includedCount}`,
           ],
@@ -2548,16 +2797,20 @@ export function FundRedemptionDetail() {
     };
   };
 
-  const openRedemptionTaAction = () => {
-    if (!redemptionWorkflow) {
-      setPendingTaAction(buildRedemptionTaActionConfig());
+  const openRedemptionTaAction = (action: RedemptionWorkflowActionConfig) => {
+    if (!getWorkflowForRedemptionAction(action)) {
+      setPendingTaAction(buildRedemptionTaActionConfig(action));
       setTaActionModalOpen(true);
     }
   };
 
   const executeRedemptionTaAction = () => {
     if (!pendingTaAction) return;
-    runTaCommand(createTransferAgencyInstructionFromIssuer("Redemption", redemption.id));
+    const result =
+      pendingTaAction.workflowPhase === "closeOut"
+        ? createRedemptionCloseOutWorkflowFromIssuer(redemption.id)
+        : createTransferAgencyInstructionFromIssuer("Redemption", redemption.id);
+    runTaCommand(result);
   };
 
   return (
@@ -2639,7 +2892,7 @@ export function FundRedemptionDetail() {
                 secondaryActions={secondarySetupActions}
                 onOpen={() => {
                   if (redemptionActionGate?.mode === "send" && !redemptionActionGate.disabled) {
-                    openRedemptionTaAction();
+                    openRedemptionTaAction(primarySetupAction);
                     return;
                   }
                   setPendingAction(primarySetupAction);
@@ -2653,6 +2906,31 @@ export function FundRedemptionDetail() {
               />
             ) : undefined
           }
+        />
+      </div>
+
+      <div className="mb-8">
+        <ApprovalReviewWorkspace
+          title="Approval Review Workspace"
+          description="Review the redemption data package before using the workflow action above. Snapshot rows, payment list, cash movement, manual overwrites, and evidence stay connected to the same issuer and TA workflow state."
+          badges={[
+            {
+              label: redemptionActionGate?.taLock?.status === "approved" ? "TA approved" : "Workflow gated",
+              tone: redemptionActionGate?.taLock?.status === "approved" ? "success" : "warning",
+            },
+            {
+              label: redemption.status,
+              tone: getReviewTone(redemption.status),
+            },
+          ]}
+          metrics={approvalMetrics}
+          snapshotTitle="Holder Snapshot Review"
+          snapshotRows={approvalSnapshotRows}
+          listTitle="Redemption Payment List"
+          listRows={approvalPaymentRows}
+          cashFlows={approvalCashFlows}
+          evidenceRows={approvalEvidenceRows}
+          reviewHint="Use this workspace for data review and manual roster overwrite. When the package is ready and any TA lock is cleared, continue from the workflow action above."
         />
       </div>
 

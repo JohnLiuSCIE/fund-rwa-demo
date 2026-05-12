@@ -9,7 +9,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { MetricCard } from "../components/MetricCard";
 import { useApp } from "../context/AppContext";
-import { getWorkflowTaskActionLabel, type WorkflowInstance, type WorkflowTaskStatus } from "../lib/workflowBackend";
+import {
+  getWorkflowTaskActionLabel,
+  isRedemptionCloseOutReference,
+  type WorkflowInstance,
+  type WorkflowTaskStatus,
+} from "../lib/workflowBackend";
 
 type WorkflowAreaFilter = "all" | "issuanceApproval" | "distributionSnapshot" | "redemptionPayment";
 type TaskStageFilter = "all" | "intake" | "match" | "taAction" | "issuerReview" | "exception" | "closed";
@@ -59,6 +64,7 @@ export function TransferAgentWorkQueue() {
   const { fundIssuances, fundDistributions, fundRedemptions, fundOrders, workflowState } = useApp();
   const fundNameById = new Map(fundIssuances.map((fund) => [fund.id, fund.name]));
   const getWorkflowSourceMeta = (instance: WorkflowInstance) => {
+    const isCloseOut = isRedemptionCloseOutReference(instance.sourceType, instance.sourceReference);
     const distribution =
       instance.sourceType === "Distribution"
         ? fundDistributions.find((item) => item.id === instance.sourceReference)
@@ -98,20 +104,24 @@ export function TransferAgentWorkQueue() {
       fundName,
       sourceLabel:
         instance.sourceType === "Redemption" && redemption
-          ? `Redemption / ${redemption.id}`
+          ? `Redemption / ${redemption.id}${isCloseOut ? " · Close-out reconciliation" : " · Snapshot/payment list"}`
           : `${instance.sourceType} / ${instance.sourceReference}`,
       relatedLabel: relatedRedemptionOrder ? `Related order: ${relatedRedemptionOrder.id}` : undefined,
       primaryScope:
         instance.sourceType === "Distribution"
           ? `Record date: ${primaryDate}`
           : instance.sourceType === "Redemption"
-            ? `Cut-off / effective: ${primaryDate}`
+            ? isCloseOut
+              ? `Close-out after burn: ${primaryDate}`
+              : `Cut-off / effective: ${primaryDate}`
             : `Issuance status: ${primaryDate}`,
       secondaryScope:
         instance.sourceType === "Distribution"
           ? `Payment date: ${secondaryDate}`
           : instance.sourceType === "Redemption"
-            ? `Settlement: ${secondaryDate}`
+            ? isCloseOut
+              ? `Reconcile payment list · ${secondaryDate}`
+              : `Settlement: ${secondaryDate}`
             : `Token: ${secondaryDate}`,
     };
   };

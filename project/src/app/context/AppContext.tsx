@@ -49,6 +49,7 @@ import {
   acceptWorkflowTask,
   acknowledgeWorkflowTask,
   createIssuerWorkflowInstruction,
+  isRedemptionCloseOutReference,
   loadWorkflowState,
   matchWorkflowTask,
   pullWorkflowTask,
@@ -216,6 +217,11 @@ interface AppContextType {
   createTransferAgencyInstructionFromIssuer: (
     sourceType: HolderSnapshot["sourceType"],
     sourceReference: string,
+    expectedVersion?: number,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
+  createRedemptionCloseOutWorkflowFromIssuer: (
+    redemptionId: string,
     expectedVersion?: number,
     idempotencyKey?: string,
   ) => TransferAgencyCommandResult;
@@ -1706,6 +1712,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { success: true, id: instructionId, message: `Transfer-agent instruction created for ${sourceReference}.` };
   };
 
+  const createRedemptionCloseOutWorkflowFromIssuer = (
+    redemptionId: string,
+    expectedVersion?: number,
+    idempotencyKey = `IssuerPortal:${redemptionId}:RedemptionCloseOut:${formatDateTag(new Date())}`,
+  ): TransferAgencyCommandResult => {
+    const redemption = fundRedemptions.find((item) => item.id === redemptionId);
+    if (!redemption) return { success: false, error: "NOT_FOUND", message: "Redemption source was not found." };
+    if (!ensureIdentitySource("authSession") || !ensurePermission("submit", "redemption")) {
+      return buildCommandDeniedResult();
+    }
+    void expectedVersion;
+
+    const sourceReference = `${redemptionId}--close-out`.replace(/[^a-zA-Z0-9-]/g, "-");
+    const existingSnapshot = holderSnapshots.find(
+      (snapshot) => snapshot.sourceType === "Redemption" && snapshot.sourceReference === redemptionId,
+    );
+    const latestRegister = getLatestRegisterVersionForFund(redemption.fundId);
+    const instructionId = `instr-redemption-${sourceReference}-ta`.replace(/[^a-zA-Z0-9-]/g, "-");
+    const result = createIssuerWorkflowInstruction({
+      sourceType: "Redemption",
+      sourceReference,
+      sourceEventReference: redemptionId,
+      relatedOrderIds: fundOrders
+        .filter((order) => order.fundId === redemption.fundId && order.type === "redemption")
+        .map((order) => order.id),
+      instructionId,
+      snapshotId: existingSnapshot?.snapshotId,
+      fundId: redemption.fundId,
+      classId: existingSnapshot?.classId || latestRegister?.classId || "REA-HKD",
+      actorRole: authSession!.role!,
+      idempotencyKey,
+    });
+    refreshWorkflowStateFromStorage();
+    return {
+      success: result.success,
+      id: instructionId,
+      message: result.message || `Transfer-agent close-out workflow created for ${redemption.name}.`,
+      error: result.error,
+      currentVersion: result.currentVersion,
+    };
+  };
+
   const repairTransferAgencyWorkflow = (
     sourceType: HolderSnapshot["sourceType"],
     sourceReference: string,
@@ -2464,12 +2512,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
   const workflowSubmitCurrentStep = (taskId: string): WorkflowCommandResult => {
-    const { instance, snapshot, instruction } = getWorkflowRuntime(taskId);
+    const { instance, snapshot, instruction, sourceEventReference } = getWorkflowRuntime(taskId);
     if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
+    const isCloseOutWorkflow = isRedemptionCloseOutReference(instance.sourceType, instance.sourceReference);
 
     let canonicalResult: TransferAgencyCommandResult = { success: true, message: "Workflow step ready." };
     if (instance.sourceType === "Issuance") {
       canonicalResult = { success: true, message: "Issuance approval is ready for issuer review." };
+    } else if (instance.status === "MatchPassed" && isCloseOutWorkflow) {
+      if (!snapshot) return { success: false, message: "Workflow snapshot was not found.", error: "NOT_FOUND" };
+      const canonicalSourceReference =
+        sourceEventReference || instance.sourceReference.replace(/--close-out$/, "");
+      canonicalResult = reconcileRedemptionPayout(canonicalSourceReference, snapshot.version);
     } else if (instance.status === "MatchPassed") {
       if (!instruction) return { success: false, message: "Transfer-agent instruction was not found.", error: "NOT_FOUND" };
       canonicalResult = lockHolderSnapshot(instruction.instructionId, instruction.version);
@@ -3258,6 +3312,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workflowReconcileTask,
         createIssuanceWorkflowFromIssuer,
         createTransferAgencyInstructionFromIssuer,
+        createRedemptionCloseOutWorkflowFromIssuer,
         lockHolderSnapshot,
         generateRecipientList,
         generatePaymentList,

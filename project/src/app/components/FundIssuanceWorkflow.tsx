@@ -628,15 +628,15 @@ function getRedemptionSubsteps(currentStatus?: string) {
         description:
           "Close-out moves through TA snapshot control, payment-list preparation, and the on-chain burn leg.",
         steps: [
-          stage("4.1 Snapshot", "Lock holder snapshot", "TA", [
+          stage("4.1 Snapshot", "TA output acknowledged", "Issuer", [
             "Locked holder snapshot",
             "Accepted unit ledger",
           ]),
-          stage("4.2 Payment List", "Prepare redemption payment list", "TA", [
+          stage("4.2 Payment List", "Confirm payment list", "Issuer", [
             "Redemption payment file",
             "Funding confirmation pack",
           ]),
-          stage("4.3 Burn On Chain", "Execute unit burn leg", "TA / System", [
+          stage("4.3 Burn On Chain", "Execute unit burn leg", "Issuer / System", [
             "On-chain burn instruction",
             "Register delta confirmation",
           ]),
@@ -727,11 +727,11 @@ function getOpenEndRedemptionSubsteps(currentStatus?: string) {
             "Register cut-off",
             "Accepted dealing roster",
           ]),
-          stage("4.2 Payment Prep", "Prepare settlement and burn instructions", "TA / System", [
+          stage("4.2 Payment Prep", "Confirm settlement and burn instructions", "Issuer / System", [
             "Payment file",
             "Burn instruction",
           ]),
-          stage("4.3 Close Cycle", "Finalize current dealing cycle", "TA / System", [
+          stage("4.3 Close Cycle", "Finalize current dealing cycle", "TA", [
             "Cycle completion confirmation",
             "Reconciliation memo",
           ]),

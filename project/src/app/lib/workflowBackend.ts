@@ -160,6 +160,10 @@ function makeTaskId(workflowId: string) {
   return `task-${workflowId}`;
 }
 
+export function isRedemptionCloseOutReference(sourceType?: WorkflowSourceType, sourceReference?: string) {
+  return sourceType === "Redemption" && Boolean(sourceReference?.includes("--close-out"));
+}
+
 export function getWorkflowReviewChecklist(
   sourceType: WorkflowSourceType,
   sourceReference?: string,
@@ -193,6 +197,39 @@ export function getWorkflowReviewChecklist(
         matchLabel: "Recipient evidence linked",
         passDetail: "Recipient list, snapshot evidence, and payout references are attached.",
         failDetail: "Recipient list evidence is incomplete.",
+      },
+    ];
+  }
+
+  if (sourceType === "Redemption" && isRedemptionCloseOutReference(sourceType, sourceReference)) {
+    return [
+      {
+        key: "burnInstruction",
+        label: "Issuer burn instruction is confirmed",
+        matchLabel: "Burn instruction present",
+        passDetail: "The issuer on-chain burn leg is available for TA close-out review.",
+        failDetail: "The issuer burn instruction has not been posted or linked.",
+      },
+      {
+        key: "paymentList",
+        label: "Payment list matches acknowledged TA output",
+        matchLabel: "Payment list aligned",
+        passDetail: "The payment list used for settlement matches the previously acknowledged TA output.",
+        failDetail: "Payment-list rows differ from the acknowledged TA package.",
+      },
+      {
+        key: "cashEvidence",
+        label: "Cash release evidence is attached",
+        matchLabel: "Cash evidence linked",
+        passDetail: "Cash release or funding evidence references are available for reconciliation.",
+        failDetail: "Cash evidence is incomplete or not linked.",
+      },
+      {
+        key: "registerCloseOut",
+        label: "Register close-out does not require a new snapshot",
+        matchLabel: "Close-out scope confirmed",
+        passDetail: "TA close-out uses the existing acknowledged snapshot and does not create a new holder snapshot.",
+        failDetail: "Close-out scope is unclear or attempts to create another snapshot.",
       },
     ];
   }
@@ -1029,7 +1066,9 @@ export function matchWorkflowTask(
       matched
         ? instance.sourceType === "Issuance"
           ? "SubmitIssuerReview"
-          : "LockSnapshot"
+          : isRedemptionCloseOutReference(instance.sourceType, instance.sourceReference)
+            ? "ReconcileCloseOut"
+            : "LockSnapshot"
         : "MatchData",
       actorRole,
       "match",
@@ -1145,7 +1184,13 @@ export function submitWorkflowStep(
     let taskStatus: WorkflowTaskStatus;
     let message: string;
     let logStepId: WorkflowStepId;
-    if (instance.status === "MatchPassed" && instance.sourceType === "Issuance") {
+    if (instance.status === "MatchPassed" && isRedemptionCloseOutReference(instance.sourceType, instance.sourceReference)) {
+      nextStatus = "Reconciled";
+      nextStep = "ReconcileCloseOut";
+      taskStatus = "Completed";
+      message = "TA close-out reconciliation completed.";
+      logStepId = "ReconcileCloseOut";
+    } else if (instance.status === "MatchPassed" && instance.sourceType === "Issuance") {
       nextStatus = "SubmittedToIssuer";
       nextStep = "IssuerAcknowledge";
       taskStatus = "Awaiting Issuer";
@@ -1313,7 +1358,7 @@ export function subscribeWorkflowState(listener: (state: WorkflowBackendState) =
   };
 }
 
-export function getWorkflowSteps(sourceType: WorkflowSourceType) {
+export function getWorkflowSteps(sourceType: WorkflowSourceType, sourceReference?: string) {
   if (sourceType === "Issuance") {
     return [
       { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
@@ -1321,6 +1366,15 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType) {
       { stepId: "MatchData" as const, label: "Review & Match", owner: "Transfer Agent" },
       { stepId: "SubmitIssuerReview" as const, label: "Submit Issuer Review", owner: "Transfer Agent" },
       { stepId: "IssuerAcknowledge" as const, label: "Issuer Acknowledge", owner: "Issuer" },
+    ];
+  }
+
+  if (isRedemptionCloseOutReference(sourceType, sourceReference)) {
+    return [
+      { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
+      { stepId: "TARespond" as const, label: "TA Accept", owner: "Transfer Agent" },
+      { stepId: "MatchData" as const, label: "Close-out Match", owner: "Transfer Agent" },
+      { stepId: "ReconcileCloseOut" as const, label: "Reconcile Close-out", owner: "Transfer Agent" },
     ];
   }
 
@@ -1340,7 +1394,10 @@ export function getWorkflowTaskActionLabel(instance?: WorkflowInstance, task?: W
   if (task.taskStatus === "Completed") return "View Workflow";
   if (instance.status === "IssuerSubmitted" || instance.status === "TAPulled") return "Accept Request";
   if (instance.status === "TAResponded" || instance.status === "MatchException") return "Review & Match";
-  if (instance.status === "MatchPassed") return instance.sourceType === "Issuance" ? "Submit TA Approval" : "Lock Snapshot";
+  if (instance.status === "MatchPassed") {
+    if (isRedemptionCloseOutReference(instance.sourceType, instance.sourceReference)) return "Reconcile Close-out";
+    return instance.sourceType === "Issuance" ? "Submit TA Approval" : "Lock Snapshot";
+  }
   if (instance.status === "SnapshotLocked") return instance.sourceType === "Distribution" ? "Generate Recipient List" : "Generate Payment List";
   if (instance.status === "RecipientListGenerated" || instance.status === "PaymentListGenerated") return "Submit Issuer Review";
   if (instance.status === "SubmittedToIssuer") return "Await Issuer";

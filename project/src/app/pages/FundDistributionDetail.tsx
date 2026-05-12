@@ -24,6 +24,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
+import {
+  ApprovalReviewWorkspace,
+  type ApprovalReviewCashFlow,
+  type ApprovalReviewEvidenceRow,
+  type ApprovalReviewMetric,
+  type ApprovalReviewTableRow,
+  type ReviewTone,
+} from "../components/ApprovalReviewWorkspace";
 import { FundDistributionWorkflow, type WorkflowStepTiming } from "../components/FundIssuanceWorkflow";
 import {
   Table,
@@ -330,6 +338,40 @@ function formatDistributionNumber(value: number, digits = 2) {
     minimumFractionDigits: 0,
     maximumFractionDigits: digits,
   }).format(value);
+}
+
+function getDistributionReviewTone(status?: string): ReviewTone {
+  const normalized = status?.toLowerCase() || "";
+  if (
+    normalized.includes("complete") ||
+    normalized.includes("confirmed") ||
+    normalized.includes("cleared") ||
+    normalized.includes("matched") ||
+    normalized.includes("paid") ||
+    normalized.includes("ready") ||
+    normalized.includes("approved") ||
+    normalized.includes("generated") ||
+    normalized.includes("included")
+  ) {
+    return "success";
+  }
+  if (
+    normalized.includes("blocked") ||
+    normalized.includes("failed") ||
+    normalized.includes("rejected") ||
+    normalized.includes("excluded")
+  ) {
+    return "danger";
+  }
+  if (
+    normalized.includes("pending") ||
+    normalized.includes("awaiting") ||
+    normalized.includes("expected") ||
+    normalized.includes("proof")
+  ) {
+    return "warning";
+  }
+  return "default";
 }
 
 function getDistributionElectionLabel(election?: DistributionElection) {
@@ -1446,6 +1488,7 @@ export function FundDistributionDetail() {
     holderSnapshotPositions,
     settlementLists,
     settlementListLines,
+    cashMovements,
     evidenceRecords,
     onChainEvents,
     anchoringEvents,
@@ -1802,34 +1845,34 @@ export function FundDistributionDetail() {
         : distributionWorkflow.status === "SubmittedToIssuer"
           ? {
               disabled: false,
-              reason: "TA has approved this action. Continue with the issuer step.",
+              reason: "TA output is ready. Continue with the issuer step.",
               taLock: {
                 status: "approved",
-                title: "TA approved",
-                description: "The holder snapshot and recipient list have been approved. The next action is unlocked.",
-                statusLabel: distributionWorkflowTask?.taskStatus || "Approved",
+                title: "TA output ready",
+                description: "TA returned the holder snapshot and recipient list. The next action is unlocked.",
+                statusLabel: distributionWorkflowTask?.taskStatus || "Output ready",
               },
             }
           : !["IssuerAcknowledged", "Reconciled"].includes(distributionWorkflow.status)
             ? {
                 disabled: true,
-                reason: `TA workflow is ${distributionWorkflow.status}. Wait for TA to submit the holder snapshot and recipient list.`,
+                reason: `TA workflow is ${distributionWorkflow.status}. Continue once TA returns the holder snapshot and recipient list.`,
                 taLock: {
                   status: "waiting",
-                  title: "Waiting for TA",
+                  title: "Waiting for TA feedback",
                   description:
-                    "TA has been notified. The issuer stays here until TA submits the holder snapshot and recipient list back for review.",
+                    "TA has been notified through the workflow backend. The issuer stays here until TA returns the snapshot and recipient list.",
                   statusLabel: distributionWorkflowTask?.taskStatus || distributionWorkflow.status,
                 },
               }
             : {
                 disabled: false,
-                reason: "TA approval is recorded for this action.",
+                reason: "TA output has already been accepted for this action.",
                 taLock: {
                   status: "approved",
-                  title: "TA approved",
-                  description: "TA approval is already recorded. You can continue this issuer step.",
-                  statusLabel: "Approved",
+                  title: "TA output accepted",
+                  description: "The TA data package is already accepted. You can continue this issuer step.",
+                  statusLabel: "Accepted",
                 },
               }
       : undefined;
@@ -2012,6 +2055,159 @@ export function FundDistributionDetail() {
     return true;
   };
 
+  const approvalSnapshotRows: ApprovalReviewTableRow[] = allRecipientPreview.rows.map((recipient) => {
+    const excluded = manualExcludedInvestorIds.includes(recipient.investorId);
+    const rowStatus = excluded ? "Excluded" : "Included";
+
+    return {
+      id: recipient.investorId,
+      title: recipient.investorName,
+      subtitle: recipient.investorWallet,
+      status: rowStatus,
+      statusTone: getDistributionReviewTone(rowStatus),
+      cells: [
+        { label: "Share class", value: recipient.shareClass },
+        { label: "Eligible units", value: `${formatDistributionNumber(recipient.eligibleUnits, 2)} units` },
+        { label: "Estimated payout", value: `${formatDistributionNumber(recipient.estimatedPayout)} ${distributionCurrency}` },
+        { label: "Election", value: getDistributionElectionLabel(recipient.distributionElection) },
+      ],
+      action:
+        userRole === "issuer"
+          ? {
+              label: excluded ? "Restore" : "Exclude",
+              onClick: () =>
+                excluded
+                  ? handleRestoreRecipient(recipient.investorId, recipient.investorName)
+                  : handleExcludeRecipient(recipient.investorId, recipient.investorName),
+            }
+          : undefined,
+    };
+  });
+  const approvalRecipientRows: ApprovalReviewTableRow[] = recipientPreview.rows.map((recipient) => {
+    const rowStatus =
+      transferAgentOps?.recipientListStatus ||
+      (distributionTaProjection.list ? distributionTaProjection.list.status : "Expected");
+
+    return {
+      id: `${recipient.investorId}-recipient`,
+      title: recipient.investorName,
+      subtitle: recipient.investorWallet,
+      status: rowStatus,
+      statusTone: getDistributionReviewTone(rowStatus),
+      cells: [
+        { label: "Category", value: recipient.category },
+        { label: "Eligible units", value: `${formatDistributionNumber(recipient.eligibleUnits, 2)} units` },
+        { label: "Payout", value: `${formatDistributionNumber(recipient.estimatedPayout)} ${distributionCurrency}` },
+        { label: "Destination", value: distribution.payoutMode === "Direct Transfer" ? distribution.payoutAccount || "Treasury payout account" : "Investor claim wallet" },
+      ],
+    };
+  });
+  const distributionInstructionIds = new Set(
+    [distributionTaProjection.instruction?.instructionId, distribution.transferAgentOps?.holderSnapshotId].filter(
+      Boolean,
+    ) as string[],
+  );
+  const canonicalDistributionCashFlows: ApprovalReviewCashFlow[] = cashMovements
+    .filter(
+      (movement) =>
+        movement.fundId === distribution.fundId &&
+        (distributionInstructionIds.has(movement.instructionId) ||
+          movement.reference?.toLowerCase().includes(distribution.id.toLowerCase())),
+    )
+    .map((movement) => ({
+      id: movement.cashMovementId,
+      title: movement.direction === "In" ? "Distribution funding receipt" : "Distribution payout movement",
+      direction: movement.direction === "In" ? "Cash in" : "Cash out",
+      amount: `${movement.amount} ${movement.currency}`,
+      rail: movement.owner,
+      account: movement.reference || movement.instructionId,
+      status: movement.status,
+      statusTone: getDistributionReviewTone(movement.status),
+      reference: movement.reference || movement.cashMovementId,
+      timestamp: movement.confirmedAt || "Pending confirmation",
+      owner: movement.owner,
+    }));
+  const expectedDistributionCashFlows: ApprovalReviewCashFlow[] = recipientPreview.rows.map((recipient) => ({
+    id: `expected-distribution-${recipient.investorId}`,
+    title: `${recipient.investorName} distribution payout`,
+    direction: distribution.payoutMode === "Direct Transfer" ? "Expected cash out" : "Expected claim right",
+    amount: `${formatDistributionNumber(recipient.estimatedPayout)} ${distributionCurrency}`,
+    rail: distribution.payoutMode === "Direct Transfer" ? "Fiat payout account" : "Claim contract",
+    account: distribution.payoutMode === "Direct Transfer" ? distribution.payoutAccount || "Treasury payout account" : recipient.investorWallet,
+    status:
+      currentStatus === "Done" || currentStatus === "Reconciled"
+        ? "Confirmed"
+        : currentStatus === "Open For Distribution"
+          ? "Ready"
+          : "Expected",
+    statusTone: getDistributionReviewTone(
+      currentStatus === "Done" || currentStatus === "Reconciled"
+        ? "Confirmed"
+        : currentStatus === "Open For Distribution"
+          ? "Ready"
+          : "Expected",
+    ),
+    reference: distribution.id,
+    timestamp: distribution.paymentDate || "Pending payment date",
+    owner: "Issuer Treasury / TA",
+  }));
+  const approvalCashFlows = [...canonicalDistributionCashFlows, ...expectedDistributionCashFlows];
+  const approvalEvidenceRows: ApprovalReviewEvidenceRow[] = [
+    ...evidenceRecords
+      .filter(
+        (record) =>
+          record.fundId === distribution.fundId &&
+          (!record.instructionId || record.instructionId === distributionTaProjection.instruction?.instructionId),
+      )
+      .map((record) => ({
+        id: record.evidenceRefId,
+        title: record.label,
+        type: record.evidenceType,
+        status: record.contentHash ? "Hash linked" : record.retentionClass,
+        statusTone: record.contentHash ? "success" : "default",
+        detail: record.storageUri || record.createdAt,
+        reference: record.contentHash || record.evidenceRefId,
+      })),
+    ...chainRequirements.map((requirement) => ({
+      id: `chain-${requirement.label}`,
+      title: requirement.label,
+      type: requirement.category,
+      status: requirement.status,
+      statusTone: getDistributionReviewTone(requirement.status),
+      detail: requirement.detail,
+      reference: requirement.category,
+    })),
+  ];
+  const approvalMetrics: ApprovalReviewMetric[] = [
+    {
+      label: "Snapshot holders",
+      value: `${allRecipientPreview.rows.length}`,
+      detail: `${formatDistributionNumber(allRecipientPreview.totalEligibleUnits, 2)} units`,
+      tone: allRecipientPreview.rows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Recipient rows",
+      value: `${recipientPreview.rows.length}`,
+      detail: `${formatDistributionNumber(recipientPreview.totalEstimatedPayout)} ${distributionCurrency}`,
+      tone: recipientPreview.rows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Cash movements",
+      value: `${approvalCashFlows.length}`,
+      detail:
+        canonicalDistributionCashFlows.length > 0
+          ? `${canonicalDistributionCashFlows.length} backend movement(s)`
+          : "Expected payout rows",
+      tone: canonicalDistributionCashFlows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Manual overwrites",
+      value: `${manuallyExcludedRecipients.length}`,
+      detail: "Issuer-controlled roster changes",
+      tone: manuallyExcludedRecipients.length > 0 ? "warning" : "muted",
+    },
+  ];
+
   const runTaCommand = (result: { success: boolean; message?: string }) => {
     if (result.success) {
       toast.success(result.message || "Transfer-agent action completed.");
@@ -2168,6 +2364,31 @@ export function FundDistributionDetail() {
           }
           workflowModel={isOpenEndDistribution ? "open-end" : "default"}
           distributionLabel={eventLabel}
+        />
+      </div>
+
+      <div className="mb-8">
+        <ApprovalReviewWorkspace
+          title="Approval Review Workspace"
+          description="Review the distribution package before using the workflow action above. The holder snapshot, recipient list, expected payout movement, manual overwrites, and evidence all read from the same workflow-backed state."
+          badges={[
+            {
+              label: distributionActionGate?.taLock?.status === "approved" ? "TA output ready" : "Workflow gated",
+              tone: distributionActionGate?.taLock?.status === "approved" ? "success" : "warning",
+            },
+            {
+              label: currentStatus,
+              tone: getDistributionReviewTone(currentStatus),
+            },
+          ]}
+          metrics={approvalMetrics}
+          snapshotTitle="Record-date Snapshot Review"
+          snapshotRows={approvalSnapshotRows}
+          listTitle="Recipient List"
+          listRows={approvalRecipientRows}
+          cashFlows={approvalCashFlows}
+          evidenceRows={approvalEvidenceRows}
+          reviewHint="Use this workspace for recipient review and manual overwrite. When TA feedback is returned and the workflow lock clears, continue from the action button above."
         />
       </div>
 

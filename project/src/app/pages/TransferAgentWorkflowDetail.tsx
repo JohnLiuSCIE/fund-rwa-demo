@@ -29,6 +29,7 @@ import {
   getWorkflowReviewChecklist,
   getWorkflowSteps,
   getWorkflowTaskActionLabel,
+  isRedemptionCloseOutReference,
   type WorkflowActionLog,
   type WorkflowStepId,
   type WorkflowTaskStatus,
@@ -137,6 +138,7 @@ export function TransferAgentWorkflowDetail() {
       : undefined;
   const sourceIssuance = instance?.sourceType === "Issuance" ? fund : undefined;
   const isIssuanceWorkflow = instance?.sourceType === "Issuance";
+  const isCloseOutWorkflow = isRedemptionCloseOutReference(instance?.sourceType, instance?.sourceReference);
   const sourceEventName =
     sourceDistribution?.name ||
     sourceRedemption?.name ||
@@ -146,7 +148,9 @@ export function TransferAgentWorkflowDetail() {
     "Workflow";
   const sourceFundName = sourceDistribution?.fundName || sourceRedemption?.fundName || sourceIssuance?.name || fund?.name || instance?.fundId || "Fund";
   const sourceReferenceLabel =
-    sourceRedemption && relatedRedemptionOrder
+    isCloseOutWorkflow && sourceRedemption
+      ? `Redemption / ${sourceRedemption.id} · Close-out reconciliation`
+      : sourceRedemption && relatedRedemptionOrder
       ? `Redemption / ${sourceRedemption.id} · Order ${relatedRedemptionOrder.id}`
       : sourceRedemption
         ? `Redemption / ${sourceRedemption.id}`
@@ -168,6 +172,14 @@ export function TransferAgentWorkflowDetail() {
       ]
     : sourceRedemption
       ? [
+          ...(isCloseOutWorkflow
+            ? [
+                {
+                  label: "Close-out scope",
+                  value: "Burn evidence and cash/payment reconciliation",
+                },
+              ]
+            : []),
           { label: "Window / cut-off", value: sourceRedemption.windowEnd || sourceRedemption.effectiveDate || "Pending" },
           { label: "Settlement", value: sourceRedemption.settlementCycle || "Pending" },
           { label: "Redemption mode", value: sourceRedemption.redemptionMode || "Pending" },
@@ -203,9 +215,11 @@ export function TransferAgentWorkflowDetail() {
         "Issuance approval package"
       : "Pending snapshot");
   const registerReferenceHint =
-    isIssuanceWorkflow && !snapshot
-      ? "Issuance approval does not use a holder snapshot; TA signs off the order book, allocation workbook, and register package."
-      : undefined;
+    isCloseOutWorkflow
+      ? "Close-out reconciliation reuses the acknowledged holder snapshot and payment list. TA does not lock another snapshot here."
+      : isIssuanceWorkflow && !snapshot
+        ? "Issuance approval does not use a holder snapshot; TA signs off the order book, allocation workbook, and register package."
+        : undefined;
   const positions = snapshot ? holderSnapshotPositions.filter((item) => item.snapshotId === snapshot.snapshotId) : [];
   const list = snapshot ? settlementLists.find((item) => item.snapshotId === snapshot.snapshotId) : undefined;
   const lines = list ? settlementListLines.filter((item) => item.listId === list.listId) : [];
@@ -239,6 +253,7 @@ export function TransferAgentWorkflowDetail() {
   const reviewComplete = checklistItems.every((item) => Boolean(task.reviewChecklist[item.key]));
   const canRunMatch = instance.status === "TAResponded" || instance.status === "MatchException";
   const snapshotReviewGateRequired =
+    !isCloseOutWorkflow &&
     Boolean(snapshot) &&
     ["RecipientListGenerated", "PaymentListGenerated"].includes(instance.status) &&
     !["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(snapshot?.status || "");
@@ -293,7 +308,7 @@ export function TransferAgentWorkflowDetail() {
     instance.status === "Reconciled" ||
     instance.status === "IssuerAcknowledged";
 
-  const steps = getWorkflowSteps(instance.sourceType);
+  const steps = getWorkflowSteps(instance.sourceType, instance.sourceReference);
   const currentIndex = Math.max(0, steps.findIndex((step) => step.stepId === instance.currentStepId));
   const completedChecklistCount = checklistItems.filter((item) => task.reviewChecklist[item.key]).length;
   const matchStatusLabel = match ? (match.matched ? "Match passed" : "Match exception") : "Not matched";
@@ -566,7 +581,7 @@ export function TransferAgentWorkflowDetail() {
         </div>
       </div>
 
-      {!isIssuanceWorkflow ? (
+      {!isIssuanceWorkflow && !isCloseOutWorkflow ? (
         <SnapshotReviewPanel snapshot={snapshot} positions={positions} list={list} lines={lines} />
       ) : null}
 
