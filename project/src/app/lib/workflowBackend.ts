@@ -607,6 +607,41 @@ function safeParseState(value: string | null): WorkflowBackendState | null {
   }
 }
 
+function normalizeCompletedHandoffs(state: WorkflowBackendState): WorkflowBackendState {
+  const completedWorkflowIds = new Set(
+    state.instances
+      .filter((instance) => instance.status === "IssuerAcknowledged")
+      .map((instance) => instance.workflowId),
+  );
+  if (completedWorkflowIds.size === 0) return state;
+
+  let changed = false;
+  const instances = state.instances.map((instance) => {
+    if (!completedWorkflowIds.has(instance.workflowId)) return instance;
+    if (instance.currentStepId === "IssuerAcknowledge") return instance;
+    changed = true;
+    return {
+      ...instance,
+      currentStepId: "IssuerAcknowledge" as const,
+    };
+  });
+  const tasks = state.tasks.map((task) => {
+    if (!completedWorkflowIds.has(task.workflowId)) return task;
+    if (task.taskStatus === "Completed" && task.ownerRole === "issuer") return task;
+    changed = true;
+    return {
+      ...task,
+      taskStatus: "Completed" as const,
+      ownerRole: "issuer" as const,
+      currentStepId: "IssuerAcknowledge" as const,
+      reviewRequired: false,
+      matchRequired: false,
+    };
+  });
+
+  return changed ? { ...state, instances, tasks } : state;
+}
+
 function broadcast() {
   if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
   const channel = new BroadcastChannel(CHANNEL_NAME);
@@ -625,7 +660,11 @@ function persist(state: WorkflowBackendState, shouldBroadcast = true) {
 export function loadWorkflowState(): WorkflowBackendState {
   if (typeof window === "undefined") return createInitialWorkflowState();
   const existing = safeParseState(window.localStorage.getItem(STORAGE_KEY));
-  if (existing) return existing;
+  if (existing) {
+    const normalized = normalizeCompletedHandoffs(existing);
+    if (normalized !== existing) return persist(normalized, false);
+    return existing;
+  }
   return persist(createInitialWorkflowState(), false);
 }
 
@@ -1179,16 +1218,13 @@ export function acknowledgeWorkflowTask(
       result = { success: false, message: "Workflow is not awaiting issuer acknowledgement.", error: "INVALID_STATE" };
       return state;
     }
-    const nextTaskStatus = instance.sourceType === "Issuance" ? "Completed" : "Ready To Reconcile";
-    const nextOwnerRole = instance.sourceType === "Issuance" ? "issuer" : "transferAgent";
-    const nextStepId = instance.sourceType === "Issuance" ? "IssuerAcknowledge" : "ReconcileCloseOut";
-    const nextInstance = setInstanceStatus(instance, "IssuerAcknowledged", nextStepId, actorRole, "acknowledge");
-    result = { success: true, message: "Issuer acknowledged TA output.", workflowId: instance.workflowId, taskId };
+    const nextInstance = setInstanceStatus(instance, "IssuerAcknowledged", "IssuerAcknowledge", actorRole, "acknowledge");
+    result = { success: true, message: "Issuer acknowledged TA output. TA workflow is complete.", workflowId: instance.workflowId, taskId };
     return {
       ...state,
       instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
       tasks: state.tasks.map((item) =>
-        item.taskId === taskId ? setTaskStatus(item, nextInstance, nextTaskStatus, nextOwnerRole, false, false) : item,
+        item.taskId === taskId ? setTaskStatus(item, nextInstance, "Completed", "issuer", false, false) : item,
       ),
       actionLogs: [
         auditLog(
@@ -1296,7 +1332,6 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType) {
     { stepId: "GenerateList" as const, label: sourceType === "Distribution" ? "Recipient List" : "Payment List", owner: "Transfer Agent" },
     { stepId: "SubmitIssuerReview" as const, label: "Submit Issuer Review", owner: "Transfer Agent" },
     { stepId: "IssuerAcknowledge" as const, label: "Issuer Acknowledge", owner: "Issuer" },
-    { stepId: "ReconcileCloseOut" as const, label: "Close-out", owner: "Transfer Agent" },
   ];
 }
 
@@ -1309,6 +1344,6 @@ export function getWorkflowTaskActionLabel(instance?: WorkflowInstance, task?: W
   if (instance.status === "SnapshotLocked") return instance.sourceType === "Distribution" ? "Generate Recipient List" : "Generate Payment List";
   if (instance.status === "RecipientListGenerated" || instance.status === "PaymentListGenerated") return "Submit Issuer Review";
   if (instance.status === "SubmittedToIssuer") return "Await Issuer";
-  if (instance.status === "IssuerAcknowledged") return instance.sourceType === "Issuance" ? "View Workflow" : "Reconcile Close-out";
+  if (instance.status === "IssuerAcknowledged") return "View Workflow";
   return "Open Workflow";
 }

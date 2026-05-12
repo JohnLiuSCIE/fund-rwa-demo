@@ -48,7 +48,7 @@ function formatIssuanceActionReference(sourceReference: string) {
 function getTaskStageLabel(status: WorkflowTaskStatus) {
   if (status === "New Request" || status === "Awaiting Pull") return "Intake required";
   if (status === "Match Required") return "Data match";
-  if (status === "Ready For Approval" || status === "Ready To Reconcile") return "TA action ready";
+  if (status === "Ready For Approval") return "TA action ready";
   if (status === "Awaiting Issuer") return "Issuer review";
   if (status === "Blocked" || status === "Returned") return "Exception";
   if (status === "Completed") return "Completed";
@@ -137,14 +137,14 @@ export function TransferAgentWorkQueue() {
     if (stageFilter === "all") return true;
     if (stageFilter === "intake") return task.taskStatus === "New Request" || task.taskStatus === "Awaiting Pull";
     if (stageFilter === "match") return task.taskStatus === "Match Required";
-    if (stageFilter === "taAction") return task.taskStatus === "Ready For Approval" || task.taskStatus === "Ready To Reconcile";
+    if (stageFilter === "taAction") return task.taskStatus === "Ready For Approval";
     if (stageFilter === "issuerReview") return task.taskStatus === "Awaiting Issuer";
     if (stageFilter === "exception") return task.taskStatus === "Blocked" || task.taskStatus === "Returned";
     return task.taskStatus === "Completed";
   });
   const openCount = workflows.filter(({ task }) => task.taskStatus !== "Completed").length;
   const readyCount = workflows.filter(({ task }) =>
-    ["Ready For Approval", "Ready To Reconcile"].includes(task.taskStatus),
+    task.taskStatus === "Ready For Approval",
   ).length;
   const exceptionCount = workflows.filter(({ task }) => ["Blocked", "Returned"].includes(task.taskStatus)).length;
   const waitingIssuerCount = workflows.filter(({ task }) => task.taskStatus === "Awaiting Issuer").length;
@@ -170,7 +170,7 @@ export function TransferAgentWorkQueue() {
     {
       value: "redemptionPayment",
       label: "Redemption Payment",
-      detail: "Holder snapshot, payment list, and close-out.",
+      detail: "Holder snapshot, payment list, and issuer handoff.",
       count: workflows.filter(({ instance }) => instance!.sourceType === "Redemption").length,
     },
   ];
@@ -190,7 +190,7 @@ export function TransferAgentWorkQueue() {
       value: "taAction",
       label: "TA action ready",
       count: areaFilteredWorkflows.filter(({ task }) =>
-        ["Ready For Approval", "Ready To Reconcile"].includes(task.taskStatus),
+        task.taskStatus === "Ready For Approval",
       ).length,
     },
     {

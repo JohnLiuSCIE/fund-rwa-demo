@@ -37,7 +37,6 @@ type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
 type SecureAction =
   | "accept"
   | "submit"
-  | "reconcile"
   | "return";
 
 function taskVariant(status: WorkflowTaskStatus): BadgeVariant {
@@ -110,7 +109,6 @@ export function TransferAgentWorkflowDetail() {
     workflowMatchTask,
     workflowReturnTask,
     workflowSubmitCurrentStep,
-    workflowReconcileTask,
   } = app;
 
   const task = workflowState.tasks.find((item) => item.taskId === taskId);
@@ -246,8 +244,6 @@ export function TransferAgentWorkflowDetail() {
       instance.status === "PaymentListGenerated") &&
     reviewComplete &&
     Boolean(match?.matched);
-  const canReconcile = instance.status === "IssuerAcknowledged" && instance.sourceType !== "Issuance";
-
   const run = (result: { success: boolean; message: string }, options?: { quietSuccess?: boolean }) => {
     const toastOptions = { position: "top-center" as const };
     if (result.success) {
@@ -277,35 +273,32 @@ export function TransferAgentWorkflowDetail() {
   };
 
   const primaryAction = () => {
-    if (instance.sourceType === "Issuance" && instance.status === "IssuerAcknowledged") return;
+    if (instance.status === "IssuerAcknowledged") return;
     if (instance.status === "IssuerSubmitted" || instance.status === "TAPulled") return requestSecureAction("accept");
     if (canRunMatch) return setReviewSheetOpen(true);
-    if (canReconcile) return requestSecureAction("reconcile");
     return requestSecureAction("submit");
   };
 
   const primaryDisabled =
-    (!canRunMatch && !canReconcile && !["IssuerSubmitted", "TAPulled"].includes(instance.status) && !canSubmit) ||
+    (!canRunMatch && !["IssuerSubmitted", "TAPulled"].includes(instance.status) && !canSubmit) ||
     instance.status === "SubmittedToIssuer" ||
     instance.status === "Reconciled" ||
-    (instance.sourceType === "Issuance" && instance.status === "IssuerAcknowledged");
+    instance.status === "IssuerAcknowledged";
 
   const steps = getWorkflowSteps(instance.sourceType);
   const currentIndex = Math.max(0, steps.findIndex((step) => step.stepId === instance.currentStepId));
   const completedChecklistCount = checklistItems.filter((item) => task.reviewChecklist[item.key]).length;
   const matchStatusLabel = match ? (match.matched ? "Match passed" : "Match exception") : "Not matched";
   const primaryActionLabel =
-    instance.sourceType === "Issuance" && instance.status === "IssuerAcknowledged"
-      ? "TA Approval Complete"
+    instance.status === "IssuerAcknowledged"
+      ? "TA Workflow Complete"
       : canRunMatch
         ? "Review & Match"
         : getWorkflowTaskActionLabel(instance, task);
   const secureActionLabel =
     secureAction === "accept"
       ? "Accept Request"
-      : secureAction === "reconcile"
-        ? "Reconcile Close-out"
-        : secureAction === "return"
+      : secureAction === "return"
           ? "Return To Issuer"
           : getWorkflowTaskActionLabel(instance, task);
   const secureActionSummary: ActionModalSummaryItem[] = [
@@ -350,8 +343,6 @@ export function TransferAgentWorkflowDetail() {
     let success = false;
     if (secureAction === "accept") {
       success = run(workflowAcceptTask(task.taskId));
-    } else if (secureAction === "reconcile") {
-      success = run(workflowReconcileTask(task.taskId));
     } else if (secureAction === "return") {
       success = run(workflowReturnTask(task.taskId, "Match exception returned to issuer."));
     } else {

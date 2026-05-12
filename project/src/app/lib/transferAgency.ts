@@ -281,7 +281,7 @@ function buildSnapshotTask({
   list?: SettlementList;
   fundName: string;
 }): TransferAgentTaskProjection | null {
-  if (snapshot.status === "Reconciled") return null;
+  if (snapshot.status === "Reconciled" || snapshot.status === "IssuerAcknowledged") return null;
 
   let taskType: TransferAgentTaskType = "LockSnapshot";
   let nextActionLabel = "Lock Snapshot";
@@ -295,10 +295,6 @@ function buildSnapshotTask({
     taskType = "SubmitIssuerReview";
     nextActionLabel = "Submit Issuer Review";
     status = "List Generated";
-  } else if (snapshot.status === "IssuerAcknowledged") {
-    taskType = "ReconcileCloseOut";
-    nextActionLabel = "Reconcile Close-out";
-    status = "Issuer Acknowledged";
   } else if (snapshot.status === "SubmittedToIssuer") {
     return {
       taskId: `task-${snapshot.snapshotId}`,
