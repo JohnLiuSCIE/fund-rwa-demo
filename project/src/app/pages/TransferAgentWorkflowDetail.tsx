@@ -22,6 +22,7 @@ import {
   type ActionModalStep,
   type ActionModalSummaryItem,
 } from "../components/modals/OperationActionModal";
+import { SnapshotReviewPanel } from "../components/transfer-agent/SnapshotReviewPanel";
 import { useApp } from "../context/AppContext";
 import { cn } from "../components/ui/utils";
 import {
@@ -237,13 +238,20 @@ export function TransferAgentWorkflowDetail() {
   const checklistItems = getWorkflowReviewChecklist(instance.sourceType, instance.sourceReference);
   const reviewComplete = checklistItems.every((item) => Boolean(task.reviewChecklist[item.key]));
   const canRunMatch = instance.status === "TAResponded" || instance.status === "MatchException";
+  const snapshotReviewGateRequired =
+    Boolean(snapshot) &&
+    ["RecipientListGenerated", "PaymentListGenerated"].includes(instance.status) &&
+    !["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(snapshot?.status || "");
+  const snapshotReviewComplete =
+    !snapshotReviewGateRequired || ["review-snapshot", "manual-overwrite"].includes(snapshot?.lastAction || "");
   const canSubmit =
     (instance.status === "MatchPassed" ||
       instance.status === "SnapshotLocked" ||
       instance.status === "RecipientListGenerated" ||
       instance.status === "PaymentListGenerated") &&
     reviewComplete &&
-    Boolean(match?.matched);
+    Boolean(match?.matched) &&
+    snapshotReviewComplete;
   const run = (result: { success: boolean; message: string }, options?: { quietSuccess?: boolean }) => {
     const toastOptions = { position: "top-center" as const };
     if (result.success) {
@@ -524,6 +532,11 @@ export function TransferAgentWorkflowDetail() {
               <Button className="w-full" disabled={primaryDisabled} onClick={primaryAction}>
                 {primaryActionLabel}
               </Button>
+              {snapshotReviewGateRequired && !snapshotReviewComplete ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  Review the snapshot output or save a manual overwrite before submitting it back to issuer review.
+                </div>
+              ) : null}
               {canRunMatch || match ? (
                 <div className="rounded-lg border p-3 text-sm">
                   <div className="flex items-center justify-between gap-3">
@@ -552,6 +565,10 @@ export function TransferAgentWorkflowDetail() {
           </Card>
         </div>
       </div>
+
+      {!isIssuanceWorkflow ? (
+        <SnapshotReviewPanel snapshot={snapshot} positions={positions} list={list} lines={lines} />
+      ) : null}
 
       <div className="mt-6">
         <Card>

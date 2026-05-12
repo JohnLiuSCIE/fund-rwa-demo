@@ -234,6 +234,25 @@ interface AppContextType {
     expectedVersion: number,
     idempotencyKey?: string,
   ) => TransferAgencyCommandResult;
+  overwriteHolderSnapshotPosition: (
+    positionId: string,
+    updates: Partial<
+      Pick<
+        HolderSnapshotPosition,
+        "included" | "exclusionReason" | "units" | "entitlementAmount" | "cashAmount"
+      >
+    >,
+    expectedVersion?: number,
+    lineId?: string,
+    lineUpdates?: Partial<Pick<SettlementListLine, "amount" | "destination" | "status">>,
+    expectedLineVersion?: number,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
+  reviewHolderSnapshot: (
+    snapshotId: string,
+    expectedVersion?: number,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
   submitSnapshotToIssuerReview: (
     snapshotId: string,
     expectedVersion: number,
@@ -1853,6 +1872,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const createSnapshotReviewEvidence = (
+    snapshot: HolderSnapshot,
+    label: string,
+    idempotencyKey: string,
+  ) => {
+    const evidenceRefId = `ev-${idempotencyKey}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 120);
+    setEvidenceRecords((prev) => {
+      if (prev.some((evidence) => evidence.evidenceRefId === evidenceRefId)) return prev;
+      return [
+        {
+          evidenceRefId,
+          fundId: snapshot.fundId,
+          classId: snapshot.classId,
+          instructionId: snapshot.instructionId,
+          evidenceType: "CorrectionMemo",
+          label,
+          contentHash: mockHex(`${idempotencyKey}:${snapshot.snapshotId}`),
+          sourceActorType: "TransferAgent",
+          sourceActorId: "ta-snapshot-reviewer",
+          createdAt: new Date().toISOString(),
+          retentionClass: "Audit",
+          version: 1,
+        },
+        ...prev,
+      ];
+    });
+  };
+
+  const touchSnapshotReviewAudit = (
+    snapshotId: string,
+    action: string,
+    idempotencyKey: string,
+  ) => {
+    const now = new Date().toISOString();
+    setHolderSnapshots((prev) =>
+      prev.map((snapshot) =>
+        snapshot.snapshotId === snapshotId
+          ? {
+              ...snapshot,
+              idempotencyKey,
+              updatedAt: now,
+              version: snapshot.version + 1,
+              ...transferAgencyAuditFields(action, "transferAgent"),
+            }
+          : snapshot,
+      ),
+    );
+  };
+
   const lockHolderSnapshot = (
     instructionId: string,
     expectedVersion: number,
@@ -1953,6 +2021,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     setSettlementLists((prev) => [list, ...prev]);
     setSettlementListLines((prev) => [...lines, ...prev]);
+    touchSnapshotReviewAudit(snapshot.snapshotId, "generate-list", idempotencyKey);
     anchorSnapshotArtifact(snapshot, "SettlementList", list.listId);
     updateInstructionStatus(snapshot.instructionId, "ListGenerated", "generate");
     return { success: true, id: listId, message: `${listType} generated from ${snapshot.snapshotId}.` };
@@ -1970,6 +2039,109 @@ export function AppProvider({ children }: { children: ReactNode }) {
     idempotencyKey = `TAConsole:${snapshotId}:GeneratePaymentList:${formatDateTag(new Date())}`,
   ) => generateSettlementList(snapshotId, expectedVersion, "PaymentList", idempotencyKey);
 
+  const overwriteHolderSnapshotPosition = (
+    positionId: string,
+    updates: Partial<
+      Pick<
+        HolderSnapshotPosition,
+        "included" | "exclusionReason" | "units" | "entitlementAmount" | "cashAmount"
+      >
+    >,
+    expectedVersion?: number,
+    lineId?: string,
+    lineUpdates?: Partial<Pick<SettlementListLine, "amount" | "destination" | "status">>,
+    expectedLineVersion?: number,
+    idempotencyKey = `TAConsole:${positionId}:ManualSnapshotOverwrite:${formatDateTag(new Date())}`,
+  ): TransferAgencyCommandResult => {
+    if (!ensureIdentitySource("authSession") || !ensurePermission("update", "register")) {
+      return buildCommandDeniedResult();
+    }
+    const position = holderSnapshotPositions.find((item) => item.positionId === positionId);
+    if (!position) return { success: false, error: "NOT_FOUND", message: "Snapshot position was not found." };
+    const snapshot = holderSnapshots.find((item) => item.snapshotId === position.snapshotId);
+    if (!snapshot) return { success: false, error: "NOT_FOUND", message: "Holder snapshot was not found." };
+    if (["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(snapshot.status)) {
+      return { success: false, error: "INVALID_STATE", message: "This snapshot has already been released to issuer review." };
+    }
+    const conflict = assertExpectedVersion(position.version, expectedVersion ?? position.version);
+    if (conflict) return conflict;
+    const line = lineId ? settlementListLines.find((item) => item.lineId === lineId) : undefined;
+    if (lineId && !line) return { success: false, error: "NOT_FOUND", message: "Settlement list line was not found." };
+    if (line && expectedLineVersion !== undefined) {
+      const lineConflict = assertExpectedVersion(line.version, expectedLineVersion);
+      if (lineConflict) return lineConflict;
+    }
+    const now = new Date().toISOString();
+
+    setHolderSnapshotPositions((prev) =>
+      prev.map((item) =>
+        item.positionId === positionId
+          ? {
+              ...item,
+              ...updates,
+              exclusionReason: updates.included ? undefined : updates.exclusionReason || item.exclusionReason,
+              idempotencyKey,
+              version: item.version + 1,
+              lastAction: "manual-overwrite",
+              lastActorRole: "transferAgent",
+              lastActionAt: now,
+            }
+          : item,
+      ),
+    );
+
+    if (line && lineUpdates) {
+      setSettlementListLines((prev) =>
+        prev.map((item) =>
+          item.lineId === line.lineId
+            ? {
+                ...item,
+                ...lineUpdates,
+                status: updates.included === false ? "Held" : lineUpdates.status || item.status,
+                idempotencyKey,
+                version: item.version + 1,
+                lastAction: "manual-overwrite",
+                lastActorRole: "transferAgent",
+                lastActionAt: now,
+              }
+            : item,
+        ),
+      );
+    }
+
+    touchSnapshotReviewAudit(snapshot.snapshotId, "manual-overwrite", idempotencyKey);
+    createSnapshotReviewEvidence(
+      snapshot,
+      `Manual overwrite recorded for ${position.holderName} in ${snapshot.snapshotId}`,
+      idempotencyKey,
+    );
+    return { success: true, id: positionId, message: "Snapshot row overwritten and audit evidence recorded." };
+  };
+
+  const reviewHolderSnapshot = (
+    snapshotId: string,
+    expectedVersion?: number,
+    idempotencyKey = `TAConsole:${snapshotId}:ReviewSnapshot:${formatDateTag(new Date())}`,
+  ): TransferAgencyCommandResult => {
+    if (!ensureIdentitySource("authSession") || !ensurePermission("review", "register")) {
+      return buildCommandDeniedResult();
+    }
+    const snapshot = holderSnapshots.find((item) => item.snapshotId === snapshotId);
+    if (!snapshot) return { success: false, error: "NOT_FOUND", message: "Holder snapshot was not found." };
+    if (["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(snapshot.status)) {
+      return { success: true, id: snapshotId, message: "Snapshot has already been released to issuer review." };
+    }
+    const conflict = assertExpectedVersion(snapshot.version, expectedVersion ?? snapshot.version);
+    if (conflict) return conflict;
+    const list = settlementLists.find((item) => item.snapshotId === snapshotId);
+    if (!list) {
+      return { success: false, error: "INVALID_STATE", message: "Generate the recipient/payment list before final snapshot review." };
+    }
+    touchSnapshotReviewAudit(snapshot.snapshotId, "review-snapshot", idempotencyKey);
+    createSnapshotReviewEvidence(snapshot, `TA reviewed snapshot output ${snapshot.snapshotId}`, idempotencyKey);
+    return { success: true, id: snapshotId, message: "Snapshot output reviewed and ready for issuer handoff." };
+  };
+
   const submitSnapshotToIssuerReview = (
     snapshotId: string,
     expectedVersion: number,
@@ -1984,6 +2156,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (conflict) return conflict;
     const list = settlementLists.find((item) => item.snapshotId === snapshotId);
     if (!list) return { success: false, error: "INVALID_STATE", message: "Generate the settlement list first." };
+    if (!["review-snapshot", "manual-overwrite"].includes(snapshot.lastAction || "")) {
+      return {
+        success: false,
+        error: "INVALID_STATE",
+        message: "Review the snapshot output or record an overwrite before submitting to issuer.",
+      };
+    }
     if (snapshot.status === "SubmittedToIssuer" || snapshot.status === "IssuerAcknowledged" || snapshot.status === "Reconciled") {
       return { success: true, id: snapshotId, message: "Snapshot has already been submitted to issuer review." };
     }
@@ -3082,6 +3261,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         lockHolderSnapshot,
         generateRecipientList,
         generatePaymentList,
+        overwriteHolderSnapshotPosition,
+        reviewHolderSnapshot,
         submitSnapshotToIssuerReview,
         acknowledgeIssuerReview,
         reconcileDistributionPayout,

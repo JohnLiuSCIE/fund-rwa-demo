@@ -649,6 +649,10 @@ export interface HolderSnapshotPosition {
   exclusionReason?: string;
   entitlementAmount?: string;
   cashAmount?: string;
+  idempotencyKey?: string;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
   version: number;
 }
 
@@ -684,6 +688,10 @@ export interface SettlementListLine {
   destination: string;
   status: "Ready" | "Submitted" | "Paid" | "Reconciled" | "Held";
   evidenceRefIds: string[];
+  idempotencyKey?: string;
+  lastAction?: string;
+  lastActorRole?: ActorRole;
+  lastActionAt?: string;
   version: number;
 }
 
