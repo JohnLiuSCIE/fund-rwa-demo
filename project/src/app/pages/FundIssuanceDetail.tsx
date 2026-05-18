@@ -48,6 +48,14 @@ import { ChartContainer, ChartTooltip } from "../components/ui/chart";
 import { InfoAlert } from "../components/InfoAlert";
 import { MetricCard } from "../components/MetricCard";
 import { StatusBadge } from "../components/StatusBadge";
+import {
+  ApprovalReviewWorkspace,
+  type ApprovalReviewCashFlow,
+  type ApprovalReviewEvidenceRow,
+  type ApprovalReviewMetric,
+  type ApprovalReviewTableRow,
+  type ReviewTone,
+} from "../components/ApprovalReviewWorkspace";
 import { FundIssuanceWorkflow, type WorkflowStepTiming } from "../components/FundIssuanceWorkflow";
 import {
   TransferAgentChecklistCard,
@@ -89,6 +97,41 @@ function formatNumber(value: number, digits = 2) {
     minimumFractionDigits: 0,
     maximumFractionDigits: digits,
   }).format(value);
+}
+
+function getIssuanceReviewTone(status?: string): ReviewTone {
+  const normalized = status?.toLowerCase() || "";
+  if (
+    normalized.includes("complete") ||
+    normalized.includes("confirmed") ||
+    normalized.includes("cleared") ||
+    normalized.includes("matched") ||
+    normalized.includes("paid") ||
+    normalized.includes("ready") ||
+    normalized.includes("approved") ||
+    normalized.includes("booked") ||
+    normalized.includes("settled")
+  ) {
+    return "success";
+  }
+  if (
+    normalized.includes("blocked") ||
+    normalized.includes("failed") ||
+    normalized.includes("rejected") ||
+    normalized.includes("excluded")
+  ) {
+    return "danger";
+  }
+  if (
+    normalized.includes("pending") ||
+    normalized.includes("awaiting") ||
+    normalized.includes("expected") ||
+    normalized.includes("proof") ||
+    normalized.includes("submitted")
+  ) {
+    return "warning";
+  }
+  return "default";
 }
 
 function nowString() {
@@ -4177,6 +4220,117 @@ export function FundIssuanceDetail() {
               },
             }
     : undefined;
+  const issuanceApprovalSnapshotRows: ApprovalReviewTableRow[] = ledgerOrders
+    .filter((order) => order.type === "subscription")
+    .map((order) => {
+      const excluded = isAllocationManuallyExcluded(order);
+      return {
+        id: order.id,
+        title: order.investorName,
+        subtitle: order.investorWallet,
+        status: excluded ? "Excluded" : order.status,
+        statusTone: getIssuanceReviewTone(excluded ? "Excluded" : order.status),
+        cells: [
+          { label: "Request amount", value: order.requestAmount },
+          { label: "Request units", value: order.requestQuantity },
+          { label: "Payment status", value: order.paymentStatus || "Not recorded" },
+          { label: "Booking", value: order.unitBookingStatus || "Pending" },
+        ],
+        action:
+          !isMarketplaceView && userRole === "issuer"
+            ? {
+                label: excluded ? "Restore" : "Exclude",
+                onClick: () =>
+                  excluded ? handleRestoreToAllocation(order) : handleExcludeFromAllocation(order),
+              }
+            : undefined,
+      };
+    });
+  const issuanceApprovalListRows: ApprovalReviewTableRow[] = issuanceLedgerRows.map((row) => ({
+    id: row.key,
+    title: row.investorName,
+    subtitle: row.investorWallet,
+    status: row.taStatus,
+    statusTone: getIssuanceReviewTone(row.taStatus),
+    cells: [
+      { label: "Source", value: row.sourceObject },
+      { label: "Units", value: row.units },
+      { label: "Register effect", value: row.registerEffect },
+      { label: "Share class", value: fundData.shareClass || "Class A" },
+    ],
+  }));
+  const canonicalIssuanceCashFlows: ApprovalReviewCashFlow[] = cashMovements
+    .filter((movement) => movement.fundId === fundData.id)
+    .map((movement) => ({
+      id: movement.cashMovementId,
+      title: movement.direction === "In" ? "Subscription cash receipt" : "Redemption cash payout",
+      direction: movement.direction === "In" ? "Cash in" : "Cash out",
+      amount: `${movement.amount} ${movement.currency}`,
+      rail: movement.owner,
+      account: movement.reference || movement.instructionId,
+      status: movement.status,
+      statusTone: getIssuanceReviewTone(movement.status),
+      reference: movement.reference || movement.cashMovementId,
+      timestamp: movement.confirmedAt || "Pending confirmation",
+      owner: movement.owner,
+    }));
+  const expectedIssuanceCashFlows: ApprovalReviewCashFlow[] = ledgerOrders.map((order) => ({
+    id: `expected-${order.id}`,
+    title: `${order.investorName} ${order.type === "subscription" ? "subscription funding" : "redemption payout"}`,
+    direction: order.type === "subscription" ? "Expected cash in" : "Expected cash out",
+    amount: order.type === "subscription" ? order.requestAmount : order.estimatedSharesOrCash,
+    rail: order.paymentMethod || fundData.subscriptionPaymentRail || "Settlement rail pending",
+    account:
+      order.payerBankAccountMasked ||
+      (order.type === "subscription"
+        ? fundData.receivingBankAccountNumberMasked || fundData.subscriptionCollectionWallet
+        : order.investorWallet) ||
+      "Settlement account pending",
+    status: order.paymentStatus || order.status,
+    statusTone: getIssuanceReviewTone(order.paymentStatus || order.status),
+    reference: order.paymentReference || order.id,
+    timestamp: order.cashConfirmedAt || order.cashReceivedAt || order.settlementTime || order.submitTime,
+    owner: order.cashConfirmedBy || fundData.cashConfirmationOwner || "Issuer Ops",
+  }));
+  const issuanceApprovalCashFlows = [...canonicalIssuanceCashFlows, ...expectedIssuanceCashFlows];
+  const issuanceApprovalEvidenceRows: ApprovalReviewEvidenceRow[] = issuanceApprovalObjects.map((item) => ({
+    id: item.label,
+    title: item.label,
+    type: "Issuance control",
+    status: item.status,
+    statusTone: getIssuanceReviewTone(item.status),
+    detail: item.detail,
+    reference: fundData.id,
+  }));
+  const issuanceApprovalMetrics: ApprovalReviewMetric[] = [
+    {
+      label: "Subscription orders",
+      value: `${subscriptionOrders.length}`,
+      detail: `${formatNumber(allocationPreview.totalRequestedAmount, 2)} ${fundData.assetCurrency}`,
+      tone: subscriptionOrders.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Allocation rows",
+      value: `${allocationPreview.rows.length}`,
+      detail: `${formatNumber(allocationPreview.totalAllocatedAmount, 2)} ${fundData.assetCurrency}`,
+      tone: allocationPreview.rows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Cash movements",
+      value: `${issuanceApprovalCashFlows.length}`,
+      detail:
+        canonicalIssuanceCashFlows.length > 0
+          ? `${canonicalIssuanceCashFlows.length} backend movement(s)`
+          : "Expected order cash flows",
+      tone: canonicalIssuanceCashFlows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Manual overwrites",
+      value: `${manualExcludedSubscriptionOrders.length}`,
+      detail: "Issuer-controlled allocation changes",
+      tone: manualExcludedSubscriptionOrders.length > 0 ? "warning" : "muted",
+    },
+  ];
   const issuanceWorkflowTimings: WorkflowStepTiming[] = isOpenEnd
     ? [
         {
@@ -4379,6 +4533,33 @@ export function FundIssuanceDetail() {
           }
         />
       </div>
+
+      {!isMarketplaceView && (
+        <div className="mb-8">
+          <ApprovalReviewWorkspace
+            title="Approval Review Workspace"
+            description="Review the issuance package before using the workflow action above. Subscription orders, allocation rows, cash movement, manual overwrites, and TA approval objects are shown together against the same fund workflow state."
+            badges={[
+              {
+                label: issuerActionTaGate?.taLock?.status === "approved" ? "TA output ready" : "Workflow gated",
+                tone: issuerActionTaGate?.taLock?.status === "approved" ? "success" : "warning",
+              },
+              {
+                label: fundData.status,
+                tone: getIssuanceReviewTone(fundData.status),
+              },
+            ]}
+            metrics={issuanceApprovalMetrics}
+            snapshotTitle="Subscription Order Snapshot"
+            snapshotRows={issuanceApprovalSnapshotRows}
+            listTitle={fundData.fundType === "Closed-end" ? "Allocation / Register List" : "Dealing Batch List"}
+            listRows={issuanceApprovalListRows}
+            cashFlows={issuanceApprovalCashFlows}
+            evidenceRows={issuanceApprovalEvidenceRows}
+            reviewHint="Use this workspace to review subscription intake, cash proof, allocation/booking effects, and manual overwrites. When any TA workflow lock clears, continue from the action button above."
+          />
+        </div>
+      )}
 
       {!isMarketplaceView && (
         <div className="mb-8 flex flex-col gap-4 rounded-lg border bg-secondary/20 p-4 md:flex-row md:items-center md:justify-between">

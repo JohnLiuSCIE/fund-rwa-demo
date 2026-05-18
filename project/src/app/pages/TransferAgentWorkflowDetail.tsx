@@ -22,6 +22,14 @@ import {
   type ActionModalStep,
   type ActionModalSummaryItem,
 } from "../components/modals/OperationActionModal";
+import {
+  ApprovalReviewWorkspace,
+  type ApprovalReviewCashFlow,
+  type ApprovalReviewEvidenceRow,
+  type ApprovalReviewMetric,
+  type ApprovalReviewTableRow,
+  type ReviewTone,
+} from "../components/ApprovalReviewWorkspace";
 import { SnapshotReviewPanel } from "../components/transfer-agent/SnapshotReviewPanel";
 import { useApp } from "../context/AppContext";
 import { cn } from "../components/ui/utils";
@@ -90,6 +98,41 @@ function formatActionTime(value: string) {
   }).format(parsed);
 }
 
+function getTaReviewTone(status?: string): ReviewTone {
+  const normalized = status?.toLowerCase() || "";
+  if (
+    normalized.includes("complete") ||
+    normalized.includes("confirmed") ||
+    normalized.includes("cleared") ||
+    normalized.includes("matched") ||
+    normalized.includes("paid") ||
+    normalized.includes("ready") ||
+    normalized.includes("approved") ||
+    normalized.includes("included") ||
+    normalized.includes("booked")
+  ) {
+    return "success";
+  }
+  if (
+    normalized.includes("blocked") ||
+    normalized.includes("failed") ||
+    normalized.includes("rejected") ||
+    normalized.includes("excluded")
+  ) {
+    return "danger";
+  }
+  if (
+    normalized.includes("pending") ||
+    normalized.includes("awaiting") ||
+    normalized.includes("expected") ||
+    normalized.includes("proof") ||
+    normalized.includes("submitted")
+  ) {
+    return "warning";
+  }
+  return "default";
+}
+
 export function TransferAgentWorkflowDetail() {
   const { taskId } = useParams();
   const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
@@ -105,6 +148,7 @@ export function TransferAgentWorkflowDetail() {
     holderSnapshotPositions,
     settlementLists,
     settlementListLines,
+    cashMovements,
     evidenceRecords,
     workflowAcceptTask,
     workflowUpdateChecklist,
@@ -360,6 +404,156 @@ export function TransferAgentWorkflowDetail() {
       kind: "success",
     },
   ];
+  const workflowOrders = fundOrders.filter((order) => {
+    if (order.fundId !== instance.fundId) return false;
+    if (order.id === instance.sourceReference || instance.relatedOrderIds?.includes(order.id)) return true;
+    if (isIssuanceWorkflow) return order.type === "subscription";
+    if (sourceRedemption) return order.type === "redemption";
+    if (sourceDistribution) return order.type === "subscription";
+    return false;
+  });
+  const taApprovalSnapshotRows: ApprovalReviewTableRow[] =
+    positions.length > 0
+      ? positions.map((position) => ({
+          id: position.positionId,
+          title: position.holderName,
+          subtitle: position.walletAddress,
+          status: position.included ? "Included" : position.exclusionReason || "Excluded",
+          statusTone: getTaReviewTone(position.included ? "Included" : position.exclusionReason || "Excluded"),
+          cells: [
+            { label: "Units", value: position.units },
+            { label: "Cash / entitlement", value: position.cashAmount || position.entitlementAmount || "Pending" },
+            { label: "Restriction", value: position.restrictionStatus },
+            { label: "Snapshot", value: snapshot?.snapshotId || instance.sourceReference },
+          ],
+        }))
+      : workflowOrders.map((order) => ({
+          id: order.id,
+          title: order.investorName,
+          subtitle: order.investorWallet,
+          status: order.status,
+          statusTone: getTaReviewTone(order.status),
+          cells: [
+            { label: "Order type", value: order.type },
+            { label: "Request amount", value: order.requestAmount },
+            { label: "Request units", value: order.requestQuantity },
+            { label: "Payment status", value: order.paymentStatus || "Not recorded" },
+          ],
+        }));
+  const taApprovalListRows: ApprovalReviewTableRow[] =
+    lines.length > 0
+      ? lines.map((line) => ({
+          id: line.lineId,
+          title: line.holderName,
+          subtitle: line.destination,
+          status: line.status,
+          statusTone: getTaReviewTone(line.status),
+          cells: [
+            { label: "Amount", value: `${line.amount} ${line.currency}` },
+            { label: "List", value: line.listId },
+            { label: "Snapshot", value: line.snapshotId },
+            { label: "Evidence", value: `${line.evidenceRefIds.length} record(s)` },
+          ],
+        }))
+      : workflowOrders.map((order) => ({
+          id: `${order.id}-list`,
+          title: order.investorName,
+          subtitle: order.investorWallet,
+          status: order.unitBookingStatus || order.status,
+          statusTone: getTaReviewTone(order.unitBookingStatus || order.status),
+          cells: [
+            { label: "Source object", value: order.type === "subscription" ? "Subscription order" : "Redemption order" },
+            { label: "Estimated value", value: order.estimatedSharesOrCash },
+            { label: "Payment reference", value: order.paymentReference || "Pending" },
+            { label: "Register effect", value: order.type === "subscription" ? "Issue units" : "Redeem units" },
+          ],
+        }));
+  const relatedInstructionIds = new Set<string>(
+    [snapshot?.instructionId, ...evidence.map((record) => record.instructionId).filter(Boolean)]
+      .filter(Boolean) as string[],
+  );
+  const canonicalTaCashFlows: ApprovalReviewCashFlow[] = cashMovements
+    .filter(
+      (movement) =>
+        movement.fundId === instance.fundId &&
+        (relatedInstructionIds.size === 0 || relatedInstructionIds.has(movement.instructionId)),
+    )
+    .map((movement) => ({
+      id: movement.cashMovementId,
+      title: movement.direction === "In" ? "Cash receipt" : "Cash payout",
+      direction: movement.direction === "In" ? "Cash in" : "Cash out",
+      amount: `${movement.amount} ${movement.currency}`,
+      rail: movement.owner,
+      account: movement.reference || movement.instructionId,
+      status: movement.status,
+      statusTone: getTaReviewTone(movement.status),
+      reference: movement.reference || movement.cashMovementId,
+      timestamp: movement.confirmedAt || "Pending confirmation",
+      owner: movement.owner,
+    }));
+  const expectedTaCashFlows: ApprovalReviewCashFlow[] = workflowOrders.map((order) => ({
+    id: `expected-${order.id}`,
+    title: `${order.investorName} ${order.type === "subscription" ? "funding" : "redemption payout"}`,
+    direction: order.type === "subscription" ? "Expected cash in" : "Expected cash out",
+    amount: order.type === "subscription" ? order.requestAmount : order.estimatedSharesOrCash,
+    rail: order.paymentMethod || "Settlement rail pending",
+    account: order.payerBankAccountMasked || order.investorWallet,
+    status: order.paymentStatus || order.status,
+    statusTone: getTaReviewTone(order.paymentStatus || order.status),
+    reference: order.paymentReference || order.id,
+    timestamp: order.cashConfirmedAt || order.cashReceivedAt || order.settlementTime || order.submitTime,
+    owner: order.cashConfirmedBy || "Issuer Ops / Bank",
+  }));
+  const taApprovalCashFlows = [...canonicalTaCashFlows, ...expectedTaCashFlows];
+  const taApprovalEvidenceRows: ApprovalReviewEvidenceRow[] = evidence.map((record) => ({
+    id: record.evidenceRefId,
+    title: record.label,
+    type: record.evidenceType,
+    status: record.contentHash ? "Hash linked" : record.retentionClass,
+    statusTone: record.contentHash ? "success" : "default",
+    detail: record.storageUri || record.createdAt,
+    reference: record.contentHash || record.evidenceRefId,
+  }));
+  if (match) {
+    taApprovalEvidenceRows.unshift({
+      id: match.matchResultId,
+      title: "Workflow match result",
+      type: "MatchResult",
+      status: match.matched ? "Match passed" : "Match exception",
+      statusTone: match.matched ? "success" : "danger",
+      detail: match.exceptionReason || `${match.checks.filter((check) => check.status === "Pass").length}/${match.checks.length} check(s) passed`,
+      reference: match.matchResultId,
+    });
+  }
+  const taApprovalMetrics: ApprovalReviewMetric[] = [
+    {
+      label: positions.length > 0 ? "Snapshot rows" : "Order rows",
+      value: `${positions.length || workflowOrders.length}`,
+      detail: snapshot?.snapshotId || "Source order book",
+      tone: positions.length || workflowOrders.length ? "success" : "warning",
+    },
+    {
+      label: "List rows",
+      value: `${lines.length || workflowOrders.length}`,
+      detail: list?.listId || "Derived workflow list",
+      tone: lines.length || workflowOrders.length ? "success" : "warning",
+    },
+    {
+      label: "Cash movements",
+      value: `${taApprovalCashFlows.length}`,
+      detail:
+        canonicalTaCashFlows.length > 0
+          ? `${canonicalTaCashFlows.length} backend movement(s)`
+          : "Expected order cash flows",
+      tone: canonicalTaCashFlows.length > 0 ? "success" : "warning",
+    },
+    {
+      label: "Evidence",
+      value: `${taApprovalEvidenceRows.length}`,
+      detail: matchStatusLabel,
+      tone: match?.matched ? "success" : match ? "danger" : "muted",
+    },
+  ];
 
   const executeSecureAction = () => {
     if (!secureAction) return;
@@ -579,6 +773,31 @@ export function TransferAgentWorkflowDetail() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <ApprovalReviewWorkspace
+          title="TA Approval Data Package"
+          description="Use this workspace as the controlled review package for the current TA task. It connects source orders, holder snapshot rows, settlement list lines, cash movements, and evidence before the workflow action is released."
+          badges={[
+            {
+              label: task.taskStatus,
+              tone: getTaReviewTone(task.taskStatus),
+            },
+            {
+              label: instance.sourceType,
+              tone: "default",
+            },
+          ]}
+          metrics={taApprovalMetrics}
+          snapshotTitle={positions.length > 0 ? "Holder Snapshot Review" : "Source Order Snapshot"}
+          snapshotRows={taApprovalSnapshotRows}
+          listTitle={lines.length > 0 ? "Settlement List" : "Order / Register Effect List"}
+          listRows={taApprovalListRows}
+          cashFlows={taApprovalCashFlows}
+          evidenceRows={taApprovalEvidenceRows}
+          reviewHint="Review this data package, complete the match checks, then use the workflow action above. The issuer side reads the same workflow-backed state after TA submits output."
+        />
       </div>
 
       {!isIssuanceWorkflow && !isCloseOutWorkflow ? (

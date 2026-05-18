@@ -63,6 +63,12 @@ import {
   type WorkflowBackendState,
   type WorkflowCommandResult,
 } from "../lib/workflowBackend";
+import {
+  buildDistributionEventDemoScenario,
+  buildIssuanceDemoScenario,
+  buildRedemptionEventDemoScenario,
+  type DemoScenarioPatch,
+} from "../lib/demoScenarioEngine";
 
 export type UserRole = ActorRole;
 
@@ -867,6 +873,7 @@ interface CanonicalPersistedState {
   walletLinks: WalletLink[];
   registerDeltas: RegisterDelta[];
   registerVersions: RegisterVersion[];
+  cashMovements: CashMovement[];
   tokenEvents: TokenEvent[];
   onChainEvents: OnChainEvent[];
   anchoringEvents: AnchoringEvent[];
@@ -893,6 +900,7 @@ const initialCanonicalState: CanonicalPersistedState = {
   walletLinks: initialWalletLinks,
   registerDeltas: initialRegisterDeltas,
   registerVersions: initialRegisterVersions,
+  cashMovements: initialCashMovements,
   tokenEvents: initialTokenEvents,
   onChainEvents: initialOnChainEvents,
   anchoringEvents: initialAnchoringEvents,
@@ -923,6 +931,7 @@ function loadCanonicalState(): CanonicalPersistedState {
       ...parsed,
       registerAccounts: mergeByKey(initialRegisterAccounts, parsed.registerAccounts, "registerAccountId"),
       walletLinks: mergeByKey(initialWalletLinks, parsed.walletLinks, "walletLinkId"),
+      cashMovements: mergeByKey(initialCashMovements, parsed.cashMovements, "cashMovementId"),
       onChainEvents: mergeByKey(initialOnChainEvents, parsed.onChainEvents, "onChainEventId"),
       anchoringEvents: mergeByKey(initialAnchoringEvents, parsed.anchoringEvents, "anchoringEventId"),
     };
@@ -972,7 +981,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [walletLinks, setWalletLinks] = useState<WalletLink[]>(persistedCanonical.walletLinks);
   const [registerDeltas, setRegisterDeltas] = useState<RegisterDelta[]>(persistedCanonical.registerDeltas);
   const [registerVersions, setRegisterVersions] = useState<RegisterVersion[]>(persistedCanonical.registerVersions);
-  const [cashMovements] = useState<CashMovement[]>(initialCashMovements);
+  const [cashMovements, setCashMovements] = useState<CashMovement[]>(persistedCanonical.cashMovements);
   const [transferAgencyNavRecords] = useState<TransferAgencyNavRecord[]>(initialTransferAgencyNavRecords);
   const [tokenEvents, setTokenEvents] = useState<TokenEvent[]>(persistedCanonical.tokenEvents);
   const [onChainEvents, setOnChainEvents] = useState<OnChainEvent[]>(persistedCanonical.onChainEvents);
@@ -1000,6 +1009,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setWalletLinks(next.walletLinks);
     setRegisterDeltas(next.registerDeltas);
     setRegisterVersions(next.registerVersions);
+    setCashMovements(next.cashMovements);
     setTokenEvents(next.tokenEvents);
     setOnChainEvents(next.onChainEvents);
     setAnchoringEvents(next.anchoringEvents);
@@ -1095,6 +1105,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       walletLinks,
       registerDeltas,
       registerVersions,
+      cashMovements,
       tokenEvents,
       onChainEvents,
       anchoringEvents,
@@ -1111,6 +1122,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.localStorage.setItem(CANONICAL_STORAGE_KEY, serialized);
     broadcastCanonicalState();
   }, [
+    cashMovements,
     evidenceRecords,
     fundBatches,
     fundDistributions,
@@ -1164,6 +1176,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     applyCanonicalState(nextCanonical);
     applyWorkflowState(nextWorkflow);
     broadcastCanonicalState();
+  };
+
+  const prependUniqueByKey = <T extends object>(current: T[], incoming: T[], key: keyof T) => {
+    if (incoming.length === 0) return current;
+    const existing = new Set(current.map((item) => item[key]));
+    const unique = incoming.filter((item) => !existing.has(item[key]));
+    return unique.length ? [...unique, ...current] : current;
+  };
+
+  const applyDemoScenarioPatch = (patch: DemoScenarioPatch) => {
+    if (patch.fundOrders.length > 0) {
+      setFundOrders((prev) => prependUniqueByKey(prev, patch.fundOrders, "id"));
+    }
+    if (patch.registerAccounts.length > 0) {
+      setRegisterAccounts((prev) => prependUniqueByKey(prev, patch.registerAccounts, "registerAccountId"));
+    }
+    if (patch.walletLinks.length > 0) {
+      setWalletLinks((prev) => prependUniqueByKey(prev, patch.walletLinks, "walletLinkId"));
+    }
+    if (patch.cashMovements.length > 0) {
+      setCashMovements((prev) => prependUniqueByKey(prev, patch.cashMovements, "cashMovementId"));
+    }
+    if (patch.evidenceRecords.length > 0) {
+      setEvidenceRecords((prev) => prependUniqueByKey(prev, patch.evidenceRecords, "evidenceRefId"));
+    }
   };
 
   const userRole = authSession?.role ?? "investor";
@@ -1648,6 +1685,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return buildCommandDeniedResult();
     }
     void expectedVersion;
+
+    const sourceFund = fundIssuances.find((fund) => fund.id === sourceConfig.fundId);
+    if (sourceType === "Distribution") {
+      applyDemoScenarioPatch(
+        buildDistributionEventDemoScenario({
+          distribution: sourceConfig.source as FundDistribution,
+          fund: sourceFund,
+          registerAccounts,
+          walletLinks,
+          registerVersions,
+          existingCashMovements: cashMovements,
+          existingEvidenceRecords: evidenceRecords,
+        }),
+      );
+    } else if (sourceFund) {
+      applyDemoScenarioPatch(
+        buildRedemptionEventDemoScenario({
+          redemption: sourceConfig.source as FundRedemptionConfig,
+          fund: sourceFund,
+          registerAccounts,
+          walletLinks,
+          existingOrders: fundOrders,
+          existingCashMovements: cashMovements,
+          existingEvidenceRecords: evidenceRecords,
+        }),
+      );
+    }
 
     const existing = transferAgencyInstructions.find(
       (instruction) =>
@@ -3010,6 +3074,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ]);
     }
 
+    if (targetFund && status === "Allocation Period") {
+      const scenarioOrders = demoSeed?.orders.length
+        ? demoSeed.orders
+        : fundOrders.filter((order) => order.fundId === id && order.type === "subscription");
+      if (scenarioOrders.length > 0) {
+        applyDemoScenarioPatch(
+          buildIssuanceDemoScenario({
+            fund: { ...targetFund, ...(demoSeed?.fundUpdates || {}), status },
+            orders: scenarioOrders,
+            existingRegisterAccounts: registerAccounts,
+            existingWalletLinks: walletLinks,
+            existingCashMovements: cashMovements,
+            existingEvidenceRecords: evidenceRecords,
+          }),
+        );
+      }
+    }
+
     setFundIssuances((prev) =>
       prev.map((fund) =>
         fund.id === id
@@ -3058,6 +3140,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addFundRedemption = (redemption: FundRedemptionConfig, action: PermissionAction = "create") => {
     if (!ensureIdentitySource(redemption.identitySource)) return false;
     if (!ensurePermission(action, "redemption")) return false;
+    const sourceFund = fundIssuances.find((fund) => fund.id === redemption.fundId);
+    if (sourceFund) {
+      applyDemoScenarioPatch(
+        buildRedemptionEventDemoScenario({
+          redemption,
+          fund: sourceFund,
+          registerAccounts,
+          walletLinks,
+          existingOrders: fundOrders,
+          existingCashMovements: cashMovements,
+          existingEvidenceRecords: evidenceRecords,
+        }),
+      );
+    }
     setFundRedemptions((prev) => [
       {
         ...redemption,
@@ -3117,6 +3213,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ),
     );
     const targetRedemption = fundRedemptions.find((redemption) => redemption.id === id);
+    if (targetRedemption && ["Snapshot Locked", "Payment List Ready", "Burn On Chain"].includes(status)) {
+      const sourceFund = fundIssuances.find((fund) => fund.id === targetRedemption.fundId);
+      if (sourceFund) {
+        applyDemoScenarioPatch(
+          buildRedemptionEventDemoScenario({
+            redemption: { ...targetRedemption, status },
+            fund: sourceFund,
+            registerAccounts,
+            walletLinks,
+            existingOrders: fundOrders,
+            existingCashMovements: cashMovements,
+            existingEvidenceRecords: evidenceRecords,
+          }),
+        );
+      }
+    }
     if (targetRedemption && status === "Burn On Chain") {
       recordRedemptionBurnOnChain({ ...targetRedemption, status });
     }
@@ -3193,6 +3305,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addFundDistribution = (distribution: FundDistribution, action: PermissionAction = "create") => {
     if (!ensureIdentitySource(distribution.identitySource)) return false;
     if (!ensurePermission(action, "distribution")) return false;
+    const sourceFund = distribution.fundId ? fundIssuances.find((fund) => fund.id === distribution.fundId) : undefined;
+    applyDemoScenarioPatch(
+      buildDistributionEventDemoScenario({
+        distribution,
+        fund: sourceFund,
+        registerAccounts,
+        walletLinks,
+        registerVersions,
+        existingCashMovements: cashMovements,
+        existingEvidenceRecords: evidenceRecords,
+      }),
+    );
     setFundDistributions((prev) => [
       {
         ...distribution,
@@ -3248,6 +3372,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ),
     );
     const targetDistribution = fundDistributions.find((distribution) => distribution.id === id);
+    if (
+      targetDistribution &&
+      ["Snapshot Locked", "Pending Allocation", "Put On Chain", "Open For Distribution"].includes(status)
+    ) {
+      const sourceFund = targetDistribution.fundId
+        ? fundIssuances.find((fund) => fund.id === targetDistribution.fundId)
+        : undefined;
+      applyDemoScenarioPatch(
+        buildDistributionEventDemoScenario({
+          distribution: { ...targetDistribution, status },
+          fund: sourceFund,
+          registerAccounts,
+          walletLinks,
+          registerVersions,
+          existingCashMovements: cashMovements,
+          existingEvidenceRecords: evidenceRecords,
+        }),
+      );
+    }
     if (targetDistribution && status === "Put On Chain") {
       recordDistributionOnChain({ ...targetDistribution, status }, "DistributionPayout");
     }
