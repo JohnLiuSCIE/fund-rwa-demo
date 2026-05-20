@@ -76,6 +76,7 @@ function buildDraft(position: HolderSnapshotPosition, line?: SettlementListLine)
 
 export function SnapshotReviewPanel({
   snapshot,
+  officialSnapshotId,
   positions,
   list,
   lines,
@@ -83,6 +84,7 @@ export function SnapshotReviewPanel({
   hideActions = false,
 }: {
   snapshot?: HolderSnapshot;
+  officialSnapshotId?: string;
   positions: HolderSnapshotPosition[];
   list?: SettlementList;
   lines: SettlementListLine[];
@@ -214,10 +216,19 @@ export function SnapshotReviewPanel({
               <MetricCard icon={TriangleAlert} label="Expected Amount" value={lines.length ? `${formatAmount(totalAmount)} ${lines[0]?.currency || "HKD"}` : "Pending"} />
             </div>
 
-            <div className="grid gap-3 rounded-lg border bg-secondary/30 p-4 text-sm md:grid-cols-4">
+            <div className="grid gap-3 rounded-lg border bg-secondary/30 p-4 text-sm md:grid-cols-2 xl:grid-cols-6">
               <div>
-                <div className="text-muted-foreground">Snapshot ID</div>
+                <div className="text-muted-foreground">Official Snapshot ID</div>
+                <div className="break-all font-mono text-xs">{officialSnapshotId || snapshot.officialSnapshotId || "Not assigned"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Canonical Snapshot ID</div>
                 <div className="break-all font-mono text-xs">{snapshot.snapshotId}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Source Event</div>
+                <div className="font-medium">{snapshot.sourceType}</div>
+                <div className="break-all font-mono text-xs text-muted-foreground">{snapshot.sourceReference}</div>
               </div>
               <div>
                 <div className="text-muted-foreground">List ID</div>

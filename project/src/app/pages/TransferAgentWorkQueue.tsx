@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Clock3, FileSearch, ShieldCheck, TriangleAlert } from "lucide-react";
+import { ArrowRight, Clock3, FileSearch, TriangleAlert } from "lucide-react";
 
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { MetricCard } from "../components/MetricCard";
+import { cn } from "../components/ui/utils";
 import { useApp } from "../context/AppContext";
 import {
   getWorkflowTaskActionLabel,
@@ -27,10 +27,11 @@ function statusVariant(status: WorkflowTaskStatus): BadgeVariant {
   return "outline";
 }
 
-function workflowPriority(status: WorkflowTaskStatus) {
-  if (status === "Blocked" || status === "Returned") return "High";
-  if (status === "New Request" || status === "Match Required" || status === "Ready For Approval") return "Normal";
-  return "Low";
+function statusEmphasisClass(status: WorkflowTaskStatus) {
+  if (status === "Blocked" || status === "Returned") return "bg-destructive text-white";
+  if (status === "Match Required") return "border-amber-300 bg-amber-100 text-amber-950";
+  if (status === "Awaiting Issuer") return "border-sky-200 bg-sky-50 text-sky-950";
+  return "";
 }
 
 function getWorkflowAreaLabel(sourceType?: string) {
@@ -58,6 +59,16 @@ function getTaskStageLabel(status: WorkflowTaskStatus) {
   if (status === "Blocked" || status === "Returned") return "Exception";
   if (status === "Completed") return "Completed";
   return status;
+}
+
+function getMatchLabel(match?: { matched: boolean }) {
+  if (!match) return "Match pending";
+  return match.matched ? "Match passed" : "Match exception";
+}
+
+function getMatchBadgeVariant(match?: { matched: boolean }): BadgeVariant {
+  if (!match) return "outline";
+  return match.matched ? "secondary" : "destructive";
 }
 
 export function TransferAgentWorkQueue() {
@@ -153,34 +164,28 @@ export function TransferAgentWorkQueue() {
     return task.taskStatus === "Completed";
   });
   const openCount = workflows.filter(({ task }) => task.taskStatus !== "Completed").length;
-  const readyCount = workflows.filter(({ task }) =>
-    task.taskStatus === "Ready For Approval",
-  ).length;
+  const matchRequiredCount = workflows.filter(({ task }) => task.taskStatus === "Match Required").length;
   const exceptionCount = workflows.filter(({ task }) => ["Blocked", "Returned"].includes(task.taskStatus)).length;
   const waitingIssuerCount = workflows.filter(({ task }) => task.taskStatus === "Awaiting Issuer").length;
-  const areaOptions: Array<{ value: WorkflowAreaFilter; label: string; detail: string; count: number }> = [
+  const areaOptions: Array<{ value: WorkflowAreaFilter; label: string; count: number }> = [
     {
       value: "all",
       label: "All TA Workflows",
-      detail: "Every issuer handoff that needs TA control.",
       count: workflows.length,
     },
     {
       value: "issuanceApproval",
       label: "Issuance Approval",
-      detail: "Fund launch, allocation, and register sign-off approvals.",
       count: workflows.filter(({ instance }) => instance!.sourceType === "Issuance").length,
     },
     {
       value: "distributionSnapshot",
       label: "Distribution Snapshot",
-      detail: "Record-date freeze and recipient list review.",
       count: workflows.filter(({ instance }) => instance!.sourceType === "Distribution").length,
     },
     {
       value: "redemptionPayment",
       label: "Redemption Payment",
-      detail: "Holder snapshot, payment list, and issuer handoff.",
       count: workflows.filter(({ instance }) => instance!.sourceType === "Redemption").length,
     },
   ];
@@ -221,64 +226,78 @@ export function TransferAgentWorkQueue() {
   ];
 
   return (
-    <div className="container mx-auto max-w-7xl px-6 py-8">
-      <div className="mb-8">
-        <div className="mb-2 flex flex-wrap gap-2">
-          <Badge variant="outline">Workflow Engine</Badge>
-          <Badge variant="secondary">Review-gated</Badge>
-        </div>
-        <h1 style={{ fontFamily: "var(--font-heading)" }}>TA Workflows</h1>
-        <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-          Pull issuer requests into a controlled approval flow, match source data, then release register actions from the workflow detail page.
-        </p>
-      </div>
-
-      <div className="mb-6 grid gap-4 md:grid-cols-4">
-        <MetricCard icon={FileSearch} label="Open Workflows" value={openCount} variant="primary" />
-        <MetricCard icon={ShieldCheck} label="Ready Actions" value={readyCount} variant="success" />
-        <MetricCard icon={Clock3} label="Awaiting Issuer" value={waitingIssuerCount} />
-        <MetricCard icon={TriangleAlert} label="Exceptions" value={exceptionCount} variant="warning" />
-      </div>
-
-      <div className="mb-6 rounded-lg border bg-card p-4">
-        <div className="mb-4">
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            1. Workflow area
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {areaOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                  setAreaFilter(option.value);
-                  setStageFilter("all");
-                }}
-                className={`rounded-lg border p-3 text-left transition-colors hover:bg-secondary ${
-                  areaFilter === option.value ? "border-primary bg-primary/5" : "bg-background"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium">{option.label}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{option.detail}</div>
-                  </div>
-                  <Badge variant={areaFilter === option.value ? "default" : "outline"}>{option.count}</Badge>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
+    <div className="container mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
+      <div className="mb-5 flex flex-col gap-3 md:mb-6 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            2. Task stage
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Badge variant="outline">TA Queue</Badge>
+            <Badge variant="secondary">Review-gated</Badge>
           </div>
-          <div className="overflow-x-auto pb-1">
-            <Tabs value={stageFilter} onValueChange={(value) => setStageFilter(value as TaskStageFilter)}>
-              <TabsList className="w-max justify-start">
+          <h1 style={{ fontFamily: "var(--font-heading)" }}>TA Workflow Tasks</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Triage issuer handoffs, resolve match exceptions, and open the next workflow action.
+          </p>
+        </div>
+        <div className="text-sm text-muted-foreground">
+          Showing <span className="font-medium text-foreground">{filteredWorkflows.length}</span> of{" "}
+          <span className="font-medium text-foreground">{workflows.length}</span>
+        </div>
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg border bg-card p-2 text-sm shadow-sm md:mb-5 md:grid-cols-4">
+        <div className="flex items-center justify-between gap-3 rounded-md bg-primary px-3 py-2 text-primary-foreground">
+          <span className="flex items-center gap-2">
+            <FileSearch className="h-4 w-4" />
+            Open
+          </span>
+          <span className="text-lg font-semibold">{openCount}</span>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
+          <span>Match required</span>
+          <span className="text-lg font-semibold">{matchRequiredCount}</span>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-destructive">
+          <span className="flex items-center gap-2">
+            <TriangleAlert className="h-4 w-4" />
+            Exception
+          </span>
+          <span className="text-lg font-semibold">{exceptionCount}</span>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-md border bg-secondary px-3 py-2 text-secondary-foreground">
+          <span className="flex items-center gap-2">
+            <Clock3 className="h-4 w-4" />
+            Awaiting issuer
+          </span>
+          <span className="text-lg font-semibold">{waitingIssuerCount}</span>
+        </div>
+      </div>
+
+      <div className="mb-4 rounded-lg border bg-card p-3 md:mb-5 md:p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Task stage</div>
+            <div className="md:hidden">
+              <select
+                aria-label="Task stage"
+                value={stageFilter}
+                onChange={(event) => setStageFilter(event.target.value as TaskStageFilter)}
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+              >
                 {stageOptions.map((option) => (
-                  <TabsTrigger key={option.value} className="flex-none shrink-0 px-3" value={option.value}>
+                  <option key={option.value} value={option.value}>
+                    {option.label} ({option.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Tabs
+              value={stageFilter}
+              onValueChange={(value) => setStageFilter(value as TaskStageFilter)}
+              className="hidden md:block"
+            >
+              <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/70 p-1">
+                {stageOptions.map((option) => (
+                  <TabsTrigger key={option.value} className="h-8 flex-none whitespace-nowrap px-3 text-sm" value={option.value}>
                     {option.label}
                     <span className="ml-1 text-xs text-muted-foreground">{option.count}</span>
                   </TabsTrigger>
@@ -286,64 +305,109 @@ export function TransferAgentWorkQueue() {
               </TabsList>
             </Tabs>
           </div>
+
+          <div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Workflow area</div>
+            <div className="sm:hidden">
+              <select
+                aria-label="Workflow area"
+                value={areaFilter}
+                onChange={(event) => {
+                  setAreaFilter(event.target.value as WorkflowAreaFilter);
+                  setStageFilter("all");
+                }}
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+              >
+                {areaOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} ({option.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="hidden flex-wrap gap-2 sm:flex">
+              {areaOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setAreaFilter(option.value);
+                    setStageFilter("all");
+                  }}
+                  className={cn(
+                    "inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm transition-colors hover:bg-secondary",
+                    areaFilter === option.value ? "border-primary bg-primary text-primary-foreground" : "bg-background",
+                  )}
+                >
+                  <span className="whitespace-nowrap">{option.label}</span>
+                  <Badge variant={areaFilter === option.value ? "secondary" : "outline"}>{option.count}</Badge>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
+      <Card className="min-w-0">
+        <CardHeader className="pb-3">
           <CardTitle>Workflow Tasks</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-3 xl:hidden">
+        <CardContent className="px-3 pb-4 sm:px-6 sm:pb-6">
+          <div className="space-y-3 lg:hidden">
             {filteredWorkflows.map(({ task, instance, match }) => {
               const meta = getWorkflowSourceMeta(instance!);
+              const reviewComplete = Object.values(task.reviewChecklist).every(Boolean);
+              const actionLabel = getWorkflowTaskActionLabel(instance, task);
               return (
-                <div key={task.taskId} className="rounded-lg border p-4">
+                <div key={task.taskId} className="rounded-lg border bg-background p-3 text-sm">
                   <div className="mb-3 flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium">{meta.eventName}</div>
-                      <div className="text-xs text-muted-foreground">{meta.fundName}</div>
-                      <div className="mt-1 font-mono text-[11px] text-muted-foreground">{meta.sourceLabel}</div>
-                      {meta.relatedLabel ? (
-                        <div className="mt-1 text-[11px] text-muted-foreground">{meta.relatedLabel}</div>
-                      ) : null}
+                    <Badge
+                      variant={statusVariant(task.taskStatus)}
+                      className={cn("max-w-[190px] whitespace-normal text-left", statusEmphasisClass(task.taskStatus))}
+                    >
+                      {task.taskStatus}
+                    </Badge>
+                    <Button asChild size="sm" className="h-9 shrink-0">
+                      <Link to={`/ta/queue/${task.taskId}`}>
+                        Open
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{meta.eventName}</div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">{meta.fundName}</div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-t pt-3">
+                    <div className="min-w-0">
+                      <div className="text-xs text-muted-foreground">Next step</div>
+                      <div className="truncate font-medium">{actionLabel}</div>
                     </div>
-                    <Badge variant={statusVariant(task.taskStatus)}>{task.taskStatus}</Badge>
-                  </div>
-                  <div className="mb-3 rounded-md bg-muted px-3 py-2 text-xs">
-                    <div>{meta.primaryScope}</div>
-                    <div>{meta.secondaryScope}</div>
-                    <div className="mt-1 font-mono">Workflow: {instance!.workflowId}</div>
-                    <div className="font-mono">Task: {task.taskId}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <div className="text-muted-foreground">Step</div>
-                      <div className="font-medium">{instance!.currentStepId}</div>
+                    <div className="text-right">
+                      <div className="text-xs text-muted-foreground">Date</div>
+                      <div className="font-medium">{meta.primaryScope.replace(/^[^:]+:\s*/, "")}</div>
                     </div>
-                    <div>
-                      <div className="text-muted-foreground">Stage</div>
-                      <div className="font-medium">{getTaskStageLabel(task.taskStatus)}</div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <Badge variant="outline">{getWorkflowAreaLabel(instance!.sourceType)}</Badge>
+                    <Badge variant={getMatchBadgeVariant(match)}>{getMatchLabel(match)}</Badge>
+                    {!reviewComplete ? <Badge variant="outline">Review pending</Badge> : null}
+                  </div>
+
+                  <details className="mt-3 text-xs text-muted-foreground">
+                    <summary className="cursor-pointer select-none">More details</summary>
+                    <div className="mt-2 rounded-md bg-muted/70 p-2">
+                      <div>{meta.secondaryScope}</div>
+                      <div>{getTaskStageLabel(task.taskStatus)} · {task.ownerRole}</div>
+                      <div className="font-mono">Workflow {instance!.workflowId}</div>
+                      <div className="font-mono">Task {task.taskId}</div>
+                      <div className="font-mono">{meta.sourceLabel}</div>
+                      {meta.relatedLabel ? <div>{meta.relatedLabel}</div> : null}
                     </div>
-                    <div>
-                      <div className="text-muted-foreground">Match</div>
-                      <div className="font-medium">{match ? (match.matched ? "Passed" : "Exception") : "Pending"}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">Priority</div>
-                    <div className="font-medium">{workflowPriority(task.taskStatus)}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">Assignee</div>
-                    <div className="font-medium">{task.assignee || "Unassigned"}</div>
-                  </div>
-                </div>
-                <Button asChild className="mt-4 w-full">
-                  <Link to={`/ta/queue/${task.taskId}`}>
-                    Open Workflow
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
+                  </details>
                 </div>
               );
             })}
@@ -354,61 +418,70 @@ export function TransferAgentWorkQueue() {
             )}
           </div>
 
-          <div className="hidden xl:block">
-            <Table className="min-w-[1180px]">
+          <div className="hidden lg:block">
+            <Table className="w-full table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Issuer Source</TableHead>
-                  <TableHead>Workflow Linkage</TableHead>
-                  <TableHead>Current Step</TableHead>
-                  <TableHead>Owner</TableHead>
-                  <TableHead>Review / Match</TableHead>
-                  <TableHead className="sticky right-0 z-20 bg-card shadow-[-8px_0_12px_-12px_rgba(15,23,41,0.45)]">
-                    Action
-                  </TableHead>
+                  <TableHead className="w-[10%]">Status</TableHead>
+                  <TableHead className="w-[22%]">Fund / Event</TableHead>
+                  <TableHead className="w-[14%]">Workflow Type</TableHead>
+                  <TableHead className="w-[18%]">Next Step</TableHead>
+                  <TableHead className="w-[15%]">Relevant Date</TableHead>
+                  <TableHead className="w-[13%] whitespace-nowrap">Review / Match</TableHead>
+                  <TableHead className="w-[8%] text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredWorkflows.map(({ task, instance, match }) => {
                   const reviewComplete = Object.values(task.reviewChecklist).every(Boolean);
                   const meta = getWorkflowSourceMeta(instance!);
+                  const actionLabel = getWorkflowTaskActionLabel(instance, task);
                   return (
-                    <TableRow key={task.taskId}>
-                      <TableCell>
-                        <Badge variant={statusVariant(task.taskStatus)}>{task.taskStatus}</Badge>
+                    <TableRow key={task.taskId} className="align-top">
+                      <TableCell className="whitespace-normal py-3">
+                        <Badge
+                          variant={statusVariant(task.taskStatus)}
+                          className={cn("whitespace-normal text-left", statusEmphasisClass(task.taskStatus))}
+                        >
+                          {task.taskStatus}
+                        </Badge>
+                        <div className="mt-2 text-xs text-muted-foreground">{getTaskStageLabel(task.taskStatus)}</div>
                       </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{meta.eventName}</div>
-                        <div className="text-xs text-muted-foreground">{meta.fundName}</div>
-                        <div className="text-xs text-muted-foreground">{getWorkflowAreaLabel(instance!.sourceType)}</div>
-                        <div className="font-mono text-xs text-muted-foreground">{meta.sourceLabel}</div>
-                        {meta.relatedLabel ? (
-                          <div className="text-xs text-muted-foreground">{meta.relatedLabel}</div>
-                        ) : null}
+                      <TableCell className="whitespace-normal py-3">
+                        <div className="truncate font-medium">{meta.eventName}</div>
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground">{meta.fundName}</div>
+                        <details className="mt-2 text-xs text-muted-foreground">
+                          <summary className="cursor-pointer select-none">Source details</summary>
+                          <div className="mt-1 space-y-0.5">
+                            <div className="font-mono">{meta.sourceLabel}</div>
+                            {meta.relatedLabel ? <div>{meta.relatedLabel}</div> : null}
+                            <div className="font-mono">Workflow {instance!.workflowId}</div>
+                            <div className="font-mono">Task {task.taskId}</div>
+                          </div>
+                        </details>
                       </TableCell>
-                      <TableCell>
-                        <div className="text-xs">{meta.primaryScope}</div>
-                        <div className="text-xs text-muted-foreground">{meta.secondaryScope}</div>
-                        <div className="mt-1 font-mono text-[11px] text-muted-foreground">{instance!.workflowId}</div>
-                        <div className="font-mono text-[11px] text-muted-foreground">{task.taskId}</div>
+                      <TableCell className="whitespace-normal py-3">
+                        <Badge variant="outline">{getWorkflowAreaLabel(instance!.sourceType)}</Badge>
+                        <div className="mt-2 text-xs text-muted-foreground">{meta.secondaryScope}</div>
                       </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{instance!.currentStepId}</div>
-                        <div className="text-xs text-muted-foreground">{getTaskStageLabel(task.taskStatus)}</div>
-                        <div className="text-xs text-muted-foreground">{getWorkflowTaskActionLabel(instance, task)}</div>
+                      <TableCell className="whitespace-normal py-3">
+                        <div className="font-medium leading-snug">{actionLabel}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">Step {instance!.currentStepId}</div>
                       </TableCell>
-                      <TableCell>{task.ownerRole}</TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-normal py-3">
+                        <div className="font-medium">{meta.primaryScope.replace(/^[^:]+:\s*/, "")}</div>
+                        <div className="text-xs text-muted-foreground">{task.ownerRole}</div>
+                      </TableCell>
+                      <TableCell className="whitespace-normal py-3">
                         <div className="text-sm">{reviewComplete ? "Review complete" : "Review pending"}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {match ? (match.matched ? "Match passed" : "Match exception") : "Match pending"}
-                        </div>
+                        <Badge variant={getMatchBadgeVariant(match)} className="mt-1">
+                          {getMatchLabel(match)}
+                        </Badge>
                       </TableCell>
-                      <TableCell className="sticky right-0 z-10 bg-card shadow-[-8px_0_12px_-12px_rgba(15,23,41,0.45)]">
+                      <TableCell className="whitespace-nowrap py-3 text-right">
                         <Button asChild size="sm">
                           <Link to={`/ta/queue/${task.taskId}`}>
-                            Open Workflow
+                            Open
                             <ArrowRight className="h-4 w-4" />
                           </Link>
                         </Button>

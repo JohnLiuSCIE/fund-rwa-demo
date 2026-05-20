@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { MetricCard } from "../components/MetricCard";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -39,9 +38,14 @@ import {
   SheetTitle,
 } from "../components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useApp } from "../context/AppContext";
+import {
+  getAdmissionApprovalReadiness,
+  type AdmissionApprovalReadiness,
+} from "../lib/admissionReadiness";
 import type {
+  AdmissionRemediationResponsibleParty,
+  AdmissionRemediationTask,
   EvidenceRecord,
   FundOrder,
   HolderSnapshotPosition,
@@ -70,6 +74,8 @@ type AdmissionRow = {
   latestDelta?: RegisterDelta;
   latestPosition?: HolderSnapshotPosition;
   openTaskCount: number;
+  remediationTasks: AdmissionRemediationTask[];
+  openRemediationTasks: AdmissionRemediationTask[];
 };
 
 type SelectedWalletCommand = {
@@ -77,10 +83,9 @@ type SelectedWalletCommand = {
   row: AdmissionRow;
 };
 
-type ApprovalReadiness = {
-  ready: boolean;
-  reason?: string;
-  actionLabel?: string;
+type SelectedRemediationCommand = {
+  row: AdmissionRow;
+  readiness: AdmissionApprovalReadiness;
 };
 
 type NextAction = {
@@ -115,6 +120,13 @@ type AdmissionAlert = {
   detail: string;
   severity: BadgeVariant;
   rows: AdmissionRegisterRow[];
+};
+
+const admissionTabLabels: Record<AdmissionTab, string> = {
+  all: "All",
+  needsReview: "Needs Review",
+  whitelisted: "Whitelisted",
+  restricted: "Restricted",
 };
 
 function statusVariant(status: string): BadgeVariant {
@@ -181,54 +193,16 @@ function getRequestLabel(account: RegisterAccount, link: WalletLink) {
   return "Exception";
 }
 
+function getApprovalReadiness(row: AdmissionRow): AdmissionApprovalReadiness {
+  return getAdmissionApprovalReadiness(row.wallet, row.account, row.openRemediationTasks);
+}
+
 function canApproveAdmission(row: AdmissionRow) {
-  if (row.wallet.proofStatus === "Missing") return false;
-  if (row.wallet.proofStatus === "Expired") return false;
-  if (row.wallet.proofStatus === "Rejected") return false;
-  if (["Removed", "Suspended"].includes(row.wallet.whitelistStatus)) return false;
-  if (["Restricted", "Suspended", "Closed"].includes(row.account.accountStatus)) return false;
-  return Boolean(row.wallet.proofRefId);
+  return getApprovalReadiness(row).ready;
 }
 
 function getApproveBlockReason(row: AdmissionRow) {
-  if (row.wallet.proofStatus === "Missing") return "KYC proof is required before this wallet can be approved.";
-  if (row.wallet.proofStatus === "Expired") return "Expired proof must be refreshed before approval.";
-  if (row.wallet.proofStatus === "Rejected") return "Rejected proof cannot be approved without a new submission.";
-  if (["Removed", "Suspended"].includes(row.wallet.whitelistStatus)) return "Suspended or removed wallets require remediation before approval.";
-  if (["Restricted", "Suspended", "Closed"].includes(row.account.accountStatus)) {
-    return "Restricted, suspended, or closed holder accounts must be resolved before approval.";
-  }
-  return "Proof evidence is required before this wallet can be approved.";
-}
-
-function getApprovalReadiness(row: AdmissionRow): ApprovalReadiness {
-  if (canApproveAdmission(row)) return { ready: true };
-  if (row.wallet.proofStatus === "Expired") {
-    return {
-      ready: false,
-      reason: getApproveBlockReason(row),
-      actionLabel: "Request Proof Refresh",
-    };
-  }
-  if (row.wallet.proofStatus === "Missing") {
-    return {
-      ready: false,
-      reason: getApproveBlockReason(row),
-      actionLabel: "Request KYC Proof",
-    };
-  }
-  if (["Restricted", "Suspended", "Closed"].includes(row.account.accountStatus)) {
-    return {
-      ready: false,
-      reason: getApproveBlockReason(row),
-      actionLabel: "Review Restriction",
-    };
-  }
-  return {
-    ready: false,
-    reason: getApproveBlockReason(row),
-    actionLabel: "Resolve Evidence",
-  };
+  return getApprovalReadiness(row).reason || "Proof evidence is required before this wallet can be approved.";
 }
 
 function getActionMeta(action: WalletAction) {
@@ -308,13 +282,15 @@ function isNeedsReviewAdmission(row: AdmissionRow) {
     isAwaitingTAReview(row) ||
     isRestrictedAdmission(row) ||
     row.wallet.proofStatus === "Missing" ||
-    row.openTaskCount > 0
+    row.openTaskCount > 0 ||
+    row.openRemediationTasks.length > 0
   );
 }
 
 function getLastActivityAt(row: AdmissionRow) {
   return (
     row.wallet.lastActionAt ||
+    sortByDateDesc(row.remediationTasks, (task) => task.lastActionAt || task.createdAt)[0]?.lastActionAt ||
     row.wallet.verifiedAt ||
     row.latestDelta?.updatedAt ||
     row.latestDelta?.postedAt ||
@@ -340,11 +316,20 @@ function getAdmissionRisk(row: AdmissionRow): AdmissionRiskLevel {
   ) {
     return "High";
   }
-  if (isAwaitingTAReview(row) || row.openTaskCount > 0) return "Watch";
+  if (isAwaitingTAReview(row) || row.openTaskCount > 0 || row.openRemediationTasks.length > 0) return "Watch";
   return "Standard";
 }
 
 function getNextAction(row: AdmissionRow): NextAction {
+  if (row.openRemediationTasks.length > 0) {
+    const task = row.openRemediationTasks[0];
+    return {
+      label: "Remediation open",
+      detail: `${task.actionLabel} assigned to ${task.responsibleParty}.`,
+      variant: "secondary",
+    };
+  }
+
   if (row.wallet.proofStatus === "Missing") {
     return {
       label: "Collect KYC proof",
@@ -401,6 +386,7 @@ function getPriorityScore(row: AdmissionRow) {
   if (canApproveAdmission(row) && isAwaitingTAReview(row)) score += 10;
   if (!canApproveAdmission(row) && isAwaitingTAReview(row)) score += 8;
   score += Math.min(row.openTaskCount * 6, 24);
+  score += Math.min(row.openRemediationTasks.length * 10, 30);
   if (row.relatedOrders.some((order) => !["Completed", "Rejected"].includes(order.status))) score += 12;
   if (row.wallet.whitelistStatus === "Whitelisted") score += 5;
   return score;
@@ -418,6 +404,9 @@ function getAlertReasons(row: AdmissionRow) {
     reasons.push(`${row.account.accountStatus} account`);
   }
   if (row.openTaskCount > 0) reasons.push(`${row.openTaskCount} open workflow${row.openTaskCount > 1 ? "s" : ""}`);
+  if (row.openRemediationTasks.length > 0) {
+    reasons.push(`${row.openRemediationTasks.length} remediation${row.openRemediationTasks.length > 1 ? "s" : ""}`);
+  }
   return reasons;
 }
 
@@ -488,6 +477,7 @@ function getRowHaystack(row: AdmissionRow) {
     row.latestDelta?.deltaType,
     row.latestDelta?.postingStatus,
     row.relatedOrders.map((order) => `${order.id} ${order.status}`).join(" "),
+    row.remediationTasks.map((task) => `${task.taskId} ${task.actionLabel} ${task.reason} ${task.status}`).join(" "),
   ]
     .filter(Boolean)
     .join(" ")
@@ -496,7 +486,10 @@ function getRowHaystack(row: AdmissionRow) {
 
 export function TransferAgentAdmissions() {
   const {
+    admissionRemediationTasks,
     approveWalletLink,
+    completeAdmissionRemediationTask,
+    createAdmissionRemediationTask,
     evidenceRecords,
     fundIssuances,
     fundOrders,
@@ -512,6 +505,7 @@ export function TransferAgentAdmissions() {
   const [activeTab, setActiveTab] = useState<AdmissionTab>("all");
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
   const [selectedCommand, setSelectedCommand] = useState<SelectedWalletCommand | null>(null);
+  const [selectedRemediation, setSelectedRemediation] = useState<SelectedRemediationCommand | null>(null);
 
   const normalizedQuery = query.trim().toLowerCase();
 
@@ -586,6 +580,17 @@ export function TransferAgentAdmissions() {
           const openTaskCount = workflowState.tasks.filter(
             (task) => relatedWorkflowIds.has(task.workflowId) && task.taskStatus !== "Completed",
           ).length;
+          const remediationTasks = sortByDateDesc(
+            admissionRemediationTasks.filter(
+              (task) =>
+                task.walletLinkId === wallet.walletLinkId ||
+                task.registerAccountId === account.registerAccountId,
+            ),
+            (task) => task.lastActionAt || task.createdAt,
+          );
+          const openRemediationTasks = remediationTasks.filter(
+            (task) => task.status === "Open" || task.status === "InProgress",
+          );
 
           return {
             wallet,
@@ -601,11 +606,14 @@ export function TransferAgentAdmissions() {
             latestDelta: relatedDeltas[0],
             latestPosition,
             openTaskCount,
+            remediationTasks,
+            openRemediationTasks,
           };
         })
         .filter((item): item is AdmissionRow => Boolean(item)),
     [
       accountById,
+      admissionRemediationTasks,
       evidenceById,
       evidenceRecords,
       fundNameById,
@@ -662,6 +670,7 @@ export function TransferAgentAdmissions() {
     );
     const restrictionRows = admissionRegisterRows.filter(({ row }) => isRestrictedAdmission(row));
     const workflowRows = admissionRegisterRows.filter(({ row }) => row.openTaskCount > 0);
+    const remediationRows = admissionRegisterRows.filter(({ row }) => row.openRemediationTasks.length > 0);
 
     return [
       {
@@ -691,6 +700,13 @@ export function TransferAgentAdmissions() {
         detail: "Admission records tied to unfinished TA workflow tasks.",
         severity: "outline",
         rows: workflowRows,
+      },
+      {
+        id: "remediation-requests",
+        title: "Remediation requests",
+        detail: "Open User Management requests block admission approval until completed.",
+        severity: "secondary",
+        rows: remediationRows,
       },
     ].filter((alert) => alert.rows.length > 0);
   }, [admissionRegisterRows]);
@@ -731,6 +747,45 @@ export function TransferAgentAdmissions() {
     toast.error(result.message || "Whitelist command failed.");
   };
 
+  const runCreateRemediation = (
+    row: AdmissionRow,
+    readiness: AdmissionApprovalReadiness,
+    input: {
+      responsibleParty: AdmissionRemediationResponsibleParty;
+      dueAt?: string;
+    },
+  ) => {
+    const result = createAdmissionRemediationTask(
+      row.wallet.walletLinkId,
+      {
+        actionLabel: readiness.actionLabel || "Resolve Evidence",
+        reason: readiness.reason || "Admission evidence requires remediation before approval.",
+        responsibleParty: input.responsibleParty,
+        dueAt: input.dueAt,
+      },
+      row.wallet.version,
+    );
+    if (result.success) {
+      toast.success(result.message);
+      setSelectedRemediation(null);
+      return;
+    }
+    toast.error(result.message || "Remediation request could not be created.");
+  };
+
+  const runCompleteRemediation = (task: AdmissionRemediationTask) => {
+    const result = completeAdmissionRemediationTask(
+      task.taskId,
+      task.version,
+      "TA reviewed the requested evidence or account update.",
+    );
+    if (result.success) {
+      toast.success(result.message);
+      return;
+    }
+    toast.error(result.message || "Remediation request could not be completed.");
+  };
+
   const openActionSheet = (action: WalletAction, row: AdmissionRow) => {
     if (action === "approve" && !canApproveAdmission(row)) {
       toast.error(getApproveBlockReason(row));
@@ -739,12 +794,16 @@ export function TransferAgentAdmissions() {
     setSelectedCommand({ action, row });
   };
 
+  const openRemediationSheet = (row: AdmissionRow, readiness: AdmissionApprovalReadiness) => {
+    setSelectedRemediation({ row, readiness });
+  };
+
   const renderActions = (row: AdmissionRow) => {
     const { account, wallet } = row;
     const approvalReadiness = getApprovalReadiness(row);
     if (wallet.whitelistStatus === "Whitelisted") {
       return (
-        <Button size="sm" variant="destructive" onClick={() => openActionSheet("remove", row)}>
+        <Button className="min-w-24" size="sm" variant="destructive" onClick={() => openActionSheet("remove", row)}>
           Remove
         </Button>
       );
@@ -752,18 +811,18 @@ export function TransferAgentAdmissions() {
 
     if (wallet.whitelistStatus === "Pending" || wallet.proofStatus === "Submitted" || account.accountStatus === "Pending") {
       return (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 md:min-w-[190px]">
           {approvalReadiness.ready ? (
-            <Button size="sm" onClick={() => openActionSheet("approve", row)}>
+            <Button className="min-w-24" size="sm" onClick={() => openActionSheet("approve", row)}>
               Approve
             </Button>
           ) : (
-            <Button size="sm" variant="outline" disabled title={approvalReadiness.reason}>
+            <Button className="min-w-24" size="sm" variant="outline" title={approvalReadiness.reason} onClick={() => openRemediationSheet(row, approvalReadiness)}>
               <RefreshCw className="mr-1 h-3.5 w-3.5" />
-              {approvalReadiness.actionLabel}
+              Resolve
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={() => openActionSheet("reject", row)}>
+          <Button className="min-w-20" size="sm" variant="outline" onClick={() => openActionSheet("reject", row)}>
             Reject
           </Button>
         </div>
@@ -771,19 +830,19 @@ export function TransferAgentAdmissions() {
     }
 
     return (
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 md:min-w-[190px]">
         {approvalReadiness.ready ? (
-          <Button size="sm" onClick={() => openActionSheet("approve", row)}>
+          <Button className="min-w-24" size="sm" onClick={() => openActionSheet("approve", row)}>
             Approve
           </Button>
         ) : (
-          <Button size="sm" variant="outline" disabled title={approvalReadiness.reason}>
+          <Button className="min-w-24" size="sm" variant="outline" title={approvalReadiness.reason} onClick={() => openRemediationSheet(row, approvalReadiness)}>
             <RefreshCw className="mr-1 h-3.5 w-3.5" />
-            {approvalReadiness.actionLabel}
+            Resolve
           </Button>
         )}
         {wallet.whitelistStatus !== "Removed" && (
-          <Button size="sm" variant="destructive" onClick={() => openActionSheet("remove", row)}>
+          <Button className="min-w-20" size="sm" variant="destructive" onClick={() => openActionSheet("remove", row)}>
             Remove
           </Button>
         )}
@@ -798,153 +857,149 @@ export function TransferAgentAdmissions() {
     restricted: restrictedRows.length,
   };
 
-  const renderRegisterRows = () => (
-    <AdmissionsRegisterRows rows={visibleRegisterRows} renderActions={renderActions} />
+  const rowByWalletLinkId = useMemo(
+    () => new Map(rows.map((row) => [row.wallet.walletLinkId, row])),
+    [rows],
+  );
+  const openRemediationTasks = useMemo(
+    () =>
+      sortByDateDesc(
+        admissionRemediationTasks.filter((task) => task.status === "Open" || task.status === "InProgress"),
+        (task) => task.dueAt || task.lastActionAt || task.createdAt,
+      ),
+    [admissionRemediationTasks],
   );
 
   return (
-    <div className="container mx-auto max-w-7xl px-6 py-8">
-      <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div className="container mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:py-8">
+      <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Badge variant="outline">Book of Record</Badge>
             <Badge variant="secondary">Admissions</Badge>
           </div>
           <h1 style={{ fontFamily: "var(--font-heading)" }}>User Management / Admissions</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Review wallet admission risk, proof evidence, and whitelist actions before they affect the register.
-          </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[380px]">
-          <div className="rounded-lg border bg-card p-3">
-            <div className="text-xs text-muted-foreground">Active holders</div>
-            <div className="mt-1 text-2xl font-semibold" style={{ fontFamily: "var(--font-heading)" }}>
-              {admissionSummary.holderCount}
-            </div>
-          </div>
-          <div className="rounded-lg border bg-card p-3">
-            <div className="text-xs text-muted-foreground">Registered units</div>
-            <div className="mt-1 truncate text-2xl font-semibold" style={{ fontFamily: "var(--font-heading)" }}>
-              {formatUnits(admissionSummary.totalUnits)}
-            </div>
-          </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{admissionSummary.holderCount} holders</Badge>
+          <Badge variant="outline">{formatUnits(admissionSummary.totalUnits)} units</Badge>
         </div>
       </div>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <MetricCard icon={Clock3} label="Needs Review" value={admissionSummary.needsReview} variant="warning" />
-        <MetricCard icon={CheckCircle2} label="Ready To Approve" value={admissionSummary.readyToApprove} variant="success" />
-        <MetricCard icon={ShieldCheck} label="Whitelisted Wallets" value={admissionSummary.whitelisted} variant="primary" />
-        <MetricCard
-          icon={FileSearch}
-          label="Evidence Linked"
-          value={`${admissionSummary.evidenceLinked}/${admissionSummary.totalWallets}`}
-        />
-        <MetricCard
-          icon={AlertTriangle}
-          label="Alerts"
-          value={alertItemCount}
-          variant="warning"
-        />
-      </div>
+      <CompactAdmissionSummary summary={admissionSummary} alertItemCount={alertItemCount} />
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+      <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px] 2xl:items-start">
         <Card className="min-w-0">
-          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
+          <CardHeader className="border-b pb-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <CardTitle className="flex items-center gap-2">
+                <FileSearch className="h-4 w-4" />
+                Admissions Register
+              </CardTitle>
+              <Badge variant="outline">{visibleRegisterRows.length} shown</Badge>
+            </div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="pl-9"
+                  placeholder="Search admissions"
+                />
+              </div>
+              <Select value={activeTab} onValueChange={(value) => setActiveTab(value as AdmissionTab)}>
+                <SelectTrigger aria-label="Admission status filter">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(admissionTabLabels) as AdmissionTab[]).map((tab) => (
+                    <SelectItem key={tab} value={tab}>
+                      {admissionTabLabels[tab]} ({registerTabCounts[tab]})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={riskFilter} onValueChange={(value) => setRiskFilter(value as RiskFilter)}>
+                <SelectTrigger aria-label="Risk filter">
+                  <Filter className="h-4 w-4 text-muted-foreground" />
+                  <SelectValue placeholder="Risk filter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All risk</SelectItem>
+                  <SelectItem value="high">High risk</SelectItem>
+                  <SelectItem value="watch">Watch</SelectItem>
+                  <SelectItem value="standard">Standard</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="hidden flex-wrap gap-2 pt-3 md:flex">
+              {(Object.keys(admissionTabLabels) as AdmissionTab[]).map((tab) => (
+                <Button
+                  key={tab}
+                  type="button"
+                  size="sm"
+                  variant={activeTab === tab ? "default" : "outline"}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {admissionTabLabels[tab]} ({registerTabCounts[tab]})
+                </Button>
+              ))}
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <AdmissionsRegisterRows rows={visibleRegisterRows} renderActions={renderActions} />
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-4 2xl:sticky 2xl:top-4">
+          <Card className="min-w-0">
+            <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <ListChecks className="h-4 w-4" />
-                Priority Admissions Queue
+                Priority Queue
               </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Highest-risk wallet admissions, ordered by review state and exception pressure.
-              </p>
-            </div>
-            <Badge variant="outline">{priorityQueue.length} queued</Badge>
-          </CardHeader>
-          <CardContent>
-            <PriorityAdmissionsQueue rows={priorityQueue} renderActions={renderActions} />
-          </CardContent>
-        </Card>
+              <Badge variant="outline">{priorityQueue.length}</Badge>
+            </CardHeader>
+            <CardContent>
+              <PriorityAdmissionsQueue rows={priorityQueue} renderActions={renderActions} />
+            </CardContent>
+          </Card>
 
-        <Card className="min-w-0">
-          <CardHeader className="flex flex-col gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-2">
+          <Card className="min-w-0">
+            <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
                 <ShieldAlert className="h-4 w-4" />
-                Alerts & Exceptions
+                Alerts
               </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Proof, restriction, and workflow items that can block admission decisions.
-              </p>
-            </div>
-            <Badge variant="outline">{alertItemCount} items</Badge>
-          </CardHeader>
-          <CardContent>
-            <AdmissionAlertsPanel alerts={alerts} />
-          </CardContent>
-        </Card>
+              <Badge variant="outline">{alertItemCount}</Badge>
+            </CardHeader>
+            <CardContent>
+              <AdmissionAlertsPanel alerts={alerts} />
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      <Card className="min-w-0">
+      <Card className="mt-6 min-w-0">
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <FileSearch className="h-4 w-4" />
-              Admissions Register
+              <UserCheck className="h-4 w-4" />
+              User Management Requests
             </CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Search holder, wallet, fund, or status across the full admissions record.
+              Remediation requests that must close before unsafe admissions can be approved.
             </p>
           </div>
-          <Badge variant="outline">{visibleRegisterRows.length} shown</Badge>
+          <Badge variant="outline">{openRemediationTasks.length} open</Badge>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="pl-9"
-                placeholder="Search holder, wallet, fund, or status"
-              />
-            </div>
-            <Select value={riskFilter} onValueChange={(value) => setRiskFilter(value as RiskFilter)}>
-              <SelectTrigger aria-label="Risk filter">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <SelectValue placeholder="Risk filter" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All risk</SelectItem>
-                <SelectItem value="high">High risk</SelectItem>
-                <SelectItem value="watch">Watch</SelectItem>
-                <SelectItem value="standard">Standard</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as AdmissionTab)} className="gap-4">
-            <TabsList className="max-w-full justify-start overflow-x-auto">
-              <TabsTrigger value="all">All ({registerTabCounts.all})</TabsTrigger>
-              <TabsTrigger value="needsReview">Needs Review ({registerTabCounts.needsReview})</TabsTrigger>
-              <TabsTrigger value="whitelisted">Whitelisted ({registerTabCounts.whitelisted})</TabsTrigger>
-              <TabsTrigger value="restricted">Restricted ({registerTabCounts.restricted})</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="all" className="mt-4">
-              {renderRegisterRows()}
-            </TabsContent>
-            <TabsContent value="needsReview" className="mt-4">
-              {renderRegisterRows()}
-            </TabsContent>
-            <TabsContent value="whitelisted" className="mt-4">
-              {renderRegisterRows()}
-            </TabsContent>
-            <TabsContent value="restricted" className="mt-4">
-              {renderRegisterRows()}
-            </TabsContent>
-          </Tabs>
+          <AdmissionRemediationQueue
+            tasks={openRemediationTasks}
+            rowByWalletLinkId={rowByWalletLinkId}
+            onComplete={runCompleteRemediation}
+          />
         </CardContent>
       </Card>
 
@@ -957,6 +1012,77 @@ export function TransferAgentAdmissions() {
           />
         )}
       </Sheet>
+      <Sheet open={Boolean(selectedRemediation)} onOpenChange={(open) => (!open ? setSelectedRemediation(null) : undefined)}>
+        {selectedRemediation && (
+          <RemediationRequestSheetContent
+            command={selectedRemediation}
+            onCancel={() => setSelectedRemediation(null)}
+            onConfirm={(input) =>
+              runCreateRemediation(selectedRemediation.row, selectedRemediation.readiness, input)
+            }
+          />
+        )}
+      </Sheet>
+    </div>
+  );
+}
+
+function CompactAdmissionSummary({
+  summary,
+  alertItemCount,
+}: {
+  summary: AdmissionSummary;
+  alertItemCount: number;
+}) {
+  const items = [
+    {
+      label: "Needs review",
+      value: summary.needsReview,
+      icon: Clock3,
+      variant: "secondary" as BadgeVariant,
+    },
+    {
+      label: "Ready",
+      value: summary.readyToApprove,
+      icon: CheckCircle2,
+      variant: "default" as BadgeVariant,
+    },
+    {
+      label: "Whitelisted",
+      value: summary.whitelisted,
+      icon: ShieldCheck,
+      variant: "outline" as BadgeVariant,
+    },
+    {
+      label: "Evidence",
+      value: `${summary.evidenceLinked}/${summary.totalWallets}`,
+      icon: FileSearch,
+      variant: "outline" as BadgeVariant,
+    },
+    {
+      label: "Alerts",
+      value: alertItemCount,
+      icon: AlertTriangle,
+      variant: alertItemCount > 0 ? ("secondary" as BadgeVariant) : ("outline" as BadgeVariant),
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-2 rounded-lg border bg-card p-2 sm:grid-cols-3 lg:grid-cols-5">
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <div key={item.label} className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-muted/35 px-3 py-2">
+            <div className="min-w-0">
+              <div className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">{item.label}</div>
+              <div className="truncate text-lg font-semibold leading-tight">{item.value}</div>
+            </div>
+            <Badge variant={item.variant} className="shrink-0 px-2">
+              <Icon className="h-3.5 w-3.5" />
+            </Badge>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1045,52 +1171,27 @@ function PriorityAdmissionsQueue({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {rows.map((item) => {
         const { row } = item;
         return (
-          <div key={row.wallet.walletLinkId} className="rounded-lg border p-4">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={riskVariant(item.risk)}>{item.risk} risk</Badge>
+          <div key={row.wallet.walletLinkId} className="rounded-lg border p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{row.account.holderName}</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <Badge variant={riskVariant(item.risk)}>{item.risk}</Badge>
                   <Badge variant={statusVariant(row.requestLabel)}>{row.requestLabel}</Badge>
-                  {item.alertReasons.slice(0, 2).map((reason) => (
-                    <Badge key={reason} variant="outline">
-                      {reason}
-                    </Badge>
-                  ))}
                 </div>
-
-                <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-                  <div className="min-w-0">
-                    <div className="truncate text-base font-semibold">{row.account.holderName}</div>
-                    <div className="truncate font-mono text-xs text-muted-foreground">
-                      {row.account.registerAccountId}
-                    </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <InfoBlock label="Fund / Class" value={`${row.fundName} / ${row.account.classId}`} />
-                      <InfoBlock
-                        label="Evidence"
-                        value={row.proofEvidence?.label || row.wallet.proofRefId || "Missing proof"}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                    <NextActionBlock item={item} />
-                    <div className="min-w-0">
-                      <div className="text-xs text-muted-foreground">Wallet</div>
-                      <div className="mt-1">
-                        <WalletAddress address={row.wallet.walletAddress} chainId={row.wallet.chainId} />
-                      </div>
-                    </div>
-                  </div>
+                <div className="mt-2 break-words text-xs text-muted-foreground">
+                  {item.alertReasons[0] || item.nextAction.detail}
                 </div>
               </div>
-
-              <div className="flex shrink-0 flex-wrap gap-2 xl:justify-end">{renderActions(row)}</div>
+              <div className="shrink-0 text-right text-xs text-muted-foreground">
+                {formatDate(item.lastActivityAt)}
+              </div>
             </div>
+            <div className="mt-3 flex flex-wrap gap-2">{renderActions(row)}</div>
           </div>
         );
       })}
@@ -1114,28 +1215,110 @@ function AdmissionAlertsPanel({ alerts }: { alerts: AdmissionAlert[] }) {
             </div>
             <Badge variant={alert.severity}>{alert.rows.length}</Badge>
           </div>
-          <div className="mt-3 space-y-2">
-            {alert.rows.slice(0, 3).map((item) => (
-              <div key={`${alert.id}-${item.row.wallet.walletLinkId}`} className="rounded-md bg-muted/40 p-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{item.row.account.holderName}</div>
-                    <div className="mt-1">
-                      <WalletAddress address={item.row.wallet.walletAddress} chainId={item.row.wallet.chainId} compact />
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">Next: {item.nextAction.label}</div>
-                  </div>
-                  <Badge variant={riskVariant(item.risk)}>{item.risk}</Badge>
-                </div>
-              </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {alert.rows.slice(0, 4).map((item) => (
+              <Badge key={`${alert.id}-${item.row.wallet.walletLinkId}`} variant="outline" className="max-w-full truncate">
+                {item.row.account.holderName}
+              </Badge>
             ))}
-            {alert.rows.length > 3 && (
-              <div className="px-1 text-xs text-muted-foreground">+{alert.rows.length - 3} more in the register</div>
+            {alert.rows.length > 4 && (
+              <Badge variant="secondary">+{alert.rows.length - 4}</Badge>
             )}
           </div>
         </div>
       ))}
     </div>
+  );
+}
+
+function AdmissionRemediationQueue({
+  tasks,
+  rowByWalletLinkId,
+  onComplete,
+}: {
+  tasks: AdmissionRemediationTask[];
+  rowByWalletLinkId: Map<string, AdmissionRow>;
+  onComplete: (task: AdmissionRemediationTask) => void;
+}) {
+  if (tasks.length === 0) {
+    return <EmptyState message="No open User Management remediation requests." />;
+  }
+
+  return (
+    <>
+      <div className="space-y-3 md:hidden">
+        {tasks.map((task) => {
+          const row = rowByWalletLinkId.get(task.walletLinkId);
+          return (
+            <div key={task.taskId} className="rounded-lg border p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium">{task.actionLabel}</div>
+                  <div className="mt-1 break-words text-xs text-muted-foreground">{task.reason}</div>
+                </div>
+                <Badge variant={statusVariant(task.status)}>{task.status}</Badge>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <InfoBlock label="Holder" value={row?.account.holderName || task.registerAccountId} />
+                <InfoBlock label="Owner / Due" value={`${task.responsibleParty} / ${formatDate(task.dueAt)}`} />
+                <InfoBlock label="Fund / Class" value={`${row?.fundName || task.fundId} / ${task.classId}`} />
+                <InfoBlock label="Request ID" value={task.taskId} mono />
+              </div>
+              <Button className="mt-4 w-full" size="sm" variant="outline" onClick={() => onComplete(task)}>
+                <CheckCircle2 className="h-4 w-4" />
+                Complete
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
+        <Table className="min-w-[900px] table-fixed">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[20%]">Request</TableHead>
+              <TableHead className="w-[20%]">Holder</TableHead>
+              <TableHead className="w-[18%]">Owner</TableHead>
+              <TableHead className="w-[28%]">Reason</TableHead>
+              <TableHead className="w-[14%] text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tasks.map((task) => {
+              const row = rowByWalletLinkId.get(task.walletLinkId);
+              return (
+                <TableRow key={task.taskId}>
+                  <TableCell className="whitespace-normal align-top">
+                    <div className="font-medium">{task.actionLabel}</div>
+                    <div className="mt-1 break-all font-mono text-xs text-muted-foreground">{task.taskId}</div>
+                    <Badge className="mt-2" variant={statusVariant(task.status)}>{task.status}</Badge>
+                  </TableCell>
+                  <TableCell className="whitespace-normal align-top">
+                    <div className="truncate font-medium">{row?.account.holderName || task.registerAccountId}</div>
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">{task.registerAccountId}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{row?.fundName || task.fundId}</div>
+                  </TableCell>
+                  <TableCell className="whitespace-normal align-top">
+                    <div className="font-medium">{task.responsibleParty}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">Due {formatDate(task.dueAt)}</div>
+                  </TableCell>
+                  <TableCell className="whitespace-normal align-top">
+                    <div className="break-words text-sm">{task.reason}</div>
+                  </TableCell>
+                  <TableCell className="text-right align-top">
+                    <Button size="sm" variant="outline" onClick={() => onComplete(task)}>
+                      <CheckCircle2 className="h-4 w-4" />
+                      Complete
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   );
 }
 
@@ -1152,7 +1335,7 @@ function AdmissionsRegisterRows({
         {rows.map((item) => {
           const { row } = item;
           return (
-            <div key={row.wallet.walletLinkId} className="rounded-lg border p-4 text-sm">
+            <div key={row.wallet.walletLinkId} className="rounded-lg border p-3 text-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate font-medium">{row.account.holderName}</div>
@@ -1161,8 +1344,7 @@ function AdmissionsRegisterRows({
                 <Badge variant={riskVariant(item.risk)}>{item.risk}</Badge>
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <InfoBlock label="Fund / Class" value={`${row.fundName} / ${row.account.classId}`} />
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
                   <div className="text-xs text-muted-foreground">Wallet</div>
                   <div className="mt-1">
@@ -1179,7 +1361,7 @@ function AdmissionsRegisterRows({
                 <NextActionBlock item={item} compact />
               </div>
 
-              <div className="mt-4">{renderActions(row)}</div>
+              <div className="mt-3">{renderActions(row)}</div>
             </div>
           );
         })}
@@ -1187,16 +1369,15 @@ function AdmissionsRegisterRows({
       </div>
 
       <div className="hidden overflow-x-auto md:block">
-        <Table className="min-w-[1080px] table-fixed">
+        <Table className="min-w-[980px] table-fixed">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[13%]">Risk</TableHead>
-            <TableHead className="w-[17%]">Holder</TableHead>
-            <TableHead className="w-[15%]">Wallet</TableHead>
-            <TableHead className="w-[15%]">Fund / Class</TableHead>
-            <TableHead className="w-[14%]">Status</TableHead>
-            <TableHead className="w-[17%]">Next Action</TableHead>
-            <TableHead className="w-[9%]">Command</TableHead>
+            <TableHead className="w-[22%]">Holder</TableHead>
+            <TableHead className="w-[10%]">Risk</TableHead>
+            <TableHead className="w-[16%]">Status</TableHead>
+            <TableHead className="w-[24%]">Blocker / Next Action</TableHead>
+            <TableHead className="w-[12%]">Evidence</TableHead>
+            <TableHead className="w-[16%] min-w-[200px]">Command</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -1205,39 +1386,34 @@ function AdmissionsRegisterRows({
             return (
               <TableRow key={row.wallet.walletLinkId}>
               <TableCell className="whitespace-normal align-top">
-                <div className="flex flex-wrap gap-1">
-                  <Badge variant={riskVariant(item.risk)}>{item.risk}</Badge>
-                  <Badge variant={statusVariant(row.requestLabel)}>{row.requestLabel}</Badge>
+                <div className="truncate font-medium">{row.account.holderName}</div>
+                <div className="font-mono text-xs text-muted-foreground">{row.account.registerAccountId}</div>
+                <div className="mt-2">
+                  <WalletAddress address={row.wallet.walletAddress} chainId={row.wallet.chainId} compact />
                 </div>
+              </TableCell>
+              <TableCell className="whitespace-normal align-top">
+                <Badge variant={riskVariant(item.risk)}>{item.risk}</Badge>
                 <div className="mt-2 text-xs text-muted-foreground">{formatDate(item.lastActivityAt)}</div>
               </TableCell>
               <TableCell className="whitespace-normal align-top">
-                <div className="truncate font-medium">{row.account.holderName}</div>
-                <div className="font-mono text-xs text-muted-foreground">{row.account.registerAccountId}</div>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  <Badge variant={statusVariant(row.account.accountStatus)}>{row.account.accountStatus}</Badge>
-                  <Badge variant="outline">{row.account.holderType}</Badge>
-                </div>
-              </TableCell>
-              <TableCell className="whitespace-normal align-top">
-                <WalletAddress address={row.wallet.walletAddress} chainId={row.wallet.chainId} />
-              </TableCell>
-              <TableCell className="whitespace-normal align-top">
-                <div className="truncate font-medium">{row.fundName}</div>
-                <div className="text-xs text-muted-foreground">{row.account.classId}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{row.account.units} units</div>
-              </TableCell>
-              <TableCell className="whitespace-normal align-top">
                 <div className="flex flex-wrap gap-1">
+                  <Badge variant={statusVariant(row.requestLabel)}>{row.requestLabel}</Badge>
                   <Badge variant={statusVariant(row.wallet.proofStatus)}>{row.wallet.proofStatus}</Badge>
                   <Badge variant={statusVariant(row.wallet.whitelistStatus)}>{row.wallet.whitelistStatus}</Badge>
                 </div>
-                <div className="mt-2 text-xs text-muted-foreground">
-                  {item.alertReasons.join(", ") || row.admissionState}
-                </div>
+                <div className="mt-2 truncate text-xs text-muted-foreground">{row.fundName} / {row.account.classId}</div>
               </TableCell>
               <TableCell className="whitespace-normal align-top">
                 <NextActionBlock item={item} compact />
+              </TableCell>
+              <TableCell className="whitespace-normal align-top">
+                <div className="truncate text-sm font-medium">
+                  {row.proofEvidence?.label || row.wallet.proofRefId || "Missing proof"}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {row.relatedEvidence.length} linked
+                </div>
               </TableCell>
               <TableCell className="whitespace-normal align-top">{renderActions(row)}</TableCell>
             </TableRow>
@@ -1245,7 +1421,7 @@ function AdmissionsRegisterRows({
           })}
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="py-12">
+              <TableCell colSpan={6} className="py-12">
                 <EmptyState message="No wallet admission record matches this view." />
               </TableCell>
             </TableRow>
@@ -1271,6 +1447,116 @@ function DetailItem({ label, children, mono = false }: { label: string; children
         {children}
       </div>
     </div>
+  );
+}
+
+const remediationResponsibleParties: AdmissionRemediationResponsibleParty[] = [
+  "Investor",
+  "Distributor",
+  "Compliance",
+  "Issuer",
+  "TA Ops",
+];
+
+function defaultRemediationParty(actionLabel?: string): AdmissionRemediationResponsibleParty {
+  if (actionLabel === "Review Restriction") return "Compliance";
+  if (actionLabel === "Request KYC Proof" || actionLabel === "Request Proof Refresh") return "Investor";
+  return "TA Ops";
+}
+
+function RemediationRequestSheetContent({
+  command,
+  onCancel,
+  onConfirm,
+}: {
+  command: SelectedRemediationCommand;
+  onCancel: () => void;
+  onConfirm: (input: { responsibleParty: AdmissionRemediationResponsibleParty; dueAt?: string }) => void;
+}) {
+  const { row, readiness } = command;
+  const [responsibleParty, setResponsibleParty] = useState<AdmissionRemediationResponsibleParty>(
+    defaultRemediationParty(readiness.actionLabel),
+  );
+  const [dueDate, setDueDate] = useState("");
+  const existingOpenTask = row.openRemediationTasks.find(
+    (task) => task.actionLabel === readiness.actionLabel || task.reason === readiness.reason,
+  );
+  const dueAt = dueDate ? `${dueDate}T18:00:00.000Z` : undefined;
+
+  return (
+    <SheetContent className="!w-full overflow-y-auto sm:!max-w-2xl">
+      <SheetHeader className="border-b pr-12">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <Badge variant={statusVariant(row.wallet.proofStatus)}>{row.wallet.proofStatus}</Badge>
+          <Badge variant={statusVariant(row.account.accountStatus)}>{row.account.accountStatus}</Badge>
+          {existingOpenTask ? <Badge variant="secondary">Already open</Badge> : null}
+        </div>
+        <SheetTitle>{readiness.actionLabel || "Resolve admission evidence"}</SheetTitle>
+        <SheetDescription>
+          Create a User Management request before this wallet can move to whitelist approval.
+        </SheetDescription>
+      </SheetHeader>
+
+      <div className="space-y-5 py-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <DetailItem label="Holder">{row.account.holderName}</DetailItem>
+          <DetailItem label="Register Account" mono>{row.account.registerAccountId}</DetailItem>
+          <DetailItem label="Wallet" mono>{row.wallet.walletAddress}</DetailItem>
+          <DetailItem label="Fund / Class">{row.fundName} / {row.account.classId}</DetailItem>
+        </div>
+
+        <div className="rounded-lg border bg-muted/30 p-4">
+          <div className="text-sm font-medium">Approval Blocker</div>
+          <div className="mt-2 text-sm text-muted-foreground">{readiness.reason}</div>
+        </div>
+
+        {existingOpenTask ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-medium">Existing request</div>
+            <div className="mt-1">
+              {existingOpenTask.taskId} is assigned to {existingOpenTask.responsibleParty} and due{" "}
+              {formatDate(existingOpenTask.dueAt)}.
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <div className="mb-2 text-sm font-medium">Responsible party</div>
+              <Select
+                value={responsibleParty}
+                onValueChange={(value) => setResponsibleParty(value as AdmissionRemediationResponsibleParty)}
+              >
+                <SelectTrigger aria-label="Responsible party">
+                  <SelectValue placeholder="Responsible party" />
+                </SelectTrigger>
+                <SelectContent>
+                  {remediationResponsibleParties.map((party) => (
+                    <SelectItem key={party} value={party}>{party}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <div className="mb-2 text-sm font-medium">Due date</div>
+              <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <SheetFooter className="border-t pt-4">
+        <Button variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          onClick={() => onConfirm({ responsibleParty, dueAt })}
+          disabled={Boolean(existingOpenTask)}
+        >
+          <RefreshCw className="h-4 w-4" />
+          {existingOpenTask ? "Request Open" : "Create Request"}
+        </Button>
+      </SheetFooter>
+    </SheetContent>
   );
 }
 

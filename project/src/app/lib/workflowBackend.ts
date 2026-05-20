@@ -3,7 +3,7 @@ import {
   initialTransferAgencyInstructions,
   type ActorRole,
   type HolderSnapshot,
-} from "../data/fundDemoData";
+} from "../data/fundDemoData.ts";
 
 export type WorkflowSourceType = "Distribution" | "Redemption" | "Issuance";
 
@@ -91,6 +91,71 @@ export interface MatchResult {
   version: number;
 }
 
+export type ApprovalPackageSubmissionStatus =
+  | "Draft"
+  | "InReview"
+  | "MatchPassed"
+  | "MatchException"
+  | "ReturnedToIssuer"
+  | "SubmittedToIssuer"
+  | "IssuerAcknowledged"
+  | "Reconciled";
+
+export interface ApprovalPackageBlocker {
+  blockerId: string;
+  packageId: string;
+  workflowId: string;
+  taskId: string;
+  source: "Checklist" | "Match" | "SnapshotRow" | "ListRow" | "CashMovement" | "Evidence" | "Return";
+  sourceId?: string;
+  reason: string;
+  actorRole: ActorRole;
+  createdAt: string;
+  resolvedAt?: string;
+  version: number;
+}
+
+export interface ApprovalDecision {
+  decisionId: string;
+  packageId: string;
+  workflowId: string;
+  taskId: string;
+  actorRole: ActorRole;
+  actorUserId: string;
+  decision: "Approve" | "Return" | "Reject" | "Waive";
+  comment?: string;
+  evidenceRefIds: string[];
+  decidedAt: string;
+  version: number;
+}
+
+export interface ApprovalPackage {
+  packageId: string;
+  workflowId: string;
+  taskId: string;
+  sourceType: WorkflowSourceType;
+  sourceReference: string;
+  sourceEventReference?: string;
+  fundId: string;
+  classId: string;
+  sourceOrderIds: string[];
+  selectedSnapshotRowIds: string[];
+  selectedListLineIds: string[];
+  selectedCashMovementIds: string[];
+  selectedEvidenceRefIds: string[];
+  reviewChecklist: Record<string, boolean>;
+  matchResultId?: string;
+  decisionIds: string[];
+  blockerIds: string[];
+  submissionStatus: ApprovalPackageSubmissionStatus;
+  submittedAt?: string;
+  returnedAt?: string;
+  issuerAcknowledgedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
 export interface WorkflowActionLog {
   actionLogId: string;
   workflowId: string;
@@ -105,7 +170,9 @@ export interface WorkflowActionLog {
     | "return"
     | "submit"
     | "acknowledge"
-    | "reconcile";
+    | "reconcile"
+    | "savePackage"
+    | "decision";
   actorRole: ActorRole;
   message: string;
   createdAt: string;
@@ -116,6 +183,9 @@ export interface WorkflowBackendState {
   instances: WorkflowInstance[];
   tasks: WorkflowTask[];
   matchResults: MatchResult[];
+  approvalPackages: ApprovalPackage[];
+  approvalDecisions: ApprovalDecision[];
+  approvalPackageBlockers: ApprovalPackageBlocker[];
   actionLogs: WorkflowActionLog[];
 }
 
@@ -133,6 +203,14 @@ export interface WorkflowCommandOptions {
   idempotencyKey?: string;
 }
 
+export interface ApprovalPackageRefsInput {
+  sourceOrderIds?: string[];
+  selectedSnapshotRowIds?: string[];
+  selectedListLineIds?: string[];
+  selectedCashMovementIds?: string[];
+  selectedEvidenceRefIds?: string[];
+}
+
 export interface WorkflowReviewChecklistItem {
   key: string;
   label: string;
@@ -141,7 +219,7 @@ export interface WorkflowReviewChecklistItem {
   failDetail: string;
 }
 
-const STORAGE_KEY = "fund-rwa-workflow-state-v4";
+const STORAGE_KEY = "fund-rwa-workflow-state-v5";
 const CHANNEL_NAME = "fund-rwa-workflow";
 
 function now() {
@@ -158,6 +236,200 @@ function makeWorkflowId(sourceType: WorkflowSourceType, sourceReference: string)
 
 function makeTaskId(workflowId: string) {
   return `task-${workflowId}`;
+}
+
+function makeApprovalPackageId(workflowId: string) {
+  return `pkg-${workflowId}`;
+}
+
+function workflowStatusToPackageStatus(status: WorkflowStatus): ApprovalPackageSubmissionStatus {
+  if (status === "MatchPassed") return "MatchPassed";
+  if (status === "MatchException") return "MatchException";
+  if (status === "ReturnedToIssuer") return "ReturnedToIssuer";
+  if (status === "SnapshotLocked" || status === "RecipientListGenerated" || status === "PaymentListGenerated") {
+    return "MatchPassed";
+  }
+  if (status === "SubmittedToIssuer") return "SubmittedToIssuer";
+  if (status === "IssuerAcknowledged") return "IssuerAcknowledged";
+  if (status === "Reconciled") return "Reconciled";
+  if (status === "TAResponded" || status === "TAPulled") return "InReview";
+  return "Draft";
+}
+
+function actorUserIdForRole(actorRole: ActorRole) {
+  if (actorRole === "issuer") return "issuer-demo";
+  if (actorRole === "transferAgent") return "ta-operator-demo";
+  return `${actorRole}-demo`;
+}
+
+function createApprovalPackage(
+  instance: WorkflowInstance,
+  task: WorkflowTask,
+  createdAt: string,
+): ApprovalPackage {
+  return {
+    packageId: makeApprovalPackageId(instance.workflowId),
+    workflowId: instance.workflowId,
+    taskId: task.taskId,
+    sourceType: instance.sourceType,
+    sourceReference: instance.sourceReference,
+    sourceEventReference: instance.sourceEventReference,
+    fundId: instance.fundId,
+    classId: instance.classId,
+    sourceOrderIds: instance.relatedOrderIds || [],
+    selectedSnapshotRowIds: [],
+    selectedListLineIds: [],
+    selectedCashMovementIds: [],
+    selectedEvidenceRefIds: [],
+    reviewChecklist: task.reviewChecklist,
+    matchResultId: task.matchResultId,
+    decisionIds: [],
+    blockerIds: [],
+    submissionStatus: workflowStatusToPackageStatus(instance.status),
+    createdAt,
+    updatedAt: createdAt,
+    version: 1,
+  };
+}
+
+function mergeRefs(packageRecord: ApprovalPackage, refs?: ApprovalPackageRefsInput): ApprovalPackage {
+  if (!refs) return packageRecord;
+  return {
+    ...packageRecord,
+    sourceOrderIds: refs.sourceOrderIds ?? packageRecord.sourceOrderIds,
+    selectedSnapshotRowIds: refs.selectedSnapshotRowIds ?? packageRecord.selectedSnapshotRowIds,
+    selectedListLineIds: refs.selectedListLineIds ?? packageRecord.selectedListLineIds,
+    selectedCashMovementIds: refs.selectedCashMovementIds ?? packageRecord.selectedCashMovementIds,
+    selectedEvidenceRefIds: refs.selectedEvidenceRefIds ?? packageRecord.selectedEvidenceRefIds,
+  };
+}
+
+function upsertApprovalPackageRecord(
+  state: WorkflowBackendState,
+  instance: WorkflowInstance,
+  task: WorkflowTask,
+  updates: Partial<ApprovalPackage> = {},
+  refs?: ApprovalPackageRefsInput,
+  timestamp = now(),
+) {
+  const packageId = makeApprovalPackageId(instance.workflowId);
+  const existing = state.approvalPackages.find((item) => item.packageId === packageId);
+  const base = existing || createApprovalPackage(instance, task, timestamp);
+  const nextPackage = mergeRefs(
+    {
+      ...base,
+      ...updates,
+      packageId,
+      workflowId: instance.workflowId,
+      taskId: task.taskId,
+      sourceType: instance.sourceType,
+      sourceReference: instance.sourceReference,
+      sourceEventReference: instance.sourceEventReference,
+      fundId: instance.fundId,
+      classId: instance.classId,
+      reviewChecklist: updates.reviewChecklist || task.reviewChecklist,
+      matchResultId: updates.matchResultId ?? task.matchResultId,
+      submissionStatus: updates.submissionStatus || workflowStatusToPackageStatus(instance.status),
+      updatedAt: timestamp,
+      version: existing ? base.version + 1 : base.version,
+    },
+    refs,
+  );
+
+  return {
+    ...state,
+    approvalPackages: existing
+      ? state.approvalPackages.map((item) => (item.packageId === packageId ? nextPackage : item))
+      : [nextPackage, ...state.approvalPackages],
+  };
+}
+
+function addApprovalDecision(
+  state: WorkflowBackendState,
+  packageRecord: ApprovalPackage,
+  input: {
+    taskId: string;
+    actorRole: ActorRole;
+    actorUserId: string;
+    decision: ApprovalDecision["decision"];
+    comment?: string;
+    evidenceRefIds?: string[];
+  },
+  timestamp = now(),
+) {
+  const decision: ApprovalDecision = {
+    decisionId: `decision-${packageRecord.packageId}-${input.decision.toLowerCase()}-${timestamp.replace(/[^0-9]/g, "")}`,
+    packageId: packageRecord.packageId,
+    workflowId: packageRecord.workflowId,
+    taskId: input.taskId,
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    decision: input.decision,
+    comment: input.comment,
+    evidenceRefIds: input.evidenceRefIds || [],
+    decidedAt: timestamp,
+    version: 1,
+  };
+  const decisionIds = [decision.decisionId, ...packageRecord.decisionIds.filter((id) => id !== decision.decisionId)];
+  return {
+    ...state,
+    approvalDecisions: [decision, ...state.approvalDecisions],
+    approvalPackages: state.approvalPackages.map((item) =>
+      item.packageId === packageRecord.packageId
+        ? { ...item, decisionIds, updatedAt: timestamp, version: item.version + 1 }
+        : item,
+    ),
+  };
+}
+
+function addApprovalBlocker(
+  state: WorkflowBackendState,
+  packageRecord: ApprovalPackage,
+  input: {
+    taskId: string;
+    actorRole: ActorRole;
+    source: ApprovalPackageBlocker["source"];
+    sourceId?: string;
+    reason: string;
+  },
+  timestamp = now(),
+) {
+  const blocker: ApprovalPackageBlocker = {
+    blockerId: `blocker-${packageRecord.packageId}-${input.source.toLowerCase()}-${timestamp.replace(/[^0-9]/g, "")}`,
+    packageId: packageRecord.packageId,
+    workflowId: packageRecord.workflowId,
+    taskId: input.taskId,
+    source: input.source,
+    sourceId: input.sourceId,
+    reason: input.reason,
+    actorRole: input.actorRole,
+    createdAt: timestamp,
+    version: 1,
+  };
+  const blockerIds = [blocker.blockerId, ...packageRecord.blockerIds.filter((id) => id !== blocker.blockerId)];
+  return {
+    ...state,
+    approvalPackageBlockers: [blocker, ...state.approvalPackageBlockers],
+    approvalPackages: state.approvalPackages.map((item) =>
+      item.packageId === packageRecord.packageId
+        ? { ...item, blockerIds, updatedAt: timestamp, version: item.version + 1 }
+        : item,
+    ),
+  };
+}
+
+function resolveApprovalPackageBlockers(
+  state: WorkflowBackendState,
+  packageRecord: ApprovalPackage,
+  timestamp = now(),
+) {
+  let changed = false;
+  const approvalPackageBlockers = state.approvalPackageBlockers.map((blocker) => {
+    if (blocker.packageId !== packageRecord.packageId || blocker.resolvedAt) return blocker;
+    changed = true;
+    return { ...blocker, resolvedAt: timestamp, version: blocker.version + 1 };
+  });
+  return changed ? { ...state, approvalPackageBlockers } : state;
 }
 
 export function isRedemptionCloseOutReference(sourceType?: WorkflowSourceType, sourceReference?: string) {
@@ -655,6 +927,9 @@ function createInitialWorkflowState(): WorkflowBackendState {
   const instances: WorkflowInstance[] = [];
   const tasks: WorkflowTask[] = [];
   const matchResults: MatchResult[] = [];
+  const approvalPackages: ApprovalPackage[] = [];
+  const approvalDecisions: ApprovalDecision[] = [];
+  const approvalPackageBlockers: ApprovalPackageBlocker[] = [];
   const actionLogs: WorkflowActionLog[] = [];
 
   seededWorkflows.forEach((seed) => {
@@ -715,6 +990,34 @@ function createInitialWorkflowState(): WorkflowBackendState {
       matchResults.push(matchResult);
       task.matchResultId = matchResult.matchResultId;
     }
+    const approvalPackage = createApprovalPackage(instance, task, seed.createdAt);
+    approvalPackages.push({
+      ...approvalPackage,
+      submissionStatus: workflowStatusToPackageStatus(instance.status),
+      updatedAt: seed.updatedAt,
+    });
+    if (seed.matchResult && !seed.matchResult.matched) {
+      const blocker: ApprovalPackageBlocker = {
+        blockerId: `blocker-${approvalPackage.packageId}-match-seed`,
+        packageId: approvalPackage.packageId,
+        workflowId,
+        taskId: task.taskId,
+        source: "Match",
+        sourceId: task.matchResultId,
+        reason: seed.matchResult.exception || "Match exception recorded.",
+        actorRole: "transferAgent",
+        createdAt: seed.updatedAt,
+        version: 1,
+      };
+      approvalPackageBlockers.push(blocker);
+      const packageIndex = approvalPackages.findIndex((item) => item.packageId === approvalPackage.packageId);
+      if (packageIndex >= 0) {
+        approvalPackages[packageIndex] = {
+          ...approvalPackages[packageIndex],
+          blockerIds: [blocker.blockerId],
+        };
+      }
+    }
     instances.push(instance);
     tasks.push(task);
     seed.logs.forEach((log, index) => {
@@ -736,6 +1039,9 @@ function createInitialWorkflowState(): WorkflowBackendState {
     instances,
     tasks,
     matchResults,
+    approvalPackages,
+    approvalDecisions,
+    approvalPackageBlockers,
     actionLogs,
   };
 }
@@ -745,7 +1051,16 @@ function safeParseState(value: string | null): WorkflowBackendState | null {
   try {
     const parsed = JSON.parse(value) as WorkflowBackendState;
     if (!Array.isArray(parsed.instances) || !Array.isArray(parsed.tasks)) return null;
-    return parsed;
+    return {
+      ...parsed,
+      matchResults: Array.isArray(parsed.matchResults) ? parsed.matchResults : [],
+      approvalPackages: Array.isArray(parsed.approvalPackages) ? parsed.approvalPackages : [],
+      approvalDecisions: Array.isArray(parsed.approvalDecisions) ? parsed.approvalDecisions : [],
+      approvalPackageBlockers: Array.isArray(parsed.approvalPackageBlockers)
+        ? parsed.approvalPackageBlockers
+        : [],
+      actionLogs: Array.isArray(parsed.actionLogs) ? parsed.actionLogs : [],
+    };
   } catch {
     return null;
   }
@@ -812,6 +1127,36 @@ function normalizeWorkflowTaskChecklists(state: WorkflowBackendState): WorkflowB
   });
 
   return changed ? { ...state, tasks } : state;
+}
+
+function normalizeApprovalPackages(state: WorkflowBackendState): WorkflowBackendState {
+  let nextState = state;
+  state.tasks.forEach((task) => {
+    const instance = state.instances.find((item) => item.workflowId === task.workflowId);
+    if (!instance) return;
+    const existing = nextState.approvalPackages.find((item) => item.workflowId === instance.workflowId);
+    if (existing) {
+      if (
+        existing.taskId === task.taskId &&
+        existing.submissionStatus === workflowStatusToPackageStatus(instance.status) &&
+        existing.matchResultId === task.matchResultId
+      ) {
+        return;
+      }
+    }
+    nextState = upsertApprovalPackageRecord(
+      nextState,
+      instance,
+      task,
+      {
+        submissionStatus: workflowStatusToPackageStatus(instance.status),
+        matchResultId: task.matchResultId,
+      },
+      undefined,
+      instance.updatedAt,
+    );
+  });
+  return nextState;
 }
 
 function normalizeTaReviewIntake(state: WorkflowBackendState): WorkflowBackendState {
@@ -886,7 +1231,9 @@ function normalizeTaReviewIntake(state: WorkflowBackendState): WorkflowBackendSt
 }
 
 function normalizeWorkflowState(state: WorkflowBackendState): WorkflowBackendState {
-  return normalizeWorkflowTaskChecklists(normalizeTaReviewIntake(normalizeCompletedHandoffs(state)));
+  return normalizeApprovalPackages(
+    normalizeWorkflowTaskChecklists(normalizeTaReviewIntake(normalizeCompletedHandoffs(state))),
+  );
 }
 
 function broadcast() {
@@ -928,6 +1275,103 @@ function getWorkflowByTask(state: WorkflowBackendState, taskId: string) {
   const task = state.tasks.find((item) => item.taskId === taskId);
   const instance = task ? state.instances.find((item) => item.workflowId === task.workflowId) : undefined;
   return { task, instance };
+}
+
+export function getApprovalPackageForWorkflow(state: WorkflowBackendState, workflowId: string) {
+  return state.approvalPackages.find((item) => item.workflowId === workflowId);
+}
+
+export function upsertApprovalPackage(
+  taskId: string,
+  refs: ApprovalPackageRefsInput,
+  actorRole: ActorRole,
+  options?: WorkflowCommandOptions,
+): WorkflowCommandResult {
+  let result: WorkflowCommandResult = { success: false, message: "Workflow task was not found.", error: "NOT_FOUND" };
+  updateState((state) => {
+    const { task, instance } = getWorkflowByTask(state, taskId);
+    if (!task || !instance) return state;
+    const conflict = getVersionConflict(task, options);
+    if (conflict) {
+      result = conflict;
+      return state;
+    }
+    const timestamp = now();
+    result = { success: true, message: "Approval package saved.", workflowId: instance.workflowId, taskId };
+    const nextState = upsertApprovalPackageRecord(
+      state,
+      instance,
+      task,
+      {
+        submissionStatus: workflowStatusToPackageStatus(instance.status),
+        reviewChecklist: task.reviewChecklist,
+        matchResultId: task.matchResultId,
+      },
+      refs,
+      timestamp,
+    );
+    return {
+      ...nextState,
+      actionLogs: [
+        auditLog(
+          instance.workflowId,
+          actorRole,
+          "savePackage",
+          "Approval package references saved.",
+          taskId,
+          options?.idempotencyKey,
+          instance.currentStepId,
+        ),
+        ...nextState.actionLogs,
+      ],
+    };
+  });
+  return result;
+}
+
+export function recordApprovalDecision(
+  input: {
+    taskId: string;
+    decision: ApprovalDecision["decision"];
+    actorRole: ActorRole;
+    actorUserId: string;
+    comment?: string;
+    evidenceRefIds?: string[];
+  },
+  options?: WorkflowCommandOptions,
+): WorkflowCommandResult {
+  let result: WorkflowCommandResult = { success: false, message: "Workflow task was not found.", error: "NOT_FOUND" };
+  updateState((state) => {
+    const { task, instance } = getWorkflowByTask(state, input.taskId);
+    if (!task || !instance) return state;
+    const conflict = getVersionConflict(task, options);
+    if (conflict) {
+      result = conflict;
+      return state;
+    }
+    const timestamp = now();
+    const packageState = upsertApprovalPackageRecord(state, instance, task, {}, undefined, timestamp);
+    const packageRecord = getApprovalPackageForWorkflow(packageState, instance.workflowId);
+    if (!packageRecord) return state;
+    const decisionState = addApprovalDecision(packageState, packageRecord, input, timestamp);
+    result = { success: true, message: "Approval decision recorded.", workflowId: instance.workflowId, taskId: input.taskId };
+    return {
+      ...decisionState,
+      actionLogs: [
+        auditLog(
+          instance.workflowId,
+          input.actorRole,
+          "decision",
+          `${input.decision} decision recorded for approval package.`,
+          input.taskId,
+          options?.idempotencyKey,
+          instance.currentStepId,
+        ),
+        ...decisionState.actionLogs,
+      ],
+    };
+  });
+  return result;
 }
 
 function getVersionConflict(
@@ -1049,6 +1493,7 @@ export function createIssuerWorkflowInstruction(input: {
       ...state,
       instances: [instance, ...state.instances],
       tasks: [task, ...state.tasks],
+      approvalPackages: [createApprovalPackage(instance, task, createdAt), ...state.approvalPackages],
       actionLogs: [
         auditLog(
           instance.workflowId,
@@ -1083,22 +1528,32 @@ export function updateWorkflowTaskChecklist(
 ): WorkflowCommandResult {
   let result: WorkflowCommandResult = { success: false, message: "Workflow task was not found.", error: "NOT_FOUND" };
   updateState((state) => {
-    const { task } = getWorkflowByTask(state, taskId);
-    if (!task) return state;
+    const { task, instance } = getWorkflowByTask(state, taskId);
+    if (!task || !instance) return state;
     const conflict = getVersionConflict(task, options);
     if (conflict) {
       result = conflict;
       return state;
     }
-    result = { success: true, message: "Review checklist updated.", taskId };
-    return {
+    const timestamp = now();
+    const nextTask = { ...task, reviewChecklist: checklist, updatedAt: timestamp, version: task.version + 1 };
+    const nextState = {
       ...state,
-      tasks: state.tasks.map((item) =>
-        item.taskId === taskId
-          ? { ...item, reviewChecklist: checklist, updatedAt: now(), version: item.version + 1 }
-          : item,
-      ),
+      tasks: state.tasks.map((item) => (item.taskId === taskId ? nextTask : item)),
     };
+    result = { success: true, message: "Review checklist updated.", taskId };
+    return upsertApprovalPackageRecord(
+      nextState,
+      instance,
+      nextTask,
+      {
+        reviewChecklist: checklist,
+        matchResultId: nextTask.matchResultId,
+        submissionStatus: workflowStatusToPackageStatus(instance.status),
+      },
+      undefined,
+      timestamp,
+    );
   });
   return result;
 }
@@ -1267,6 +1722,7 @@ export function matchWorkflowTask(
       result = { success: false, message: "Open Review & Match before running match.", error: "INVALID_STATE" };
       return state;
     }
+    const timestamp = now();
     const matchResult: MatchResult = {
       matchResultId: `match-${instance.workflowId}-${Date.now()}`,
       workflowId: instance.workflowId,
@@ -1278,7 +1734,7 @@ export function matchWorkflowTask(
         detail: index === 0 || matched ? item.passDetail : item.failDetail,
       })),
       exception,
-      createdAt: now(),
+      createdAt: timestamp,
       actorRole,
       version: 1,
     };
@@ -1301,24 +1757,21 @@ export function matchWorkflowTask(
       workflowId: instance.workflowId,
       taskId,
     };
-    return {
+    const nextTask = {
+      ...setTaskStatus(
+        task,
+        nextInstance,
+        matched ? "Ready For Approval" : "Blocked",
+        "transferAgent",
+        true,
+        true,
+      ),
+      matchResultId: matchResult.matchResultId,
+    };
+    const nextState = {
       ...state,
       instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
-      tasks: state.tasks.map((item) =>
-        item.taskId === taskId
-          ? {
-              ...setTaskStatus(
-                item,
-                nextInstance,
-                matched ? "Ready For Approval" : "Blocked",
-                "transferAgent",
-                true,
-                true,
-              ),
-              matchResultId: matchResult.matchResultId,
-            }
-          : item,
-      ),
+      tasks: state.tasks.map((item) => (item.taskId === taskId ? nextTask : item)),
       matchResults: [matchResult, ...state.matchResults],
       actionLogs: [
         auditLog(
@@ -1333,6 +1786,32 @@ export function matchWorkflowTask(
         ...state.actionLogs,
       ],
     };
+    const packageState = upsertApprovalPackageRecord(
+      nextState,
+      nextInstance,
+      nextTask,
+      {
+        matchResultId: matchResult.matchResultId,
+        submissionStatus: matched ? "MatchPassed" : "MatchException",
+      },
+      undefined,
+      timestamp,
+    );
+    const packageRecord = getApprovalPackageForWorkflow(packageState, instance.workflowId);
+    if (!packageRecord) return packageState;
+    if (matched) return resolveApprovalPackageBlockers(packageState, packageRecord, timestamp);
+    return addApprovalBlocker(
+      packageState,
+      packageRecord,
+      {
+        taskId,
+        actorRole,
+        source: "Match",
+        sourceId: matchResult.matchResultId,
+        reason: exception || "Match exception recorded.",
+      },
+      timestamp,
+    );
   });
   return result;
 }
@@ -1353,13 +1832,13 @@ export function returnWorkflowTask(
       return state;
     }
     const nextInstance = setInstanceStatus(instance, "ReturnedToIssuer", "IssuerSubmitted", actorRole, "return");
+    const nextTask = setTaskStatus(task, nextInstance, "Returned", "issuer", true, true);
+    const timestamp = now();
     result = { success: true, message: "Workflow returned to issuer.", workflowId: instance.workflowId, taskId };
-    return {
+    const nextState = {
       ...state,
       instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
-      tasks: state.tasks.map((item) =>
-        item.taskId === taskId ? setTaskStatus(item, nextInstance, "Returned", "issuer", true, true) : item,
-      ),
+      tasks: state.tasks.map((item) => (item.taskId === taskId ? nextTask : item)),
       actionLogs: [
         auditLog(
           instance.workflowId,
@@ -1373,6 +1852,43 @@ export function returnWorkflowTask(
         ...state.actionLogs,
       ],
     };
+    const packageState = upsertApprovalPackageRecord(
+      nextState,
+      nextInstance,
+      nextTask,
+      {
+        returnedAt: timestamp,
+        submissionStatus: "ReturnedToIssuer",
+      },
+      undefined,
+      timestamp,
+    );
+    const packageRecord = getApprovalPackageForWorkflow(packageState, instance.workflowId);
+    if (!packageRecord) return packageState;
+    const decisionState = addApprovalDecision(
+      packageState,
+      packageRecord,
+      {
+        taskId,
+        actorRole,
+        actorUserId: actorUserIdForRole(actorRole),
+        decision: "Return",
+        comment: reason || "TA returned request to issuer.",
+      },
+      timestamp,
+    );
+    const nextPackageRecord = getApprovalPackageForWorkflow(decisionState, instance.workflowId) || packageRecord;
+    return addApprovalBlocker(
+      decisionState,
+      nextPackageRecord,
+      {
+        taskId,
+        actorRole,
+        source: "Return",
+        reason: reason || "TA returned request to issuer.",
+      },
+      timestamp,
+    );
   });
   return result;
 }
@@ -1442,27 +1958,50 @@ export function submitWorkflowStep(
     }
 
     const nextInstance = setInstanceStatus(instance, nextStatus, nextStep, actorRole, "submit");
+    const nextTask = setTaskStatus(
+      task,
+      nextInstance,
+      taskStatus,
+      taskStatus === "Awaiting Issuer" ? "issuer" : "transferAgent",
+      false,
+      false,
+    );
+    const timestamp = now();
     result = { success: true, message, workflowId: instance.workflowId, taskId };
-    return {
+    const nextState = {
       ...state,
       instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
-      tasks: state.tasks.map((item) =>
-        item.taskId === taskId
-          ? setTaskStatus(
-              item,
-              nextInstance,
-              taskStatus,
-              taskStatus === "Awaiting Issuer" ? "issuer" : "transferAgent",
-              false,
-              false,
-            )
-          : item,
-      ),
+      tasks: state.tasks.map((item) => (item.taskId === taskId ? nextTask : item)),
       actionLogs: [
         auditLog(instance.workflowId, actorRole, "submit", message, taskId, options?.idempotencyKey, logStepId),
         ...state.actionLogs,
       ],
     };
+    const packageState = upsertApprovalPackageRecord(
+      nextState,
+      nextInstance,
+      nextTask,
+      {
+        submittedAt: nextStatus === "SubmittedToIssuer" ? timestamp : undefined,
+        submissionStatus: workflowStatusToPackageStatus(nextStatus),
+      },
+      undefined,
+      timestamp,
+    );
+    const packageRecord = getApprovalPackageForWorkflow(packageState, instance.workflowId);
+    if (!packageRecord) return packageState;
+    return addApprovalDecision(
+      packageState,
+      packageRecord,
+      {
+        taskId,
+        actorRole,
+        actorUserId: actorUserIdForRole(actorRole),
+        decision: "Approve",
+        comment: message,
+      },
+      timestamp,
+    );
   });
   return result;
 }
@@ -1486,13 +2025,13 @@ export function acknowledgeWorkflowTask(
       return state;
     }
     const nextInstance = setInstanceStatus(instance, "IssuerAcknowledged", "IssuerAcknowledge", actorRole, "acknowledge");
+    const nextTask = setTaskStatus(task, nextInstance, "Completed", "issuer", false, false);
+    const timestamp = now();
     result = { success: true, message: "Issuer acknowledged TA output. TA workflow is complete.", workflowId: instance.workflowId, taskId };
-    return {
+    const nextState = {
       ...state,
       instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
-      tasks: state.tasks.map((item) =>
-        item.taskId === taskId ? setTaskStatus(item, nextInstance, "Completed", "issuer", false, false) : item,
-      ),
+      tasks: state.tasks.map((item) => (item.taskId === taskId ? nextTask : item)),
       actionLogs: [
         auditLog(
           instance.workflowId,
@@ -1506,6 +2045,31 @@ export function acknowledgeWorkflowTask(
         ...state.actionLogs,
       ],
     };
+    const packageState = upsertApprovalPackageRecord(
+      nextState,
+      nextInstance,
+      nextTask,
+      {
+        issuerAcknowledgedAt: timestamp,
+        submissionStatus: "IssuerAcknowledged",
+      },
+      undefined,
+      timestamp,
+    );
+    const packageRecord = getApprovalPackageForWorkflow(packageState, instance.workflowId);
+    if (!packageRecord) return packageState;
+    return addApprovalDecision(
+      packageState,
+      packageRecord,
+      {
+        taskId,
+        actorRole,
+        actorUserId: actorUserIdForRole(actorRole),
+        decision: "Approve",
+        comment: "Issuer acknowledged TA output.",
+      },
+      timestamp,
+    );
   });
   return result;
 }
@@ -1538,13 +2102,13 @@ export function reconcileWorkflowTask(
       return state;
     }
     const nextInstance = setInstanceStatus(instance, "Reconciled", "ReconcileCloseOut", actorRole, "reconcile");
+    const nextTask = setTaskStatus(task, nextInstance, "Completed", "transferAgent", false, false);
+    const timestamp = now();
     result = { success: true, message: "Workflow reconciled and closed.", workflowId: instance.workflowId, taskId };
-    return {
+    const nextState = {
       ...state,
       instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
-      tasks: state.tasks.map((item) =>
-        item.taskId === taskId ? setTaskStatus(item, nextInstance, "Completed", "transferAgent", false, false) : item,
-      ),
+      tasks: state.tasks.map((item) => (item.taskId === taskId ? nextTask : item)),
       actionLogs: [
         auditLog(
           instance.workflowId,
@@ -1558,6 +2122,30 @@ export function reconcileWorkflowTask(
         ...state.actionLogs,
       ],
     };
+    const packageState = upsertApprovalPackageRecord(
+      nextState,
+      nextInstance,
+      nextTask,
+      {
+        submissionStatus: "Reconciled",
+      },
+      undefined,
+      timestamp,
+    );
+    const packageRecord = getApprovalPackageForWorkflow(packageState, instance.workflowId);
+    if (!packageRecord) return packageState;
+    return addApprovalDecision(
+      packageState,
+      packageRecord,
+      {
+        taskId,
+        actorRole,
+        actorUserId: actorUserIdForRole(actorRole),
+        decision: "Approve",
+        comment: "TA reconciled close-out.",
+      },
+      timestamp,
+    );
   });
   return result;
 }

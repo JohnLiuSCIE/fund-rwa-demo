@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useRef, useState, ReactNode } fro
 
 import {
   ActorRole,
+  AdmissionRemediationResponsibleParty,
+  AdmissionRemediationTask,
   AnchoringEvent,
   CashMovement,
   EvidenceRecord,
@@ -24,6 +26,7 @@ import {
   TransferAgencyNavRecord,
   WalletLink,
   initialAnchoringEvents,
+  initialAdmissionRemediationTasks,
   initialCashMovements,
   initialDistributions,
   initialEvidenceRecords,
@@ -60,6 +63,8 @@ import {
   submitWorkflowStep,
   subscribeWorkflowState,
   updateWorkflowTaskChecklist,
+  upsertApprovalPackage,
+  type ApprovalPackageRefsInput,
   type WorkflowBackendState,
   type WorkflowCommandOptions,
   type WorkflowCommandResult,
@@ -70,6 +75,7 @@ import {
   buildRedemptionEventDemoScenario,
   type DemoScenarioPatch,
 } from "../lib/demoScenarioEngine";
+import { getAdmissionApprovalReadiness } from "../lib/admissionReadiness";
 
 export type UserRole = ActorRole;
 
@@ -123,7 +129,13 @@ interface PermissionResult {
 interface TransferAgencyCommandResult {
   success: boolean;
   message?: string;
-  error?: "VERSION_CONFLICT" | "NOT_FOUND" | "PERMISSION_DENIED" | "OPEN_BREAK" | "INVALID_STATE";
+  error?:
+    | "VERSION_CONFLICT"
+    | "NOT_FOUND"
+    | "PERMISSION_DENIED"
+    | "OPEN_BREAK"
+    | "INVALID_STATE"
+    | "ADMISSION_NOT_READY";
   currentVersion?: number;
   id?: string;
 }
@@ -177,6 +189,24 @@ interface AppContextType {
   transferAgencyInstructions: TransferAgencyInstruction[];
   registerAccounts: RegisterAccount[];
   walletLinks: WalletLink[];
+  admissionRemediationTasks: AdmissionRemediationTask[];
+  createAdmissionRemediationTask: (
+    walletLinkId: string,
+    input: {
+      actionLabel: string;
+      reason: string;
+      responsibleParty: AdmissionRemediationResponsibleParty;
+      dueAt?: string;
+    },
+    expectedVersion?: number,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
+  completeAdmissionRemediationTask: (
+    taskId: string,
+    expectedVersion?: number,
+    resolutionNote?: string,
+    idempotencyKey?: string,
+  ) => TransferAgencyCommandResult;
   approveWalletLink: (
     walletLinkId: string,
     expectedVersion?: number,
@@ -210,6 +240,7 @@ interface AppContextType {
   workflowPullTask: (taskId: string) => WorkflowCommandResult;
   workflowRespondTask: (taskId: string) => WorkflowCommandResult;
   workflowUpdateChecklist: (taskId: string, checklist: Record<string, boolean>) => WorkflowCommandResult;
+  workflowSaveApprovalPackage: (taskId: string, refs?: ApprovalPackageRefsInput) => WorkflowCommandResult;
   workflowMatchTask: (taskId: string, matched: boolean, exception?: string) => WorkflowCommandResult;
   workflowReturnTask: (taskId: string, reason: string) => WorkflowCommandResult;
   workflowSubmitCurrentStep: (taskId: string) => WorkflowCommandResult;
@@ -876,6 +907,7 @@ interface CanonicalPersistedState {
   transferAgencyInstructions: TransferAgencyInstruction[];
   registerAccounts: RegisterAccount[];
   walletLinks: WalletLink[];
+  admissionRemediationTasks: AdmissionRemediationTask[];
   registerDeltas: RegisterDelta[];
   registerVersions: RegisterVersion[];
   cashMovements: CashMovement[];
@@ -903,6 +935,7 @@ const initialCanonicalState: CanonicalPersistedState = {
   transferAgencyInstructions: initialTransferAgencyInstructions,
   registerAccounts: initialRegisterAccounts,
   walletLinks: initialWalletLinks,
+  admissionRemediationTasks: initialAdmissionRemediationTasks,
   registerDeltas: initialRegisterDeltas,
   registerVersions: initialRegisterVersions,
   cashMovements: initialCashMovements,
@@ -936,6 +969,11 @@ function loadCanonicalState(): CanonicalPersistedState {
       ...parsed,
       registerAccounts: mergeByKey(initialRegisterAccounts, parsed.registerAccounts, "registerAccountId"),
       walletLinks: mergeByKey(initialWalletLinks, parsed.walletLinks, "walletLinkId"),
+      admissionRemediationTasks: mergeByKey(
+        initialAdmissionRemediationTasks,
+        parsed.admissionRemediationTasks,
+        "taskId",
+      ),
       cashMovements: mergeByKey(initialCashMovements, parsed.cashMovements, "cashMovementId"),
       onChainEvents: mergeByKey(initialOnChainEvents, parsed.onChainEvents, "onChainEventId"),
       anchoringEvents: mergeByKey(initialAnchoringEvents, parsed.anchoringEvents, "anchoringEventId"),
@@ -984,6 +1022,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     useState<TransferAgencyInstruction[]>(persistedCanonical.transferAgencyInstructions);
   const [registerAccounts, setRegisterAccounts] = useState<RegisterAccount[]>(persistedCanonical.registerAccounts);
   const [walletLinks, setWalletLinks] = useState<WalletLink[]>(persistedCanonical.walletLinks);
+  const [admissionRemediationTasks, setAdmissionRemediationTasks] =
+    useState<AdmissionRemediationTask[]>(persistedCanonical.admissionRemediationTasks);
   const [registerDeltas, setRegisterDeltas] = useState<RegisterDelta[]>(persistedCanonical.registerDeltas);
   const [registerVersions, setRegisterVersions] = useState<RegisterVersion[]>(persistedCanonical.registerVersions);
   const [cashMovements, setCashMovements] = useState<CashMovement[]>(persistedCanonical.cashMovements);
@@ -1012,6 +1052,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTransferAgencyInstructions(next.transferAgencyInstructions);
     setRegisterAccounts(next.registerAccounts);
     setWalletLinks(next.walletLinks);
+    setAdmissionRemediationTasks(next.admissionRemediationTasks);
     setRegisterDeltas(next.registerDeltas);
     setRegisterVersions(next.registerVersions);
     setCashMovements(next.cashMovements);
@@ -1108,6 +1149,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       transferAgencyInstructions,
       registerAccounts,
       walletLinks,
+      admissionRemediationTasks,
       registerDeltas,
       registerVersions,
       cashMovements,
@@ -1134,6 +1176,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fundIssuances,
     fundOrders,
     fundRedemptions,
+    admissionRemediationTasks,
     holderSnapshotPositions,
     holderSnapshots,
     onChainEvents,
@@ -1464,28 +1507,115 @@ export function AppProvider({ children }: { children: ReactNode }) {
     wallet: WalletLink,
     account?: RegisterAccount,
   ): TransferAgencyCommandResult | null => {
-    const blockedReason =
-      wallet.proofStatus === "Missing"
-        ? "KYC proof is required before this wallet can be approved."
-        : wallet.proofStatus === "Expired"
-          ? "Expired proof must be refreshed before approval."
-          : wallet.proofStatus === "Rejected"
-            ? "Rejected proof cannot be approved without a new submission."
-            : ["Removed", "Suspended"].includes(wallet.whitelistStatus)
-              ? "Suspended or removed wallets require remediation before approval."
-              : account && ["Restricted", "Suspended", "Closed"].includes(account.accountStatus)
-                ? "Restricted, suspended, or closed holder accounts must be resolved before approval."
-                : !wallet.proofRefId
-                  ? "Proof evidence is required before this wallet can be approved."
-                  : undefined;
-
-    if (!blockedReason) return null;
+    const openRemediationTasks = admissionRemediationTasks.filter(
+      (task) =>
+        task.walletLinkId === wallet.walletLinkId &&
+        (task.status === "Open" || task.status === "InProgress"),
+    );
+    const readiness = getAdmissionApprovalReadiness(wallet, account, openRemediationTasks);
+    if (readiness.ready) return null;
     return {
       success: false,
       error: "ADMISSION_NOT_READY",
       currentVersion: wallet.version,
-      message: blockedReason,
+      message: readiness.reason,
     };
+  };
+
+  const createAdmissionRemediationTask = (
+    walletLinkId: string,
+    input: {
+      actionLabel: string;
+      reason: string;
+      responsibleParty: AdmissionRemediationResponsibleParty;
+      dueAt?: string;
+    },
+    expectedVersion?: number,
+    idempotencyKey = `TAConsole:${walletLinkId}:AdmissionRemediation:${formatDateTag(new Date())}`,
+  ): TransferAgencyCommandResult => {
+    if (!ensureIdentitySource("authSession") || !ensurePermission("manage", "register")) {
+      return buildCommandDeniedResult();
+    }
+    const wallet = walletLinks.find((link) => link.walletLinkId === walletLinkId);
+    if (!wallet) return { success: false, error: "NOT_FOUND", message: "Wallet link was not found." };
+    const conflict = assertExpectedVersion(wallet.version, expectedVersion ?? wallet.version);
+    if (conflict) return conflict;
+    const account = registerAccounts.find((item) => item.registerAccountId === wallet.registerAccountId);
+    if (!account) return { success: false, error: "NOT_FOUND", message: "Register account was not found." };
+    const existingOpenTask = admissionRemediationTasks.find(
+      (task) =>
+        task.walletLinkId === walletLinkId &&
+        task.actionLabel === input.actionLabel &&
+        (task.status === "Open" || task.status === "InProgress"),
+    );
+    if (existingOpenTask) {
+      return { success: true, id: existingOpenTask.taskId, message: "Remediation request is already open." };
+    }
+
+    const timestamp = new Date().toISOString();
+    const taskId = `adm-rem-${walletLinkId}-${input.actionLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`.replace(
+      /-$/,
+      "",
+    );
+    const task: AdmissionRemediationTask = {
+      taskId,
+      walletLinkId,
+      registerAccountId: wallet.registerAccountId,
+      fundId: account.fundId,
+      classId: account.classId,
+      actionLabel: input.actionLabel,
+      reason: input.reason,
+      responsibleParty: input.responsibleParty,
+      status: "Open",
+      dueAt: input.dueAt,
+      createdAt: timestamp,
+      idempotencyKey,
+      lastAction: "create-remediation",
+      lastActorRole: "transferAgent",
+      lastActionAt: timestamp,
+      version: 1,
+    };
+    setAdmissionRemediationTasks((prev) =>
+      prev.some((item) => item.taskId === task.taskId) ? prev : [task, ...prev],
+    );
+    return { success: true, id: task.taskId, message: "Admission remediation request created." };
+  };
+
+  const completeAdmissionRemediationTask = (
+    taskId: string,
+    expectedVersion?: number,
+    resolutionNote = "Remediation completed.",
+    idempotencyKey = `TAConsole:${taskId}:CompleteRemediation:${formatDateTag(new Date())}`,
+  ): TransferAgencyCommandResult => {
+    void idempotencyKey;
+    if (!ensureIdentitySource("authSession") || !ensurePermission("manage", "register")) {
+      return buildCommandDeniedResult();
+    }
+    const current = admissionRemediationTasks.find((task) => task.taskId === taskId);
+    if (!current) return { success: false, error: "NOT_FOUND", message: "Remediation request was not found." };
+    const conflict = assertExpectedVersion(current.version, expectedVersion ?? current.version);
+    if (conflict) return conflict;
+    if (current.status === "Completed") {
+      return { success: true, id: taskId, message: "Remediation request is already completed." };
+    }
+    const timestamp = new Date().toISOString();
+    setAdmissionRemediationTasks((prev) =>
+      prev.map((task) =>
+        task.taskId === taskId
+          ? {
+              ...task,
+              status: "Completed",
+              completedAt: timestamp,
+              resolutionNote,
+              lastAction: "complete-remediation",
+              lastActorRole: "transferAgent",
+              lastActionAt: timestamp,
+              version: task.version + 1,
+            }
+          : task,
+      ),
+    );
+    return { success: true, id: taskId, message: "Admission remediation request completed." };
   };
 
   const updateWalletLinkAdmission = (
@@ -1657,6 +1787,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const snapshotKey = `${sourceType.toLowerCase()}-${instruction.sourceReference}`.replace(/[^a-zA-Z0-9-]/g, "-");
     return {
       snapshotId: `snap-${snapshotKey}`,
+      officialSnapshotId: sourceConfig.source.transferAgentOps?.holderSnapshotId,
       sourceType,
       sourceReference: instruction.sourceReference,
       instructionId: instruction.instructionId,
@@ -2579,6 +2710,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { task, instance, snapshot, instruction, sourceEventReference };
   };
 
+  const uniqueIds = (values: Array<string | undefined>) =>
+    Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+
+  const collectWorkflowApprovalPackageRefs = (taskId: string): ApprovalPackageRefsInput => {
+    const { instance, snapshot, instruction, sourceEventReference } = getWorkflowRuntime(taskId);
+    if (!instance) return {};
+
+    const explicitOrderIds = new Set([...(instance.relatedOrderIds || []), instance.sourceReference]);
+    const sourceOrderIds = fundOrders
+      .filter((order) => {
+        if (order.fundId !== instance.fundId) return false;
+        if (explicitOrderIds.has(order.id)) return true;
+        if (instance.sourceType === "Issuance") return order.type === "subscription";
+        if (instance.sourceType === "Redemption") {
+          return order.type === "redemption" && (explicitOrderIds.size <= 1 || explicitOrderIds.has(order.id));
+        }
+        return false;
+      })
+      .map((order) => order.id);
+
+    const selectedSnapshotRowIds = snapshot
+      ? holderSnapshotPositions
+          .filter((position) => position.snapshotId === snapshot.snapshotId)
+          .map((position) => position.positionId)
+      : [];
+    const selectedListLineIds = snapshot
+      ? settlementListLines
+          .filter((line) => line.snapshotId === snapshot.snapshotId)
+          .map((line) => line.lineId)
+      : [];
+    const selectedListEvidenceRefIds = settlementListLines
+      .filter((line) => selectedListLineIds.includes(line.lineId))
+      .flatMap((line) => line.evidenceRefIds);
+    const relatedReferences = new Set(
+      uniqueIds([
+        instance.sourceReference,
+        sourceEventReference,
+        instruction?.sourceReference,
+        ...sourceOrderIds,
+      ]),
+    );
+    const selectedCashMovementIds = cashMovements
+      .filter(
+        (movement) =>
+          movement.instructionId === instance.instructionId ||
+          movement.instructionId === instruction?.instructionId ||
+          (movement.reference ? relatedReferences.has(movement.reference) : false),
+      )
+      .map((movement) => movement.cashMovementId);
+    const selectedEvidenceRefIds = evidenceRecords
+      .filter(
+        (evidence) =>
+          evidence.instructionId === instance.instructionId ||
+          evidence.instructionId === instruction?.instructionId ||
+          selectedListEvidenceRefIds.includes(evidence.evidenceRefId) ||
+          evidence.evidenceRefId === `ev-snapshot-${snapshot?.snapshotId}`,
+      )
+      .map((evidence) => evidence.evidenceRefId);
+
+    return {
+      sourceOrderIds: uniqueIds(sourceOrderIds),
+      selectedSnapshotRowIds: uniqueIds(selectedSnapshotRowIds),
+      selectedListLineIds: uniqueIds(selectedListLineIds),
+      selectedCashMovementIds: uniqueIds(selectedCashMovementIds),
+      selectedEvidenceRefIds: uniqueIds(selectedEvidenceRefIds),
+    };
+  };
+
   const workflowCommandOptions = (taskId: string, action: string) => {
     const task = workflowState.tasks.find((item) => item.taskId === taskId);
     return {
@@ -2607,6 +2806,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return null;
   };
 
+  const saveWorkflowApprovalPackageRefs = (taskId: string, action: string) =>
+    upsertApprovalPackage(
+      taskId,
+      collectWorkflowApprovalPackageRefs(taskId),
+      authSession?.role || "transferAgent",
+      { idempotencyKey: `Workflow:${taskId}:${action}:ApprovalPackage:${formatDateTag(new Date())}` },
+    );
+
+  const workflowSaveApprovalPackage = (taskId: string, refs?: ApprovalPackageRefsInput) =>
+    finishWorkflowCommand(
+      upsertApprovalPackage(
+        taskId,
+        refs || collectWorkflowApprovalPackageRefs(taskId),
+        authSession?.role || "transferAgent",
+        { idempotencyKey: `Workflow:${taskId}:SaveApprovalPackage:${formatDateTag(new Date())}` },
+      ),
+    );
+
   const workflowPullTask = (taskId: string) =>
     finishWorkflowCommand(
       pullWorkflowTask(taskId, authSession?.role || "transferAgent", workflowCommandOptions(taskId, "Pull")),
@@ -2625,8 +2842,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const workflowUpdateChecklist = (taskId: string, checklist: Record<string, boolean>) =>
     finishWorkflowCommand(updateWorkflowTaskChecklist(taskId, checklist, workflowCommandOptions(taskId, "Checklist")));
 
-  const workflowMatchTask = (taskId: string, matched: boolean, exception?: string) =>
-    finishWorkflowCommand(
+  const workflowMatchTask = (taskId: string, matched: boolean, exception?: string) => {
+    saveWorkflowApprovalPackageRefs(taskId, matched ? "MatchPass" : "MatchException");
+    return finishWorkflowCommand(
       matchWorkflowTask(
         taskId,
         authSession?.role || "transferAgent",
@@ -2635,9 +2853,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workflowCommandOptions(taskId, matched ? "MatchPass" : "MatchException"),
       ),
     );
+  };
 
-  const workflowReturnTask = (taskId: string, reason: string) =>
-    finishWorkflowCommand(
+  const workflowReturnTask = (taskId: string, reason: string) => {
+    saveWorkflowApprovalPackageRefs(taskId, "Return");
+    return finishWorkflowCommand(
       returnWorkflowTask(
         taskId,
         authSession?.role || "transferAgent",
@@ -2645,11 +2865,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workflowCommandOptions(taskId, "Return"),
       ),
     );
+  };
 
   const workflowSubmitCurrentStep = (taskId: string): WorkflowCommandResult => {
     const options = workflowCommandOptions(taskId, "Submit");
     const conflict = assertWorkflowTaskFresh(taskId, options);
     if (conflict) return finishWorkflowCommand(conflict);
+    saveWorkflowApprovalPackageRefs(taskId, "Submit");
 
     const { instance, snapshot, instruction, sourceEventReference } = getWorkflowRuntime(taskId);
     if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
@@ -2693,6 +2915,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const options = workflowCommandOptions(taskId, "Acknowledge");
     const conflict = assertWorkflowTaskFresh(taskId, options);
     if (conflict) return finishWorkflowCommand(conflict);
+    saveWorkflowApprovalPackageRefs(taskId, "Acknowledge");
 
     const { instance, snapshot } = getWorkflowRuntime(taskId);
     if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
@@ -2716,6 +2939,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const options = workflowCommandOptions(taskId, "Reconcile");
     const conflict = assertWorkflowTaskFresh(taskId, options);
     if (conflict) return finishWorkflowCommand(conflict);
+    saveWorkflowApprovalPackageRefs(taskId, "Reconcile");
 
     const { instance, snapshot, sourceEventReference } = getWorkflowRuntime(taskId);
     if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
@@ -3510,6 +3734,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transferAgencyInstructions,
         registerAccounts,
         walletLinks,
+        admissionRemediationTasks,
+        createAdmissionRemediationTask,
+        completeAdmissionRemediationTask,
         approveWalletLink,
         rejectWalletLink,
         removeWalletFromWhitelist,
@@ -3531,6 +3758,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workflowPullTask,
         workflowRespondTask,
         workflowUpdateChecklist,
+        workflowSaveApprovalPackage,
         workflowMatchTask,
         workflowReturnTask,
         workflowSubmitCurrentStep,

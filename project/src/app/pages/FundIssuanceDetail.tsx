@@ -79,6 +79,7 @@ import {
   FundRedemptionConfig,
   NavRecord,
 } from "../data/fundDemoData";
+import { shouldShowIssuerIssuanceApprovalWorkspace } from "../lib/approvalWorkspaceVisibility";
 import { buildIssuerLifecycleProjection } from "../lib/transferAgency";
 import {
   ComposedChart,
@@ -4307,6 +4308,26 @@ export function FundIssuanceDetail() {
   const issuerActionWorkflowTask = issuerActionWorkflow
     ? workflowState.tasks.find((item) => item.workflowId === issuerActionWorkflow.workflowId)
     : undefined;
+  const issuanceApprovalWorkflow =
+    issuerActionWorkflow ||
+    fundIssuanceWorkflows.find((workflow) => !["IssuerAcknowledged", "Reconciled"].includes(workflow.status)) ||
+    fundIssuanceWorkflows[0];
+  const issuanceApprovalPackage = issuanceApprovalWorkflow
+    ? workflowState.approvalPackages.find((item) => item.workflowId === issuanceApprovalWorkflow.workflowId)
+    : undefined;
+  const issuanceApprovalPackageSummary = issuanceApprovalPackage
+    ? {
+        packageId: issuanceApprovalPackage.packageId,
+        submissionStatus: issuanceApprovalPackage.submissionStatus,
+        updatedAt: issuanceApprovalPackage.updatedAt,
+        decisionCount: workflowState.approvalDecisions.filter(
+          (decision) => decision.packageId === issuanceApprovalPackage.packageId,
+        ).length,
+        blockerCount: workflowState.approvalPackageBlockers.filter(
+          (blocker) => blocker.packageId === issuanceApprovalPackage.packageId && !blocker.resolvedAt,
+        ).length,
+      }
+    : undefined;
   const issuerWorkflowMatchResults: (typeof workflowState.matchResults)[number][] = [];
   fundIssuanceWorkflows.forEach((workflow) => {
     const workflowTask = workflowState.tasks.find((item) => item.workflowId === workflow.workflowId);
@@ -4509,14 +4530,15 @@ export function FundIssuanceDetail() {
   const issuanceNeedsIssuerAcknowledge = fundIssuanceWorkflows.some(
     (workflow) => workflow.status === "SubmittedToIssuer",
   );
-  const showApprovalReviewWorkspace =
-    !isMarketplaceView &&
-    userRole === "issuer" &&
-    !["Draft", "Issuance Active"].includes(fundData.status) &&
-    issuanceHasApprovalReviewData &&
-    (Boolean(issuerAction?.requiresTa) ||
-      issuanceHasUnfinishedWorkflow ||
-      issuanceNeedsIssuerAcknowledge);
+  const showApprovalReviewWorkspace = shouldShowIssuerIssuanceApprovalWorkspace({
+    userRole,
+    fundStatus: fundData.status,
+    isMarketplaceView,
+    hasApprovalReviewData: issuanceHasApprovalReviewData,
+    issuerActionRequiresTa: Boolean(issuerAction?.requiresTa),
+    hasUnfinishedWorkflow: issuanceHasUnfinishedWorkflow,
+    needsIssuerAcknowledge: issuanceNeedsIssuerAcknowledge,
+  });
   const issuanceWorkflowTimings: WorkflowStepTiming[] = isOpenEnd
     ? [
         {
@@ -4747,6 +4769,7 @@ export function FundIssuanceDetail() {
                   ]
                 : []),
             ]}
+            packageSummary={issuanceApprovalPackageSummary}
             metrics={issuanceApprovalMetrics}
             snapshotTitle="Subscription Order Snapshot"
             snapshotRows={issuanceApprovalSnapshotRows}

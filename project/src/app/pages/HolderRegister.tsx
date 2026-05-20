@@ -1,8 +1,9 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
   Archive,
+  Copy,
   FileCheck2,
   FileClock,
   Fingerprint,
@@ -11,6 +12,7 @@ import {
   SlidersHorizontal,
   Users,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { MetricCard } from "../components/MetricCard";
 import { SnapshotReviewPanel } from "../components/transfer-agent/SnapshotReviewPanel";
@@ -114,6 +116,79 @@ function normalizeSnapshotKey(value?: string) {
   return (value || "").trim().toLowerCase();
 }
 
+async function copySnapshotReference(value: string, label: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.success(`${label} copied.`);
+  } catch {
+    toast.error(`Could not copy ${label.toLowerCase()}.`);
+  }
+}
+
+function SnapshotReferenceValue({
+  label,
+  value,
+  muted = false,
+}: {
+  label: string;
+  value?: string;
+  muted?: boolean;
+}) {
+  if (!value) {
+    return <div className="text-xs text-muted-foreground">Not assigned</div>;
+  }
+
+  return (
+    <div className="flex min-w-0 items-start gap-1.5">
+      <span className={cn("min-w-0 break-all font-mono text-xs", muted && "text-muted-foreground")}>{value}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 shrink-0"
+        aria-label={`Copy ${label}`}
+        title={`Copy ${label}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          void copySnapshotReference(value, label);
+        }}
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function SnapshotIdStack({
+  snapshot,
+  officialSnapshotId,
+}: {
+  snapshot: HolderSnapshot;
+  officialSnapshotId?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div>
+        <div className="text-[11px] font-medium uppercase text-muted-foreground">Official ID</div>
+        <SnapshotReferenceValue label="Official snapshot ID" value={officialSnapshotId} />
+      </div>
+      <div>
+        <div className="text-[11px] font-medium uppercase text-muted-foreground">Canonical ID</div>
+        <SnapshotReferenceValue label="Canonical snapshot ID" value={snapshot.snapshotId} muted />
+      </div>
+    </div>
+  );
+}
+
+function TraceabilityItem({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 min-w-0">{children}</div>
+    </div>
+  );
+}
+
 function getFundSortPriority(status: string) {
   const priorities: Record<string, number> = {
     "Active Dealing": 0,
@@ -168,6 +243,39 @@ export function HolderRegister() {
     () => new Map(holderSnapshots.map((snapshot) => [snapshot.snapshotId, snapshot])),
     [holderSnapshots],
   );
+  const officialSnapshotIdById = useMemo(() => {
+    const officialIds = new Map<string, string>();
+
+    holderSnapshots.forEach((snapshot) => {
+      if (snapshot.officialSnapshotId) {
+        officialIds.set(snapshot.snapshotId, snapshot.officialSnapshotId);
+      }
+    });
+
+    fundRedemptions.forEach((redemption) => {
+      const officialSnapshotId = redemption.transferAgentOps?.holderSnapshotId;
+      const snapshot = holderSnapshots.find(
+        (item) => item.fundId === redemption.fundId && item.sourceReference === redemption.id,
+      );
+      if (officialSnapshotId && snapshot) {
+        officialIds.set(snapshot.snapshotId, officialSnapshotId);
+      }
+    });
+
+    fundDistributions.forEach((distribution) => {
+      const officialSnapshotId = distribution.transferAgentOps?.holderSnapshotId;
+      const snapshot = holderSnapshots.find(
+        (item) => item.fundId === distribution.fundId && item.sourceReference === distribution.id,
+      );
+      if (officialSnapshotId && snapshot) {
+        officialIds.set(snapshot.snapshotId, officialSnapshotId);
+      }
+    });
+
+    return officialIds;
+  }, [fundDistributions, fundRedemptions, holderSnapshots]);
+  const getOfficialSnapshotId = (snapshot?: HolderSnapshot) =>
+    snapshot ? officialSnapshotIdById.get(snapshot.snapshotId) || snapshot.officialSnapshotId : undefined;
   const instructionById = useMemo(
     () => new Map(transferAgencyInstructions.map((instruction) => [instruction.instructionId, instruction])),
     [transferAgencyInstructions],
@@ -183,28 +291,12 @@ export function HolderRegister() {
       aliases.set(normalizeSnapshotKey(snapshot.snapshotId), snapshot.snapshotId);
     });
 
-    fundRedemptions.forEach((redemption) => {
-      const legacyId = redemption.transferAgentOps?.holderSnapshotId;
-      const snapshot = holderSnapshots.find(
-        (item) => item.fundId === redemption.fundId && item.sourceReference === redemption.id,
-      );
-      if (legacyId && snapshot) {
-        aliases.set(normalizeSnapshotKey(legacyId), snapshot.snapshotId);
-      }
-    });
-
-    fundDistributions.forEach((distribution) => {
-      const legacyId = distribution.transferAgentOps?.holderSnapshotId;
-      const snapshot = holderSnapshots.find(
-        (item) => item.fundId === distribution.fundId && item.sourceReference === distribution.id,
-      );
-      if (legacyId && snapshot) {
-        aliases.set(normalizeSnapshotKey(legacyId), snapshot.snapshotId);
-      }
+    officialSnapshotIdById.forEach((officialSnapshotId, snapshotId) => {
+      aliases.set(normalizeSnapshotKey(officialSnapshotId), snapshotId);
     });
 
     return aliases;
-  }, [fundDistributions, fundRedemptions, holderSnapshots]);
+  }, [holderSnapshots, officialSnapshotIdById]);
 
   const fundEvidenceByFund = useMemo(() => {
     const result = new Map<string, { records: EvidenceRecord[]; anchors: AnchoringEvent[] }>();
@@ -314,11 +406,6 @@ export function HolderRegister() {
         setClassFilter(deepLinkedSnapshot.classId);
         setActiveTab("snapshots");
         setIsFundSheetOpen(true);
-        if (canonicalSnapshotId !== snapshotParam) {
-          const next = new URLSearchParams(searchParams);
-          next.set("snapshot", canonicalSnapshotId);
-          setSearchParams(next, { replace: true });
-        }
       } else {
         setSelectedSnapshotId(undefined);
       }
@@ -328,7 +415,7 @@ export function HolderRegister() {
     setSelectedFundId((current) =>
       current && fundIssuances.some((fund) => fund.id === current) ? current : fundIssuances[0].id,
     );
-  }, [fundIssuances, searchParams, setSearchParams, snapshotAliasById, snapshotById, snapshotParam]);
+  }, [fundIssuances, snapshotAliasById, snapshotById, snapshotParam]);
 
   const selectedFund = fundIssuances.find((fund) => fund.id === selectedFundId) || fundIssuances[0];
   const selectedSummary = selectedFund ? fundSummaries.find((summary) => summary.fund.id === selectedFund.id) : undefined;
@@ -355,6 +442,7 @@ export function HolderRegister() {
           summary.fund.assetStrategyCategory,
           ...summary.classIds,
           ...summary.snapshots.map((snapshot) => snapshot.snapshotId),
+          ...summary.snapshots.map((snapshot) => officialSnapshotIdById.get(snapshot.snapshotId)),
         ]
           .filter(Boolean)
           .join(" ")
@@ -367,7 +455,7 @@ export function HolderRegister() {
         if (left.snapshots.length !== right.snapshots.length) return right.snapshots.length - left.snapshots.length;
         return left.fund.name.localeCompare(right.fund.name);
       });
-  }, [deferredFundQuery, fundFilter, fundSummaries]);
+  }, [deferredFundQuery, fundFilter, fundSummaries, officialSnapshotIdById]);
 
   const selectedClassIds = useMemo(() => {
     if (!selectedFund) return [];
@@ -450,6 +538,7 @@ export function HolderRegister() {
             matchesQuery(
               [
                 snapshot.snapshotId,
+                officialSnapshotIdById.get(snapshot.snapshotId),
                 snapshot.sourceType,
                 snapshot.sourceReference,
                 snapshot.registerVersionId,
@@ -501,6 +590,7 @@ export function HolderRegister() {
     fundNameById,
     holderSnapshotPositions,
     holderSnapshots,
+    officialSnapshotIdById,
     selectedFund,
     settlementListLines,
     settlementLists,
@@ -661,6 +751,14 @@ export function HolderRegister() {
   );
 
   const selectedSnapshot = selectedSnapshotId ? holderSnapshots.find((snapshot) => snapshot.snapshotId === selectedSnapshotId) : undefined;
+  const selectedSnapshotOfficialId = getOfficialSnapshotId(selectedSnapshot);
+  const selectedSnapshotOpenedFromId =
+    selectedSnapshot && snapshotParam
+      ? snapshotAliasById.get(normalizeSnapshotKey(snapshotParam)) === selectedSnapshot.snapshotId &&
+        normalizeSnapshotKey(snapshotParam) !== normalizeSnapshotKey(selectedSnapshot.snapshotId)
+        ? snapshotParam
+        : undefined
+      : undefined;
   const selectedSnapshotPositions = selectedSnapshot
     ? holderSnapshotPositions.filter((position) => position.snapshotId === selectedSnapshot.snapshotId)
     : [];
@@ -1209,49 +1307,60 @@ export function HolderRegister() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3 md:hidden">
-                {snapshotRows.map(({ snapshot, list, positions, includedCount, totalUnits, evidence, anchors }) => (
-                  <button
-                    key={snapshot.snapshotId}
-                    type="button"
-                    onClick={() => openSnapshotPreview(snapshot.snapshotId)}
-                    className={cn(
-                      "w-full rounded-lg border p-4 text-left text-sm transition hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      selectedSnapshotId === snapshot.snapshotId && "border-primary bg-primary/5",
-                    )}
-                  >
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{snapshotLabel(snapshot)}</div>
-                        <div className="font-mono text-xs text-muted-foreground">{snapshot.snapshotId}</div>
+                {snapshotRows.map(({ snapshot, list, positions, includedCount, totalUnits, evidence, anchors }) => {
+                  const officialSnapshotId = getOfficialSnapshotId(snapshot);
+
+                  return (
+                    <div
+                      key={snapshot.snapshotId}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ${snapshotLabel(snapshot)}`}
+                      onClick={() => openSnapshotPreview(snapshot.snapshotId)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        openSnapshotPreview(snapshot.snapshotId);
+                      }}
+                      className={cn(
+                        "w-full rounded-lg border p-4 text-left text-sm transition hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        selectedSnapshotId === snapshot.snapshotId && "border-primary bg-primary/5",
+                      )}
+                    >
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{snapshotLabel(snapshot)}</div>
+                          <SnapshotIdStack snapshot={snapshot} officialSnapshotId={officialSnapshotId} />
+                        </div>
+                        <Badge variant={statusVariant(snapshot.status)}>{snapshot.status}</Badge>
                       </div>
-                      <Badge variant={statusVariant(snapshot.status)}>{snapshot.status}</Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <div className="text-muted-foreground">Class</div>
-                        <div className="font-medium">{snapshot.classId}</div>
-                      </div>
-                      <div>
-                        <div className="text-muted-foreground">Rows</div>
-                        <div className="font-medium">
-                          {includedCount} / {positions.length}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-muted-foreground">Class</div>
+                          <div className="font-medium">{snapshot.classId}</div>
+                        </div>
+                        <div>
+                          <div className="text-muted-foreground">Rows</div>
+                          <div className="font-medium">
+                            {includedCount} / {positions.length}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-muted-foreground">Units</div>
+                          <div className="font-medium">{formatUnits(totalUnits)}</div>
+                        </div>
+                        <div>
+                          <div className="text-muted-foreground">Evidence</div>
+                          <div className="font-medium">{evidence.length + anchors.length}</div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="text-muted-foreground">List</div>
+                          <div>{list ? `${list.listType} / ${list.status}` : "No list"}</div>
                         </div>
                       </div>
-                      <div>
-                        <div className="text-muted-foreground">Units</div>
-                        <div className="font-medium">{formatUnits(totalUnits)}</div>
-                      </div>
-                      <div>
-                        <div className="text-muted-foreground">Evidence</div>
-                        <div className="font-medium">{evidence.length + anchors.length}</div>
-                      </div>
-                      <div className="col-span-2">
-                        <div className="text-muted-foreground">List</div>
-                        <div>{list ? `${list.listType} / ${list.status}` : "No list"}</div>
-                      </div>
                     </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="hidden overflow-x-auto md:block">
@@ -1270,43 +1379,47 @@ export function HolderRegister() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {snapshotRows.map(({ snapshot, list, positions, includedCount, totalUnits, totalAmount, currency, evidence, anchors }) => (
-                      <TableRow
-                        key={snapshot.snapshotId}
-                        onClick={() => openSnapshotPreview(snapshot.snapshotId)}
-                        className={cn(
-                          "cursor-pointer",
-                          selectedSnapshotId === snapshot.snapshotId && "bg-primary/5",
-                        )}
-                      >
-                        <TableCell>
-                          <div className="font-medium">{snapshotLabel(snapshot)}</div>
-                          <div className="font-mono text-xs text-muted-foreground">{snapshot.snapshotId}</div>
-                          <div className="text-xs text-muted-foreground">{formatDate(snapshot.recordDate)}</div>
-                        </TableCell>
-                        <TableCell>
-                          <div>{snapshot.sourceType}</div>
-                          <div className="font-mono text-xs text-muted-foreground">{snapshot.sourceReference}</div>
-                        </TableCell>
-                        <TableCell>{snapshot.classId}</TableCell>
-                        <TableCell>
-                          <Badge variant={statusVariant(snapshot.status)}>{snapshot.status}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {includedCount} / {positions.length}
-                        </TableCell>
-                        <TableCell>{formatUnits(totalUnits)}</TableCell>
-                        <TableCell>{totalAmount ? `${formatUnits(totalAmount)} ${currency}` : "Pending"}</TableCell>
-                        <TableCell>
-                          <div>{list?.listType || "No list"}</div>
-                          <div className="text-xs text-muted-foreground">{list?.status || "Pending"}</div>
-                        </TableCell>
-                        <TableCell>
-                          <div>{evidence.length} record(s)</div>
-                          <div className="text-xs text-muted-foreground">{anchors.length} anchor(s)</div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {snapshotRows.map(({ snapshot, list, positions, includedCount, totalUnits, totalAmount, currency, evidence, anchors }) => {
+                      const officialSnapshotId = getOfficialSnapshotId(snapshot);
+
+                      return (
+                        <TableRow
+                          key={snapshot.snapshotId}
+                          onClick={() => openSnapshotPreview(snapshot.snapshotId)}
+                          className={cn(
+                            "cursor-pointer",
+                            selectedSnapshotId === snapshot.snapshotId && "bg-primary/5",
+                          )}
+                        >
+                          <TableCell>
+                            <div className="font-medium">{snapshotLabel(snapshot)}</div>
+                            <SnapshotIdStack snapshot={snapshot} officialSnapshotId={officialSnapshotId} />
+                            <div className="text-xs text-muted-foreground">{formatDate(snapshot.recordDate)}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div>{snapshot.sourceType}</div>
+                            <div className="font-mono text-xs text-muted-foreground">{snapshot.sourceReference}</div>
+                          </TableCell>
+                          <TableCell>{snapshot.classId}</TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant(snapshot.status)}>{snapshot.status}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {includedCount} / {positions.length}
+                          </TableCell>
+                          <TableCell>{formatUnits(totalUnits)}</TableCell>
+                          <TableCell>{totalAmount ? `${formatUnits(totalAmount)} ${currency}` : "Pending"}</TableCell>
+                          <TableCell>
+                            <div>{list?.listType || "No list"}</div>
+                            <div className="text-xs text-muted-foreground">{list?.status || "Pending"}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div>{evidence.length} record(s)</div>
+                            <div className="text-xs text-muted-foreground">{anchors.length} anchor(s)</div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                     {snapshotRows.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
@@ -1324,6 +1437,7 @@ export function HolderRegister() {
             <>
               <SnapshotReviewPanel
                 snapshot={selectedSnapshot}
+                officialSnapshotId={selectedSnapshotOfficialId}
                 positions={selectedSnapshotPositions}
                 list={selectedSnapshotList}
                 lines={selectedSnapshotLines}
@@ -1350,6 +1464,60 @@ export function HolderRegister() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                  <div className="rounded-lg border bg-secondary/30 p-4">
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">Snapshot Traceability</Badge>
+                      {selectedSnapshotOpenedFromId ? (
+                        <Badge variant="secondary">Opened from official ID {selectedSnapshotOpenedFromId}</Badge>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <TraceabilityItem label="Official Snapshot ID">
+                        <SnapshotReferenceValue label="Official snapshot ID" value={selectedSnapshotOfficialId} />
+                      </TraceabilityItem>
+                      <TraceabilityItem label="Canonical Snapshot ID">
+                        <SnapshotReferenceValue label="Canonical snapshot ID" value={selectedSnapshot.snapshotId} muted />
+                      </TraceabilityItem>
+                      <TraceabilityItem label="Source Event">
+                        <div className="font-medium">{selectedSnapshot.sourceType}</div>
+                        <div className="break-all font-mono text-xs text-muted-foreground">{selectedSnapshot.sourceReference}</div>
+                      </TraceabilityItem>
+                      <TraceabilityItem label="Fund / Class">
+                        <div className="font-medium">{fundNameById.get(selectedSnapshot.fundId) || selectedFund?.name || selectedSnapshot.fundId}</div>
+                        <div className="font-mono text-xs text-muted-foreground">{selectedSnapshot.classId}</div>
+                      </TraceabilityItem>
+                      <TraceabilityItem label="Register Version">
+                        <SnapshotReferenceValue label="Register version" value={selectedSnapshot.registerVersionId} muted />
+                      </TraceabilityItem>
+                      <TraceabilityItem label="Evidence References">
+                        {selectedSnapshotAudit.expectedRefIds.length ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedSnapshotAudit.expectedRefIds.map((refId) => (
+                              <Badge key={refId} variant="outline" className="max-w-full break-all font-mono">
+                                {refId}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">No evidence refs linked</div>
+                        )}
+                      </TraceabilityItem>
+                      <TraceabilityItem label="Anchor References">
+                        {selectedSnapshotAudit.anchors.length ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedSnapshotAudit.anchors.map((event) => (
+                              <Badge key={event.anchoringEventId} variant="outline" className="max-w-full break-all font-mono">
+                                {event.anchoringEventId}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">No anchor refs linked</div>
+                        )}
+                      </TraceabilityItem>
+                    </div>
+                  </div>
+
                   {selectedSnapshotAudit.pendingRefIds.length ? (
                     <div className="rounded-lg border border-dashed bg-secondary/30 p-4 text-sm">
                       <div className="font-medium">Derived / pending evidence references</div>

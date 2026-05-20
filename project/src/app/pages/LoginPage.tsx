@@ -28,7 +28,14 @@ export function LoginPage() {
   useEffect(() => {
     const requestedRole = searchParams.get("role");
     if (!isLoginRole(requestedRole)) return;
-    loginAs(requestedRole, searchParams.get("redirect") || (requestedRole === "transferAgent" ? "/ta" : "/"));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      loginAs(requestedRole, searchParams.get("redirect") || (requestedRole === "transferAgent" ? "/ta" : "/"));
+    });
+    return () => {
+      cancelled = true;
+    };
     // This effect intentionally runs once for role bootstrap deep links.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

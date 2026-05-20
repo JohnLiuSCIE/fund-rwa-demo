@@ -64,6 +64,7 @@ import {
 import { OnChainEvidencePanel, type OnChainRequirement } from "../components/OnChainEvidencePanel";
 import { useApp } from "../context/AppContext";
 import { FundIssuance, FundOrder, FundRedemptionConfig } from "../data/fundDemoData";
+import { shouldShowIssuerRedemptionApprovalWorkspace } from "../lib/approvalWorkspaceVisibility";
 import { buildIssuerRedemptionTaProjection } from "../lib/transferAgency";
 import { isRedemptionCloseOutReference } from "../lib/workflowBackend";
 import { cn } from "../components/ui/utils";
@@ -2171,6 +2172,27 @@ export function FundRedemptionDetail() {
   };
   const workflowForPrimaryAction = getWorkflowForRedemptionAction(primarySetupAction);
   const workflowTaskForPrimaryAction = getWorkflowTaskForRedemptionAction(primarySetupAction);
+  const redemptionApprovalWorkflow =
+    workflowForPrimaryAction ||
+    redemptionRelatedWorkflows.find((workflow) => !["IssuerAcknowledged", "Reconciled"].includes(workflow.status)) ||
+    redemptionWorkflow ||
+    redemptionCloseOutWorkflow;
+  const redemptionApprovalPackage = redemptionApprovalWorkflow
+    ? workflowState.approvalPackages.find((item) => item.workflowId === redemptionApprovalWorkflow.workflowId)
+    : undefined;
+  const redemptionApprovalPackageSummary = redemptionApprovalPackage
+    ? {
+        packageId: redemptionApprovalPackage.packageId,
+        submissionStatus: redemptionApprovalPackage.submissionStatus,
+        updatedAt: redemptionApprovalPackage.updatedAt,
+        decisionCount: workflowState.approvalDecisions.filter(
+          (decision) => decision.packageId === redemptionApprovalPackage.packageId,
+        ).length,
+        blockerCount: workflowState.approvalPackageBlockers.filter(
+          (blocker) => blocker.packageId === redemptionApprovalPackage.packageId && !blocker.resolvedAt,
+        ).length,
+      }
+    : undefined;
   const redemptionWorkflowMatchResults: (typeof workflowState.matchResults)[number][] = [];
   redemptionRelatedWorkflows.forEach((workflow) => {
     const workflowTask = workflowState.tasks.find((task) => task.workflowId === workflow.workflowId);
@@ -2763,11 +2785,14 @@ export function FundRedemptionDetail() {
   const redemptionNeedsIssuerAcknowledge = redemptionRelatedWorkflows.some(
     (workflow) => workflow.status === "SubmittedToIssuer",
   );
-  const showApprovalReviewWorkspace =
-    userRole === "issuer" &&
-    !["Draft", "Window Closed"].includes(redemption.status) &&
-    redemptionHasApprovalReviewData &&
-    (primaryActionNeedsTa || redemptionHasUnfinishedWorkflow || redemptionNeedsIssuerAcknowledge);
+  const showApprovalReviewWorkspace = shouldShowIssuerRedemptionApprovalWorkspace({
+    userRole,
+    redemptionStatus: redemption.status,
+    hasApprovalReviewData: redemptionHasApprovalReviewData,
+    primaryActionNeedsTa,
+    hasUnfinishedWorkflow: redemptionHasUnfinishedWorkflow,
+    needsIssuerAcknowledge: redemptionNeedsIssuerAcknowledge,
+  });
 
   const runTaCommand = (result: { success: boolean; message?: string }) => {
     if (result.success) {
@@ -3001,6 +3026,7 @@ export function FundRedemptionDetail() {
                   ]
                 : []),
             ]}
+            packageSummary={redemptionApprovalPackageSummary}
             metrics={approvalMetrics}
             snapshotTitle="Holder Snapshot Review"
             snapshotRows={approvalSnapshotRows}

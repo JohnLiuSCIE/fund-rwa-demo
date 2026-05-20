@@ -403,6 +403,36 @@ export interface WalletLink {
   version: number;
 }
 
+export type AdmissionRemediationResponsibleParty =
+  | "Investor"
+  | "Issuer"
+  | "Distributor"
+  | "Compliance"
+  | "TA Ops";
+
+export type AdmissionRemediationStatus = "Open" | "InProgress" | "Completed" | "Cancelled";
+
+export interface AdmissionRemediationTask {
+  taskId: string;
+  walletLinkId: string;
+  registerAccountId: string;
+  fundId: string;
+  classId: string;
+  actionLabel: string;
+  reason: string;
+  responsibleParty: AdmissionRemediationResponsibleParty;
+  status: AdmissionRemediationStatus;
+  dueAt?: string;
+  createdAt: string;
+  completedAt?: string;
+  resolutionNote?: string;
+  idempotencyKey: string;
+  lastAction: string;
+  lastActorRole: ActorRole;
+  lastActionAt: string;
+  version: number;
+}
+
 export interface RegisterDelta {
   deltaId: string;
   instructionId: string;
@@ -615,6 +645,7 @@ export type HolderSnapshotSourceType = "Distribution" | "Redemption";
 
 export interface HolderSnapshot {
   snapshotId: string;
+  officialSnapshotId?: string;
   sourceType: HolderSnapshotSourceType;
   sourceReference: string;
   instructionId: string;
@@ -1539,6 +1570,45 @@ export const initialWalletLinks: WalletLink[] = [
   },
 ];
 
+export const initialAdmissionRemediationTasks: AdmissionRemediationTask[] = [
+  {
+    taskId: "adm-rem-wl-dlf-acme-proof-refresh",
+    walletLinkId: "wl-dlf-acme",
+    registerAccountId: "ra-dlf-acme",
+    fundId: "fund-open-001",
+    classId: "DLF-HKD",
+    actionLabel: "Request Proof Refresh",
+    reason: "Expired proof must be refreshed before approval.",
+    responsibleParty: "Distributor",
+    status: "Open",
+    dueAt: "2026-05-22T18:00:00.000Z",
+    createdAt: "2026-05-20T09:15:00.000Z",
+    idempotencyKey: "TAConsole:wl-dlf-acme:ProofRefresh:20260520",
+    lastAction: "create-remediation",
+    lastActorRole: "transferAgent",
+    lastActionAt: "2026-05-20T09:15:00.000Z",
+    version: 1,
+  },
+  {
+    taskId: "adm-rem-wl-rea-granite-restriction",
+    walletLinkId: "wl-rea-granite",
+    registerAccountId: "ra-rea-granite",
+    fundId: "fund-closed-001",
+    classId: "REA-HKD",
+    actionLabel: "Review Restriction",
+    reason: "Restricted, suspended, or closed holder accounts must be resolved before approval.",
+    responsibleParty: "Compliance",
+    status: "InProgress",
+    dueAt: "2026-05-23T18:00:00.000Z",
+    createdAt: "2026-05-20T10:05:00.000Z",
+    idempotencyKey: "TAConsole:wl-rea-granite:RestrictionReview:20260520",
+    lastAction: "create-remediation",
+    lastActorRole: "transferAgent",
+    lastActionAt: "2026-05-20T10:05:00.000Z",
+    version: 1,
+  },
+];
+
 export const initialRegisterDeltas: RegisterDelta[] = [
   {
     deltaId: "delta-sub-001",
@@ -2114,6 +2184,7 @@ export const initialEvidenceRecords: EvidenceRecord[] = [
 export const initialHolderSnapshots: HolderSnapshot[] = [
   {
     snapshotId: "snap-distribution-002-requested",
+    officialSnapshotId: "SNAP-DIV-20260520-001",
     sourceType: "Distribution",
     sourceReference: "distribution-002",
     instructionId: "instr-dist-002",
@@ -2129,6 +2200,7 @@ export const initialHolderSnapshots: HolderSnapshot[] = [
   },
   {
     snapshotId: "snap-redemption-003-requested",
+    officialSnapshotId: "SNAP-RED-20260512-001",
     sourceType: "Redemption",
     sourceReference: "redemption-003",
     instructionId: "instr-redemption-003-ta",

@@ -33,6 +33,7 @@ import {
 import { SnapshotReviewPanel } from "../components/transfer-agent/SnapshotReviewPanel";
 import { useApp } from "../context/AppContext";
 import { cn } from "../components/ui/utils";
+import { shouldShowTaWorkflowApprovalWorkspace } from "../lib/approvalWorkspaceVisibility";
 import {
   getWorkflowReviewChecklist,
   getWorkflowSteps,
@@ -59,7 +60,7 @@ function actionStepId(log: WorkflowActionLog): WorkflowStepId {
   if (log.stepId) return log.stepId;
   if (log.action === "create") return "IssuerSubmitted";
   if (log.action === "accept" || log.action === "pull" || log.action === "respond") return "TARespond";
-  if (log.action === "match" || log.action === "return") return "MatchData";
+  if (log.action === "match" || log.action === "return" || log.action === "savePackage" || log.action === "decision") return "MatchData";
   if (log.action === "acknowledge") return "IssuerAcknowledge";
   if (log.action === "reconcile") return "ReconcileCloseOut";
   return "LockSnapshot";
@@ -82,6 +83,8 @@ function actionLabel(action: WorkflowActionLog["action"]) {
     submit: "Submitted",
     acknowledge: "Acknowledged",
     reconcile: "Reconciled",
+    savePackage: "Package Saved",
+    decision: "Decision Recorded",
   };
   return labels[action];
 }
@@ -267,6 +270,22 @@ export function TransferAgentWorkflowDetail() {
   const lines = list ? settlementListLines.filter((item) => item.listId === list.listId) : [];
   const match = task?.matchResultId
     ? workflowState.matchResults.find((item) => item.matchResultId === task.matchResultId)
+    : undefined;
+  const approvalPackage = instance
+    ? workflowState.approvalPackages.find((item) => item.workflowId === instance.workflowId)
+    : undefined;
+  const approvalPackageSummary = approvalPackage
+    ? {
+        packageId: approvalPackage.packageId,
+        submissionStatus: approvalPackage.submissionStatus,
+        updatedAt: approvalPackage.updatedAt,
+        decisionCount: workflowState.approvalDecisions.filter(
+          (decision) => decision.packageId === approvalPackage.packageId,
+        ).length,
+        blockerCount: workflowState.approvalPackageBlockers.filter(
+          (blocker) => blocker.packageId === approvalPackage.packageId && !blocker.resolvedAt,
+        ).length,
+      }
     : undefined;
   const logs = instance
     ? workflowState.actionLogs.filter((item) => item.workflowId === instance.workflowId)
@@ -644,10 +663,12 @@ export function TransferAgentWorkflowDetail() {
     taApprovalCashFlows.length +
     taApprovalEvidenceRows.length;
   const approvalWorkspaceControlCount = checklistItems.length + (match ? 1 : 0);
-  const shouldShowApprovalWorkspace =
-    !["Draft", "Finalized"].includes(sourceLifecycleStatus || "") &&
-    !isWorkflowComplete &&
-    (approvalWorkspaceDataCount > 0 || approvalWorkspaceControlCount > 0);
+  const shouldShowApprovalWorkspace = shouldShowTaWorkflowApprovalWorkspace({
+    sourceLifecycleStatus,
+    isWorkflowComplete,
+    dataCount: approvalWorkspaceDataCount,
+    controlCount: approvalWorkspaceControlCount,
+  });
 
   const executeSecureAction = () => {
     if (!secureAction) return;
@@ -724,6 +745,7 @@ export function TransferAgentWorkflowDetail() {
                 tone: "default",
               },
             ]}
+            packageSummary={approvalPackageSummary}
             metrics={taApprovalMetrics}
             snapshotTitle={positions.length > 0 ? "Holder Snapshot Review" : "Source Order Snapshot"}
             snapshotRows={taApprovalSnapshotRows}

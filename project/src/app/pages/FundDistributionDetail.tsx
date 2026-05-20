@@ -57,6 +57,7 @@ import {
 } from "../components/modals/OperationActionModal";
 import { FundDistribution, FundOrder, type DistributionElection } from "../data/fundDemoData";
 import { cn } from "../components/ui/utils";
+import { shouldShowIssuerDistributionApprovalWorkspace } from "../lib/approvalWorkspaceVisibility";
 import { buildIssuerDistributionTaProjection } from "../lib/transferAgency";
 
 type DistributionTab = "overview" | "recipients" | "payout" | "manual";
@@ -1613,6 +1614,22 @@ export function FundDistributionDetail() {
     (distributionWorkflow
       ? workflowState.matchResults.find((match) => match.workflowId === distributionWorkflow.workflowId)
       : undefined);
+  const distributionApprovalPackage = distributionWorkflow
+    ? workflowState.approvalPackages.find((item) => item.workflowId === distributionWorkflow.workflowId)
+    : undefined;
+  const distributionApprovalPackageSummary = distributionApprovalPackage
+    ? {
+        packageId: distributionApprovalPackage.packageId,
+        submissionStatus: distributionApprovalPackage.submissionStatus,
+        updatedAt: distributionApprovalPackage.updatedAt,
+        decisionCount: workflowState.approvalDecisions.filter(
+          (decision) => decision.packageId === distributionApprovalPackage.packageId,
+        ).length,
+        blockerCount: workflowState.approvalPackageBlockers.filter(
+          (blocker) => blocker.packageId === distributionApprovalPackage.packageId && !blocker.resolvedAt,
+        ).length,
+      }
+    : undefined;
   const recipientPreview =
     distributionTaProjection.lines.length > 0
       ? {
@@ -2253,13 +2270,14 @@ export function FundDistributionDetail() {
     distributionWorkflow && !["IssuerAcknowledged", "Reconciled"].includes(distributionWorkflow.status),
   );
   const distributionNeedsIssuerAcknowledge = distributionWorkflow?.status === "SubmittedToIssuer";
-  const showApprovalReviewWorkspace =
-    userRole === "issuer" &&
-    !["Draft", "Done"].includes(currentStatus) &&
-    distributionHasApprovalReviewData &&
-    (distributionPrimaryActionNeedsTa ||
-      distributionHasUnfinishedWorkflow ||
-      distributionNeedsIssuerAcknowledge);
+  const showApprovalReviewWorkspace = shouldShowIssuerDistributionApprovalWorkspace({
+    userRole,
+    currentStatus,
+    hasApprovalReviewData: distributionHasApprovalReviewData,
+    primaryActionNeedsTa: distributionPrimaryActionNeedsTa,
+    hasUnfinishedWorkflow: distributionHasUnfinishedWorkflow,
+    needsIssuerAcknowledge: distributionNeedsIssuerAcknowledge,
+  });
 
   const runTaCommand = (result: { success: boolean; message?: string }) => {
     if (result.success) {
@@ -2443,6 +2461,7 @@ export function FundDistributionDetail() {
                   ]
                 : []),
             ]}
+            packageSummary={distributionApprovalPackageSummary}
             metrics={approvalMetrics}
             snapshotTitle="Record-date Snapshot Review"
             snapshotRows={approvalSnapshotRows}

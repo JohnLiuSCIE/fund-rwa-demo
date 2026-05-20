@@ -113,10 +113,19 @@ export interface ApprovalReviewDetailPanel {
   action?: ApprovalReviewRowAction;
 }
 
+export interface ApprovalReviewPackageSummary {
+  packageId: string;
+  submissionStatus: string;
+  updatedAt?: string;
+  decisionCount?: number;
+  blockerCount?: number;
+}
+
 interface ApprovalReviewWorkspaceProps {
   title: string;
   description: string;
   badges?: ApprovalReviewBadge[];
+  packageSummary?: ApprovalReviewPackageSummary;
   metrics: ApprovalReviewMetric[];
   snapshotTitle?: string;
   snapshotRows: ApprovalReviewTableRow[];
@@ -210,6 +219,17 @@ function statusToneFromText(value?: string): ReviewTone {
     return "warning";
   }
   return "default";
+}
+
+function packageStatusTone(status?: string, blockerCount = 0): ReviewTone {
+  if (blockerCount > 0) return "warning";
+  const normalized = status?.toLowerCase() || "";
+  if (normalized.includes("exception") || normalized.includes("returned")) return "warning";
+  if (normalized.includes("reconciled") || normalized.includes("acknowledged") || normalized.includes("submitted")) {
+    return "success";
+  }
+  if (normalized.includes("draft") || normalized.includes("review")) return "default";
+  return statusToneFromText(status);
 }
 
 function StatusPill({ label, tone }: { label: string; tone?: ReviewTone }) {
@@ -603,6 +623,7 @@ export function ApprovalReviewWorkspace({
   title,
   description,
   badges = [],
+  packageSummary,
   metrics,
   snapshotTitle = "Data Snapshot",
   snapshotRows,
@@ -699,6 +720,32 @@ export function ApprovalReviewWorkspace({
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
+        {packageSummary ? (
+          <div className="grid gap-3 rounded-lg border border-cyan-200 bg-background p-4 text-sm sm:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(0,1fr))]">
+            <div className="min-w-0">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Approval Package</div>
+              <div className="mt-1 break-all font-mono text-sm font-semibold">{packageSummary.packageId}</div>
+            </div>
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Persisted State</div>
+              <div className="mt-1">
+                <StatusPill
+                  label={packageSummary.submissionStatus}
+                  tone={packageStatusTone(packageSummary.submissionStatus, packageSummary.blockerCount)}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Decisions</div>
+              <div className="mt-1 text-lg font-semibold">{packageSummary.decisionCount ?? 0}</div>
+            </div>
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Open Blockers</div>
+              <div className="mt-1 text-lg font-semibold">{packageSummary.blockerCount ?? 0}</div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {metrics.map((metric) => (
             <div

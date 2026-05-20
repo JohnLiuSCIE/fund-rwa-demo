@@ -37,6 +37,7 @@ export type TransferAgentTaskProjection = {
   deltaId?: string;
   breakId?: string;
   snapshotId?: string;
+  officialSnapshotId?: string;
   listId?: string;
   sourceType?: HolderSnapshot["sourceType"];
   sourceReference?: string;
@@ -281,6 +282,7 @@ function buildSnapshotTask({
       taskId: `task-${snapshot.snapshotId}`,
       instructionId: snapshot.instructionId,
       snapshotId: snapshot.snapshotId,
+      officialSnapshotId: snapshot.officialSnapshotId,
       listId: list?.listId,
       sourceType: snapshot.sourceType,
       sourceReference: snapshot.sourceReference,
@@ -302,6 +304,7 @@ function buildSnapshotTask({
     taskId: `task-${snapshot.snapshotId}`,
     instructionId: snapshot.instructionId,
     snapshotId: snapshot.snapshotId,
+    officialSnapshotId: snapshot.officialSnapshotId,
     listId: list?.listId,
     sourceType: snapshot.sourceType,
     sourceReference: snapshot.sourceReference,
