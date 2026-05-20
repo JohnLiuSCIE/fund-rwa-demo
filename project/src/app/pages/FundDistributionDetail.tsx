@@ -1604,6 +1604,15 @@ export function FundDistributionDetail() {
   const distributionWorkflowTask = distributionWorkflow
     ? workflowState.tasks.find((task) => task.workflowId === distributionWorkflow.workflowId)
     : undefined;
+  const distributionWorkflowMatchResult =
+    (distributionWorkflowTask?.matchResultId
+      ? workflowState.matchResults.find(
+          (match) => match.matchResultId === distributionWorkflowTask.matchResultId,
+        )
+      : undefined) ||
+    (distributionWorkflow
+      ? workflowState.matchResults.find((match) => match.workflowId === distributionWorkflow.workflowId)
+      : undefined);
   const recipientPreview =
     distributionTaProjection.lines.length > 0
       ? {
@@ -1833,14 +1842,19 @@ export function FundDistributionDetail() {
     manuallyExcludedRecipients,
     transferAgentOps,
   });
+  const distributionPrimaryActionNeedsTa =
+    structuredAction?.impactType === "ta" || structuredAction?.impactType === "hybrid";
   const distributionActionGate: DistributionActionGate | undefined =
-    structuredAction?.impactType === "hybrid"
+    distributionPrimaryActionNeedsTa
       ? !distributionWorkflow
         ? {
             mode: "send",
             buttonLabel: "Notify TA",
             disabled: false,
-            reason: "Notify TA before the issuer can move this distribution into the on-chain release step.",
+            reason:
+              structuredAction.impactType === "hybrid"
+                ? "Notify TA before the issuer can move this distribution into the on-chain release step."
+                : "Notify TA before this distribution can continue through the next TA-controlled step.",
           }
         : distributionWorkflow.status === "SubmittedToIssuer"
           ? {
@@ -2152,22 +2166,44 @@ export function FundDistributionDetail() {
     owner: "Issuer Treasury / TA",
   }));
   const approvalCashFlows = [...canonicalDistributionCashFlows, ...expectedDistributionCashFlows];
+  const distributionEvidenceRecordRows: ApprovalReviewEvidenceRow[] = evidenceRecords
+    .filter(
+      (record) =>
+        record.fundId === distribution.fundId &&
+        (!record.instructionId || record.instructionId === distributionTaProjection.instruction?.instructionId),
+    )
+    .map((record) => ({
+      id: record.evidenceRefId,
+      title: record.label,
+      type: record.evidenceType,
+      status: record.contentHash ? "Hash linked" : record.retentionClass,
+      statusTone: record.contentHash ? "success" : "default",
+      detail: record.storageUri || record.createdAt,
+      reference: record.contentHash || record.evidenceRefId,
+    }));
+  const distributionWorkflowMatchEvidenceRows: ApprovalReviewEvidenceRow[] =
+    distributionWorkflowMatchResult
+      ? [
+          {
+            id: distributionWorkflowMatchResult.matchResultId,
+            title: "Match Result",
+            type: "TA workflow",
+            status: distributionWorkflowMatchResult.matched ? "Matched" : "Exception",
+            statusTone: distributionWorkflowMatchResult.matched ? "success" : "danger",
+            detail: `${
+              distributionWorkflowMatchResult.checks.filter((check) => check.passed).length
+            }/${distributionWorkflowMatchResult.checks.length} checks passed${
+              distributionWorkflowMatchResult.exception
+                ? ` - ${distributionWorkflowMatchResult.exception}`
+                : ""
+            }`,
+            reference: distributionWorkflowMatchResult.matchResultId,
+          },
+        ]
+      : [];
   const approvalEvidenceRows: ApprovalReviewEvidenceRow[] = [
-    ...evidenceRecords
-      .filter(
-        (record) =>
-          record.fundId === distribution.fundId &&
-          (!record.instructionId || record.instructionId === distributionTaProjection.instruction?.instructionId),
-      )
-      .map((record) => ({
-        id: record.evidenceRefId,
-        title: record.label,
-        type: record.evidenceType,
-        status: record.contentHash ? "Hash linked" : record.retentionClass,
-        statusTone: record.contentHash ? "success" : "default",
-        detail: record.storageUri || record.createdAt,
-        reference: record.contentHash || record.evidenceRefId,
-      })),
+    ...distributionEvidenceRecordRows,
+    ...distributionWorkflowMatchEvidenceRows,
     ...chainRequirements.map((requirement) => ({
       id: `chain-${requirement.label}`,
       title: requirement.label,
@@ -2207,6 +2243,23 @@ export function FundDistributionDetail() {
       tone: manuallyExcludedRecipients.length > 0 ? "warning" : "muted",
     },
   ];
+  const distributionHasApprovalReviewData =
+    approvalSnapshotRows.length > 0 ||
+    approvalRecipientRows.length > 0 ||
+    approvalCashFlows.length > 0 ||
+    distributionEvidenceRecordRows.length > 0 ||
+    distributionWorkflowMatchEvidenceRows.length > 0;
+  const distributionHasUnfinishedWorkflow = Boolean(
+    distributionWorkflow && !["IssuerAcknowledged", "Reconciled"].includes(distributionWorkflow.status),
+  );
+  const distributionNeedsIssuerAcknowledge = distributionWorkflow?.status === "SubmittedToIssuer";
+  const showApprovalReviewWorkspace =
+    userRole === "issuer" &&
+    !["Draft", "Done"].includes(currentStatus) &&
+    distributionHasApprovalReviewData &&
+    (distributionPrimaryActionNeedsTa ||
+      distributionHasUnfinishedWorkflow ||
+      distributionNeedsIssuerAcknowledge);
 
   const runTaCommand = (result: { success: boolean; message?: string }) => {
     if (result.success) {
@@ -2367,30 +2420,40 @@ export function FundDistributionDetail() {
         />
       </div>
 
-      <div className="mb-8">
-        <ApprovalReviewWorkspace
-          title="Approval Review Workspace"
-          description="Review the distribution package before using the workflow action above. The holder snapshot, recipient list, expected payout movement, manual overwrites, and evidence all read from the same workflow-backed state."
-          badges={[
-            {
-              label: distributionActionGate?.taLock?.status === "approved" ? "TA output ready" : "Workflow gated",
-              tone: distributionActionGate?.taLock?.status === "approved" ? "success" : "warning",
-            },
-            {
-              label: currentStatus,
-              tone: getDistributionReviewTone(currentStatus),
-            },
-          ]}
-          metrics={approvalMetrics}
-          snapshotTitle="Record-date Snapshot Review"
-          snapshotRows={approvalSnapshotRows}
-          listTitle="Recipient List"
-          listRows={approvalRecipientRows}
-          cashFlows={approvalCashFlows}
-          evidenceRows={approvalEvidenceRows}
-          reviewHint="Use this workspace for recipient review and manual overwrite. When TA feedback is returned and the workflow lock clears, continue from the action button above."
-        />
-      </div>
+      {showApprovalReviewWorkspace && (
+        <div className="mb-8">
+          <ApprovalReviewWorkspace
+            title="Approval Review Workspace"
+            description="Review the distribution package before using the workflow action above. The holder snapshot, recipient list, expected payout movement, manual overwrites, and evidence all read from the same workflow-backed state."
+            badges={[
+              {
+                label: distributionActionGate?.taLock?.status === "approved" ? "TA output ready" : "Workflow gated",
+                tone: distributionActionGate?.taLock?.status === "approved" ? "success" : "warning",
+              },
+              {
+                label: currentStatus,
+                tone: getDistributionReviewTone(currentStatus),
+              },
+              ...(distributionWorkflowMatchResult
+                ? [
+                    {
+                      label: distributionWorkflowMatchResult.matched ? "Match passed" : "Match exception",
+                      tone: distributionWorkflowMatchResult.matched ? "success" as const : "danger" as const,
+                    },
+                  ]
+                : []),
+            ]}
+            metrics={approvalMetrics}
+            snapshotTitle="Record-date Snapshot Review"
+            snapshotRows={approvalSnapshotRows}
+            listTitle="Recipient List"
+            listRows={approvalRecipientRows}
+            cashFlows={approvalCashFlows}
+            evidenceRows={approvalEvidenceRows}
+            reviewHint="Use this workspace for recipient review and manual overwrite. When TA feedback is returned and the workflow lock clears, continue from the action button above."
+          />
+        </div>
+      )}
 
       {isOpenEndDistribution && (
         <div className="mb-8">

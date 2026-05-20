@@ -1,4 +1,5 @@
-import { Outlet, Link, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,11 +21,29 @@ import { Button } from "./ui/button";
 import { ChevronDown, Coins, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { RoleSwitcher } from "./RoleSwitcher";
+import { WalletConnectButton } from "./WalletConnectButton";
 import { useApp } from "../context/AppContext";
 
 export function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { resetDemoData, userRole } = useApp();
+  const showResetDataControl = import.meta.env.VITE_SHOW_RESET_DEMO_DATA === "true";
+  const isTransferAgent = userRole === "transferAgent";
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const roleClass =
+      userRole === "transferAgent" ? "role-transfer-agent" : userRole === "issuer" ? "role-issuer" : "role-investor";
+    const roleClasses = ["role-issuer", "role-transfer-agent", "role-investor"];
+
+    [document.documentElement, document.body].forEach((element) => {
+      element.dataset.appRole = userRole;
+      element.classList.remove("dark", ...roleClasses);
+      element.classList.add(roleClass);
+    });
+  }, [userRole]);
 
   const isActive = (path: string) => {
     return location.pathname.startsWith(path);
@@ -53,68 +72,89 @@ export function Layout() {
   ].some((path) => isActive(path));
 
   const navTriggerClass = (active: boolean) =>
-    `flex shrink-0 items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary md:px-4 ${
-      active ? "bg-secondary" : ""
-    }`;
+    isTransferAgent
+      ? `flex shrink-0 items-center gap-1 rounded-md px-2 py-2 text-xs font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--navy-800)] sm:px-3 sm:text-sm md:px-4 ${
+          active ? "bg-white/15 text-white shadow-[inset_0_-2px_0_var(--gold-500)] hover:bg-white/20" : ""
+        }`
+      : `flex shrink-0 items-center gap-1 rounded-md px-2 py-2 text-xs font-medium transition-colors hover:bg-secondary sm:px-3 sm:text-sm md:px-4 ${
+          active ? "bg-secondary" : ""
+        }`;
   const navLinkClass = (active: boolean) =>
-    `flex shrink-0 items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary md:px-4 ${
-      active ? "bg-secondary" : ""
-    }`;
+    isTransferAgent
+      ? `flex shrink-0 items-center gap-1 rounded-md px-2 py-2 text-xs font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--navy-800)] sm:px-3 sm:text-sm md:px-4 ${
+          active ? "bg-white/15 text-white shadow-[inset_0_-2px_0_var(--gold-500)] hover:bg-white/20" : ""
+        }`
+      : `flex shrink-0 items-center gap-1 rounded-md px-2 py-2 text-xs font-medium transition-colors hover:bg-secondary sm:px-3 sm:text-sm md:px-4 ${
+          active ? "bg-secondary" : ""
+        }`;
 
   const transferAgentNavItems = [
     { label: "Console", to: "/ta" },
     { label: "Workflows", to: "/ta/queue" },
-    { label: "Admissions", to: "/ta/admissions" },
-    { label: "Book of Record", to: "/ta/register" },
     { label: "Exceptions", to: "/ta/reconciliation" },
-    { label: "Evidence", to: "/ta/evidence" },
   ];
+  const isBookOfRecordActive = ["/ta/register", "/ta/admissions"].some((path) => isActive(path));
 
   const handleResetDemoData = () => {
     resetDemoData();
-    toast.success("Demo data reset to the original seed state.");
+    toast.success("Workspace data reset to the original seed state.");
   };
+
+  const headerClass = isTransferAgent
+    ? "sticky top-0 z-50 w-full border-b border-white/10 bg-[var(--navy-800)] text-white shadow-md backdrop-blur-md supports-[backdrop-filter]:bg-[rgba(15,23,41,0.94)]"
+    : "sticky top-0 z-50 w-full border-b bg-background/95 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/90";
+  const brandMarkClass = isTransferAgent
+    ? "flex h-10 w-10 items-center justify-center rounded-lg border border-white/15 bg-white/10 shadow-sm"
+    : "flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--navy-700)] to-[var(--navy-900)]";
+  const resetButtonClass = isTransferAgent
+    ? "shrink-0 border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white focus-visible:ring-[var(--gold-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--navy-800)]"
+    : "shrink-0";
+  const walletButtonClass = isTransferAgent
+    ? "max-w-[12rem] border border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white focus-visible:ring-[var(--gold-500)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--navy-800)]"
+    : "max-w-[12rem]";
 
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur-md shadow-sm supports-[backdrop-filter]:bg-white/90">
+      <header className={headerClass}>
         <div className="container mx-auto flex min-h-16 flex-wrap items-center gap-2 px-4 py-2 md:h-16 md:flex-nowrap md:px-6 md:py-0">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                aria-label="Reset demo data"
-                className="shrink-0"
-                data-testid="reset-demo-data-trigger"
-                size="icon"
-                title="Reset demo data"
-                variant="outline"
-              >
-                <RotateCcw className="size-4" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Reset demo data?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This restores the shared mock backend, TA workflows, holder register, orders, distributions,
-                  redemptions, and on-chain evidence back to the original demo seed. Your current tab role stays signed in.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-destructive text-white hover:bg-destructive/90"
-                  data-testid="reset-demo-data-confirm"
-                  onClick={handleResetDemoData}
+          {showResetDataControl ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  aria-label="Reset workspace data"
+                  className={resetButtonClass}
+                  data-testid="reset-demo-data-trigger"
+                  size="icon"
+                  title="Reset workspace data"
+                  variant="outline"
                 >
-                  Reset Demo Data
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                  <RotateCcw className="size-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reset workspace data?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This restores the shared backend, TA workflows, holder register, orders, distributions,
+                    redemptions, and on-chain evidence back to the original seed. Your current role stays signed in.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-white hover:bg-destructive/90"
+                    data-testid="reset-demo-data-confirm"
+                    onClick={handleResetDemoData}
+                  >
+                    Reset Data
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
           <Link to="/" className="mr-0 flex shrink-0 items-center gap-2 md:mr-8">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--navy-700)] to-[var(--navy-900)] flex items-center justify-center">
+            <div className={brandMarkClass}>
               <Coins className="w-6 h-6 text-[var(--gold-500)]" />
             </div>
             <span className="text-base font-semibold sm:text-xl" style={{ fontFamily: 'var(--font-heading)' }}>
@@ -122,7 +162,7 @@ export function Layout() {
             </span>
           </Link>
 
-          <nav className="order-3 flex w-full flex-none gap-1 overflow-x-auto pb-1 md:order-none md:w-auto md:flex-1 md:pb-0">
+          <nav className="order-3 flex w-full min-w-0 flex-none gap-1 overflow-x-auto pb-1 md:order-none md:w-auto md:flex-1 md:pb-0">
             {userRole === "transferAgent" ? (
               <>
                 {transferAgentNavItems.map((item) => (
@@ -131,13 +171,16 @@ export function Layout() {
                   </Link>
                 ))}
                 <DropdownMenu>
-                  <DropdownMenuTrigger className={navTriggerClass(isActive("/ta/transfers"))}>
-                    More
+                  <DropdownMenuTrigger className={navTriggerClass(isBookOfRecordActive)}>
+                    Book of Record
                     <ChevronDown className="w-4 h-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
-                    <DropdownMenuItem asChild>
-                      <Link to="/ta/transfers">Secondary Bridge</Link>
+                    <DropdownMenuItem onClick={() => navigate("/ta/register")} onSelect={() => navigate("/ta/register")}>
+                      Fund Management
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/ta/admissions")} onSelect={() => navigate("/ta/admissions")}>
+                      User Management
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -200,23 +243,27 @@ export function Layout() {
               </>
             )}
 
-            <Link
-              to="/user"
-              className={navLinkClass(isActive("/user"))}
-            >
-              User
-            </Link>
+            {userRole === "investor" ? (
+              <Link
+                to="/user"
+                className={navLinkClass(isActive("/user"))}
+              >
+                User
+              </Link>
+            ) : null}
           </nav>
 
           {/* Role Switcher */}
           <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
-            <RoleSwitcher />
-            <Link
-              to="/connect-wallet"
-              className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 md:px-4"
-            >
-              Connect Wallet
-            </Link>
+            <RoleSwitcher
+              className={
+                isTransferAgent
+                  ? "border-white/20 bg-white/10 text-white hover:bg-white/20 focus-visible:ring-[var(--gold-500)] focus-visible:ring-offset-[var(--navy-800)]"
+                  : undefined
+              }
+              iconClassName={isTransferAgent ? "text-white/80" : undefined}
+            />
+            <WalletConnectButton className={walletButtonClass} />
           </div>
         </div>
       </header>

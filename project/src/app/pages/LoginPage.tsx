@@ -16,8 +16,11 @@ export function LoginPage() {
   const { authSession, createAuthSession, currentInvestor } = useApp();
 
   const loginAs = (role: UserRole, redirectPath = role === "transferAgent" ? "/ta" : "/") => {
+    const walletAddress = authSession?.walletAddress || currentInvestor.wallet;
+    const isSimulated = authSession?.walletAddress ? authSession.isSimulated : true;
+
     flushSync(() => {
-      createAuthSession(role, authSession?.walletAddress || currentInvestor.wallet, true);
+      createAuthSession(role, walletAddress, isSimulated);
     });
     navigate(redirectPath, { replace: true });
   };

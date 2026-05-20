@@ -123,7 +123,7 @@ It also requires clear disclosure of:
 - whether products are interchangeable across trading channels
 - circumstances where secondary trading may be suspended
 
-Design implication: if the platform supports secondary trading, the Transfer Agent client needs a `Primary / Secondary Bridge` module. It cannot stop at normal subscription and redemption batches.
+Design implication: if the platform supports secondary trading, the Transfer Agent client will need a `Primary / Secondary Bridge` module. It remains a backlog capability and is not exposed in the current MVP navigation.
 
 ### 2.7 HKEX Integrated Fund Platform confirms the ecosystem shape
 
@@ -417,9 +417,10 @@ Current demo route model:
 | Console | `/ta` | Daily register health, workflow summary, exceptions, evidence entry |
 | Workflow queue | `/ta/queue` | Pull issuer-originated workflow tasks |
 | Workflow detail | `/ta/queue/:taskId` | Review-gated approval page for respond, match, snapshot/list, issuer review, and close-out |
-| Book of Record | `/ta/register` | Search who owns which assets, wallet links, restrictions, register versions |
+| Book of Record / Fund Management | `/ta/register` | Fund-scoped register versions, snapshots, evidence anchors, and audit context |
+| Book of Record / User Management | `/ta/admissions` | Holder onboarding, wallet links, KYC evidence, restrictions, and admission requests |
 | Exceptions | `/ta/reconciliation` | Resolve or waive reconciliation breaks |
-| Evidence | `/ta/evidence` | Inspect evidence packs and hash anchors |
+| Evidence | `/ta/register` | Inspect evidence through fund snapshots and audit context; no standalone evidence route |
 
 Implementation note:
 
@@ -783,9 +784,9 @@ CTA:
 - `Post Register Update`
 - `Export Cycle Evidence`
 
-### 11.5 Transfers
+### 11.5 Transfer Controls Backlog
 
-Tabs:
+These controls are backlog capabilities, not current Transfer Agent routes. Future tabs:
 
 - `Wallet Changes`
 - `Primary-Secondary Bridge`

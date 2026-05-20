@@ -38,7 +38,6 @@ function workflowStatusVariant(status: WorkflowTaskStatus): BadgeVariant {
 
 function getBacklogLink(taskType: string) {
   if (taskType === "ResolveBreak") return "/ta/reconciliation";
-  if (taskType === "SecondaryBridgePlaceholder") return "/ta/transfers";
   return "/ta/register";
 }
 

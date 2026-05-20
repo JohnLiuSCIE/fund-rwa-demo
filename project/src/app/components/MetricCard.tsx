@@ -21,10 +21,10 @@ export function MetricCard({
   variant = "default",
 }: MetricCardProps) {
   const variantStyles = {
-    default: "bg-white border-border",
-    primary: "bg-gradient-to-br from-[var(--navy-50)] to-white border-[var(--navy-200)]",
-    success: "bg-gradient-to-br from-green-50 to-white border-green-200",
-    warning: "bg-gradient-to-br from-yellow-50 to-white border-yellow-200",
+    default: "bg-card border-border text-card-foreground",
+    primary: "bg-gradient-to-br from-secondary to-card border-primary/40 text-card-foreground",
+    success: "bg-gradient-to-br from-green-500/10 to-card border-green-500/40 text-card-foreground",
+    warning: "bg-gradient-to-br from-yellow-500/10 to-card border-yellow-500/40 text-card-foreground",
   };
 
   return (

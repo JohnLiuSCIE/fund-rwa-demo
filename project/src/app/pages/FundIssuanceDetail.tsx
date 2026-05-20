@@ -350,7 +350,14 @@ function getIssuerPermissionAction(label: string) {
   if (normalized.includes("open")) return "open";
   if (normalized.includes("resume")) return "open";
   if (normalized.includes("pause")) return "pause";
-  if (normalized.includes("allocate on chain")) return "put_on_chain";
+  if (
+    normalized.includes("allocate on chain") ||
+    normalized.includes("allocation on-chain") ||
+    normalized.includes("allocation on chain") ||
+    normalized.includes("execute allocation")
+  ) {
+    return "put_on_chain";
+  }
   return "manage";
 }
 
@@ -1355,12 +1362,9 @@ type IssuanceActionPreviewKey =
   | "approve-closed-end"
   | "list-closed-end"
   | "open-closed-end-subscription"
-  | "close-book"
-  | "calculate-allocation"
-  | "allocate-on-chain"
-  | "mark-allocation-completed"
-  | "complete-issuance"
-  | "activate-closed-end-fund";
+  | "close-book-calculate-allocation"
+  | "execute-allocation-on-chain"
+  | "finalize-activate-issuance";
 
 interface IssuanceActionContext {
   allocationPreview: ReturnType<typeof buildAllocationPreview>;
@@ -1467,6 +1471,14 @@ function buildActionImpactBadges(action: IssuanceActionBaseConfig): ActionModalI
   return badges;
 }
 
+function usesConsolidatedClosedEndGateSteps(action: IssuanceActionBaseConfig | IssuanceActionConfig) {
+  return [
+    "close-book-calculate-allocation",
+    "execute-allocation-on-chain",
+    "finalize-activate-issuance",
+  ].includes(action.previewKey);
+}
+
 function getActionOwnerBadgeClasses(actionOwner: WorkflowActionOwner) {
   return actionOwner === "checker"
     ? "border-amber-200 bg-amber-50 text-amber-700"
@@ -1484,6 +1496,164 @@ function getActionButtonClasses(
 }
 
 function buildIssuanceModalSteps(action: IssuanceActionBaseConfig): ActionModalStep[] {
+  if (action.previewKey === "close-book-calculate-allocation") {
+    return [
+      {
+        label: "Review",
+        title: action.reviewTitle,
+        description: action.reviewDescription,
+        state: "review",
+        kind: "review",
+      },
+      {
+        label: "Identity",
+        title: "Verify Identity",
+        description: action.identityDescription,
+        state: "loading",
+        kind: "identity",
+      },
+      {
+        label: "Close Book",
+        title: "Close Book Gate",
+        description:
+          "The subscription gate is closed on chain and the accepted order book is frozen with cash and manual override evidence.",
+        state: "loading",
+        kind: "onchain",
+      },
+      {
+        label: "Workbook",
+        title: "Calculate Allocation Workbook",
+        description:
+          "The frozen book is converted into allocation rows, cap-table delta, and mint instruction inputs for TA review.",
+        state: "loading",
+        kind: "ta",
+      },
+      {
+        label: "TA Match",
+        title: "TA Match And Register Delta",
+        description:
+          "Transfer Agent matching confirms the close-book package, allocation workbook, and register delta reconcile before the fund advances.",
+        state: "loading",
+        kind: "ta",
+      },
+      {
+        label: "Calculated",
+        title: action.successTitle,
+        description: action.successDescription,
+        state: "success",
+        kind: "success",
+      },
+    ];
+  }
+
+  if (action.previewKey === "execute-allocation-on-chain") {
+    return [
+      {
+        label: "Review",
+        title: action.reviewTitle,
+        description: action.reviewDescription,
+        state: "review",
+        kind: "review",
+      },
+      {
+        label: "Identity",
+        title: "Verify Identity",
+        description: action.identityDescription,
+        state: "loading",
+        kind: "identity",
+      },
+      {
+        label: "Tx Submitted",
+        title: "Submit Allocation Transaction",
+        description:
+          "The mint instruction and wallet allocation list are submitted to the chain with the approved workbook reference.",
+        state: "loading",
+        kind: "onchain",
+      },
+      {
+        label: "Pending Confirmation",
+        title: "Pending Confirmation",
+        description:
+          "The workflow waits for the allocation transaction receipt before treating the mint result as final.",
+        state: "loading",
+        kind: "onchain",
+      },
+      {
+        label: "Confirmed",
+        title: "Confirm Allocation Receipt",
+        description:
+          "The confirmed transaction receipt is checked against the allocation units, wallet list, and mint instruction.",
+        state: "loading",
+        kind: "onchain",
+      },
+      {
+        label: "Reconciled",
+        title: action.successTitle,
+        description: action.successDescription,
+        state: "success",
+        kind: "success",
+      },
+    ];
+  }
+
+  if (action.previewKey === "finalize-activate-issuance") {
+    return [
+      {
+        label: "Review",
+        title: action.reviewTitle,
+        description: action.reviewDescription,
+        state: "review",
+        kind: "review",
+      },
+      {
+        label: "Identity",
+        title: "Verify Identity",
+        description: action.identityDescription,
+        state: "loading",
+        kind: "identity",
+      },
+      {
+        label: "TA Close-out",
+        title: "TA Close-out Memo",
+        description:
+          "Transfer Agent close-out confirms the allocation result, posting evidence, and final holder-register package.",
+        state: "loading",
+        kind: "ta",
+      },
+      {
+        label: "Issuer Acknowledge",
+        title: "Issuer Acknowledge",
+        description:
+          "Issuer acknowledgement records that the final TA package is accepted before activation is sent on chain.",
+        state: "loading",
+        kind: "identity",
+      },
+      {
+        label: "Register Baseline",
+        title: "Lock Register Baseline",
+        description:
+          "The initial holder register baseline is locked for post-issuance operation and future servicing.",
+        state: "loading",
+        kind: "ta",
+      },
+      {
+        label: "Activate On-chain",
+        title: "Activate On-chain",
+        description:
+          "The fund activation flag is written on chain against the locked register baseline and operating handoff.",
+        state: "loading",
+        kind: "onchain",
+      },
+      {
+        label: "Active",
+        title: action.successTitle,
+        description: action.successDescription,
+        state: "success",
+        kind: "success",
+      },
+    ];
+  }
+
   const steps: ActionModalStep[] = [
     {
       label: "Review",
@@ -1593,7 +1763,7 @@ function buildIssuanceTaHandoffSteps(action: IssuanceActionConfig): ActionModalS
 }
 
 function buildIssuanceExecutionSteps(action: IssuanceActionConfig) {
-  if (!action.requiresTa) return action.modalSteps;
+  if (!action.requiresTa || usesConsolidatedClosedEndGateSteps(action)) return action.modalSteps;
   return action.modalSteps.filter((step) => step.kind !== "ta");
 }
 
@@ -1630,6 +1800,9 @@ function buildIssuanceActionPreview(
   const subscriptionOrders = context.allFundOrders.filter(
     (order) => order.type === "subscription" && order.status !== "Rejected",
   );
+  const manualOverrideCount = context.allFundOrders.filter(
+    (order) => order.type === "subscription" && isAllocationManuallyExcluded(order),
+  ).length;
   const allocationRows = [...context.allocationPreview.rows].sort(
     (left, right) => right.allocatedUnits - left.allocatedUnits,
   );
@@ -1723,31 +1896,42 @@ function buildIssuanceActionPreview(
         { label: "Window Control", value: "On-chain subscription gate" },
       ];
       break;
-    case "close-book":
+    case "close-book-calculate-allocation":
       previewSummary = [
         { label: "Accepted Orders", value: `${subscriptionOrders.length} subscription order(s)` },
         { label: "Requested Book", value: formatAmount(context.allocationPreview.totalRequestedAmount, fundData.navCurrency) },
-        { label: "Cash Confirmation", value: fundData.cashConfirmationOwner || "Issuer" },
-        { label: "Order Book Status", value: fundData.transferAgentOps?.orderBookStatus || "Subscription book pending" },
-        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pre-issuance register pending" },
-      ];
-      break;
-    case "calculate-allocation":
-      previewSummary = [
         { label: "Allocation Rule", value: fundData.allocationRule || "Pro-rata" },
-        { label: "Target Fund Size", value: formatAmount(fundData.targetFundSizeValue, fundData.navCurrency) },
         { label: "Projected Allocation", value: formatAmount(context.allocationPreview.totalAllocatedAmount, fundData.navCurrency) },
-        { label: "Investors Affected", value: `${context.allocationPreview.rows.length} investor(s)` },
-        { label: "Allocation Workbook", value: fundData.transferAgentOps?.allocationBookStatus || "Pending calculation" },
+        { label: "Manual Overrides", value: `${manualOverrideCount} override(s)` },
+        { label: "TA Gate", value: "Close book + workbook + match" },
       ];
+      previewDetails.push({
+        title: "Sub-gates Retained",
+        kind: "ta",
+        items: [
+          "Close book: close the subscription gate on chain and freeze the accepted, cash-confirmed order book.",
+          `Allocation workbook: apply ${fundData.allocationRule || "Pro-rata"} allocation and derive register-delta inputs.`,
+          "TA match: accepted orders, cash confirmations, manual overrides, allocation rows, and register package must reconcile.",
+        ],
+      });
+      previewDetails.push({
+        title: "Failure Recovery Points",
+        kind: "identity",
+        items: [
+          "Subscription window mismatch: return to subscription controls before retrying the close-book gate.",
+          "Cash/order/manual override mismatch: use Orders and Manual Override before resubmitting the TA match.",
+          "Allocation workbook mismatch: remain before Calculated and correct the workbook or register package in TA Workflows.",
+        ],
+      });
       break;
-    case "allocate-on-chain":
+    case "execute-allocation-on-chain":
       previewSummary = [
         { label: "Investors Affected", value: `${context.allocationPreview.rows.length} investor(s)` },
         { label: "Allocated Units", value: `${formatNumber(context.allocationPreview.rows.reduce((sum, row) => sum + row.allocatedUnits, 0), 2)} units` },
         { label: "Allocated Amount", value: formatAmount(context.allocationPreview.totalAllocatedAmount, fundData.navCurrency) },
-        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pre-issuance register pending" },
         { label: "Mint Instruction", value: fundData.transferAgentOps?.mintInstructionStatus || "Pending final allocation" },
+        { label: "Transaction Gate", value: "Submitted -> Confirmed -> Reconciled" },
+        { label: "Recovery Base", value: fundData.status },
       ];
       previewDetails.push({
         title: "Allocation Preview",
@@ -1760,6 +1944,25 @@ function buildIssuanceActionPreview(
             : ["No investor allocation rows generated yet."],
       });
       previewDetails.push({
+        title: "Transaction Sub-gates",
+        kind: "onchain",
+        items: [
+          "Tx Submitted: broadcast the allocation transaction with the approved mint instruction and workbook reference.",
+          "Pending Confirmation: wait for the transaction receipt instead of treating submission as completion.",
+          "Confirmed: compare the receipt, minted units, and wallet list against the approved allocation workbook.",
+          "Reconciled: minted wallet balances and TA holder-register rows must match before Allocation Completed.",
+        ],
+      });
+      previewDetails.push({
+        title: "Failure Recovery Points",
+        kind: "ta",
+        items: [
+          "Mint instruction mismatch: return to TA Workflows and correct the approved instruction package before retry.",
+          "Transaction failed or stuck: recover at Calculated or Allocate On Chain and rerun Execute Allocation On-chain with the same audit trail.",
+          "Mint/register break: use TA Ledger and Allocation Preview to repair the reconciliation before finalization.",
+        ],
+      });
+      previewDetails.push({
         title: "TA Approved Objects",
         kind: "ta",
         items:
@@ -1770,14 +1973,34 @@ function buildIssuanceActionPreview(
             : ["No approved TA objects are available yet."],
       });
       break;
-    case "mark-allocation-completed":
+    case "finalize-activate-issuance":
       previewSummary = [
-        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
-        { label: "Holder Register Date", value: fundData.transferAgentOps?.holderRegisterDate || "Awaiting TA confirmation" },
-        { label: "Ledger Rows", value: `${context.issuanceLedgerRows.length}` },
+        { label: "Current Stage", value: fundData.status },
+        { label: "Next Stage", value: action.nextStatus },
         { label: "Ledger Approval", value: fundData.transferAgentOps?.ledgerApprovalStatus || "Pending register sign-off" },
-        { label: "Last TA Posting", value: fundData.transferAgentOps?.lastTransferAgentAction || "Awaiting TA confirmation" },
+        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
+        { label: "Initial Register Rows", value: `${context.issuanceLedgerRows.length}` },
+        { label: "Activation Target", value: "Issuance Active" },
       ];
+      previewDetails.push({
+        title: "Finalization Sub-gates",
+        kind: "ta",
+        items: [
+          "TA close-out: close-out memo confirms allocation, register posting, and evidence references.",
+          "Issuer acknowledge: issuer accepts the final TA package before the activation leg proceeds.",
+          `Register baseline: lock ${fundData.transferAgentOps?.registerVersion || "the initial holder register"} for post-issuance servicing.`,
+          "Activate on-chain: write the active issuance flag against the locked baseline.",
+        ],
+      });
+      previewDetails.push({
+        title: "Failure Recovery Points",
+        kind: "onchain",
+        items: [
+          "Missing TA close-out memo: stay at Allocation Completed or Issuance Completed and resolve the TA Workflows gate.",
+          "Register baseline mismatch: use TA Ledger before acknowledging the final package.",
+          "Activation transaction failed: keep the pre-active status and retry Finalize & Activate Issuance after the receipt is corrected.",
+        ],
+      });
       previewDetails.push({
         title: "Register Queue",
         kind: "ta",
@@ -1788,32 +2011,6 @@ function buildIssuanceActionPreview(
               )
             : ["No transfer-agent holder-register rows are available yet."],
       });
-      previewDetails.push({
-        title: "On-chain Completion Payload",
-        kind: "onchain",
-        items: [
-          `Issuance completion flag for ${fundData.tokenSymbol || fundData.tokenName} is updated on chain.`,
-          `Booked allocation result references register version ${fundData.transferAgentOps?.registerVersion || "pending"}.`,
-          `Holder-register posting covers ${context.issuanceLedgerRows.length} booked ledger row(s).`,
-        ],
-      });
-      break;
-    case "complete-issuance":
-      previewSummary = [
-        { label: "Ledger Approval", value: fundData.transferAgentOps?.ledgerApprovalStatus || "Pending register sign-off" },
-        { label: "Register Version", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
-        { label: "Initial Register Rows", value: `${context.issuanceLedgerRows.length}` },
-        { label: "Last TA Action", value: fundData.transferAgentOps?.lastTransferAgentAction || "Awaiting TA close-out note" },
-      ];
-      break;
-    case "activate-closed-end-fund":
-      previewSummary = [
-        { label: "Fund Status", value: fundData.status },
-        { label: "Next Status", value: action.nextStatus },
-        { label: "Token Address", value: formatAddressPreview(fundData.tokenAddress) },
-        { label: "Tradable", value: fundData.tradable || "Pending" },
-        { label: "Register Baseline", value: fundData.transferAgentOps?.registerVersion || "Pending register version" },
-      ];
       break;
     default:
       previewSummary = [
@@ -1850,24 +2047,24 @@ function getActionViewLinks(action: IssuanceActionConfig): ActionViewLink[] {
     case "list-closed-end":
     case "open-closed-end-subscription":
       return [{ label: "View Orders", tab: "orders", ordersTab: "orders" }];
-    case "close-book":
+    case "close-book-calculate-allocation":
       return [
-        { label: "View Orders", tab: "orders", ordersTab: "orders" },
+        { label: "View Orders / Cash", tab: "orders", ordersTab: "orders" },
+        { label: "View Allocation Preview", tab: "orders", ordersTab: "allocation" },
         { label: "Open Manual Override", tab: "orders", ordersTab: "manual" },
+        { label: "View TA Ledger", tab: "ta-ledger" },
       ];
-    case "calculate-allocation":
-    case "allocate-on-chain":
+    case "execute-allocation-on-chain":
       return [
         { label: "View Allocation Preview", tab: "orders", ordersTab: "allocation" },
         { label: "Open Manual Override", tab: "orders", ordersTab: "manual" },
         { label: "View TA Ledger", tab: "ta-ledger" },
       ];
-    case "mark-allocation-completed":
-    case "complete-issuance":
-    case "activate-closed-end-fund":
+    case "finalize-activate-issuance":
       return [
         { label: "View TA Ledger", tab: "ta-ledger" },
         { label: "View Allocation Preview", tab: "orders", ordersTab: "allocation" },
+        { label: "Review Orders", tab: "orders", ordersTab: "orders" },
       ];
     default:
       return [];
@@ -3109,196 +3306,127 @@ function getFundAction(
         affectedObjects: ["Subscription window", "Eligibility pack", "Funding route", "Collection destination"],
       }, fund, context);
     case "Open For Subscription":
+    case "Allocation Period":
       return finalizeIssuanceAction({
-        previewKey: "close-book",
-        label: "Close and Start Allocation",
-        nextStatus: "Allocation Period",
-        message: "Subscription closed. Allocation period started",
-        icon: PauseCircle,
-        variant: "outline" as const,
-        modalTitle: "Close Subscription And Start Allocation",
+        previewKey: "close-book-calculate-allocation",
+        label: "Close Book & Calculate Allocation",
+        nextStatus: "Calculated",
+        message: "Book closed and allocation calculated",
+        icon: ShieldCheck,
+        variant: "default" as const,
+        modalTitle: "Close Book & Calculate Allocation",
         modalDescription:
-          "Verify issuer identity and close subscriptions before starting allocation.",
-        reviewTitle: "Review Allocation Start",
+          "Verify issuer identity, close the subscription book, generate the allocation workbook, and retain the TA match gate before advancing.",
+        reviewTitle: "Review Close-book And Allocation Package",
         reviewDescription:
-          "Confirm subscriptions should be closed and allocation processing should begin.",
+          "Confirm the subscription window, accepted order book, cash confirmations, manual overrides, and allocation rule before the combined close-book calculation runs.",
         identityDescription:
-          "Issuer identity and allocation-start authority are being verified.",
+          "Issuer identity and close-book allocation authority are being verified.",
         taNotificationTitle: "Notify Transfer Agent",
         taNotificationDescription:
-          "The accepted subscription book is being locked and sent to TA for allocation intake.",
+          "The accepted subscription book, manual overrides, allocation workbook inputs, and register-delta package are being sent to TA for match review.",
         taConfirmationTitle: "Transfer Agent Confirmation",
         taConfirmationDescription:
-          "Transfer Agent confirmation has been received for the allocation intake package.",
+          "Transfer Agent confirmation has been received for the close-book, allocation workbook, and register package match.",
         onChainTitle: "Close Subscription On Chain",
         onChainDescription:
-          "The subscription gate is being closed on chain before allocation review begins.",
-        successTitle: "Allocation started",
+          "The subscription gate is being closed on chain before the calculated allocation package is promoted.",
+        successTitle: "Allocation calculated",
         successDescription:
-          "The fund is now in the allocation period.",
+          "The book is closed, the allocation workbook is calculated, and the fund is ready for on-chain allocation execution.",
         impactType: "hybrid",
         requiresTa: true,
         requiresOnChain: true,
-        nextStepHint: "This action will close the subscription window on chain and notify TA to freeze the book for allocation review.",
-        affectedObjects: ["Subscription window state", "Subscription order book", "Accepted investor list", "Pre-allocation register draft"],
-      }, fund, context);
-    case "Allocation Period":
-      return finalizeIssuanceAction({
-        previewKey: "calculate-allocation",
-        label: "Calculate Allocation",
-        nextStatus: "Calculated",
-        message: "Allocation calculation completed",
-        icon: ShieldCheck,
-        variant: "default" as const,
-        modalTitle: "Calculate Allocation",
-        modalDescription:
-          "Verify issuer identity before running the allocation calculation step.",
-        reviewTitle: "Review Allocation Calculation",
-        reviewDescription:
-          "Confirm the subscription book is ready for allocation calculation.",
-        identityDescription:
-          "Issuer identity and allocation-calculation authority are being verified.",
-        taNotificationTitle: "Notify Transfer Agent",
-        taNotificationDescription:
-          "The final order book and allocation workbook are being submitted for TA review.",
-        taConfirmationTitle: "Transfer Agent Confirmation",
-        taConfirmationDescription:
-          "Transfer Agent confirmation has been received for the allocation workbook review package.",
-        successTitle: "Allocation calculated",
-        successDescription:
-          "The allocation result is ready for the next on-chain step.",
-        impactType: "ta",
-        requiresTa: true,
-        requiresOnChain: false,
-        nextStepHint: "This action will notify TA to validate the allocation workbook and register delta.",
-        affectedObjects: ["Allocation workbook", "Cap table draft", "Register delta approval"],
+        nextStepHint: "Runs one foreground action, but preserves the old close-book, allocation workbook, TA match, and failure-recovery gates in the modal.",
+        affectedObjects: [
+          "Subscription close-book gate",
+          "Cash-confirmed order book",
+          "Manual override roster",
+          "Allocation workbook",
+          "TA match / register package",
+        ],
       }, fund, context);
     case "Calculated":
+    case "Allocate On Chain":
       return finalizeIssuanceAction({
-        previewKey: "allocate-on-chain",
-        label: "Allocate On Chain",
-        nextStatus: "Allocate On Chain",
-        message: "Allocation moved to on-chain execution",
+        previewKey: "execute-allocation-on-chain",
+        label: "Execute Allocation On-chain",
+        nextStatus: "Allocation Completed",
+        message: "Allocation transaction confirmed and reconciled",
         icon: PlayCircle,
         variant: "default" as const,
-        modalTitle: "Allocate On Chain",
+        modalTitle: "Execute Allocation On-chain",
         modalDescription:
-          "Verify issuer identity and execute the on-chain allocation step.",
+          "Verify issuer identity and execute the approved allocation with transaction submission, confirmation, and reconciliation gates.",
         reviewTitle: "Review On-chain Allocation",
         reviewDescription:
-          "Confirm the calculated allocation result before pushing it on chain.",
+          "Confirm the approved allocation workbook, mint instruction, wallet allocation list, and TA evidence before submitting the transaction.",
         identityDescription:
           "Issuer identity and on-chain allocation authority are being verified.",
         taNotificationTitle: "Notify Transfer Agent",
         taNotificationDescription:
-          "The mint instruction, wallet allocation list, and register baseline are being submitted to TA.",
+          "The mint instruction, wallet allocation list, transaction evidence requirements, and reconciliation package are being submitted to TA.",
         taConfirmationTitle: "Transfer Agent Confirmation",
         taConfirmationDescription:
-          "Transfer Agent confirmation has been received for the mint instruction package.",
+          "Transfer Agent confirmation has been received for the mint instruction and reconciliation package.",
         onChainTitle: "Execute On-chain Allocation",
         onChainDescription:
-          "The calculated allocation is being executed on chain against the approved instruction set.",
-        successTitle: "Allocation moved on chain",
+          "The allocation transaction is submitted, confirmed, and reconciled against the approved instruction set.",
+        successTitle: "Allocation reconciled",
         successDescription:
-          "The allocation is now in the on-chain execution stage.",
+          "The allocation transaction is confirmed and reconciled to the TA register baseline.",
         impactType: "hybrid",
         requiresTa: true,
         requiresOnChain: true,
-        nextStepHint: "This action will notify TA and execute the final allocation on chain.",
-        affectedObjects: ["Final allocation workbook", "Mint instruction", "Wallet allocation list", "Initial holder register baseline"],
-      }, fund, context);
-    case "Allocate On Chain":
-      return finalizeIssuanceAction({
-        previewKey: "mark-allocation-completed",
-        label: "Mark Allocation Completed",
-        nextStatus: "Allocation Completed",
-        message: "On-chain allocation completed",
-        icon: ShieldCheck,
-        variant: "default" as const,
-        modalTitle: "Mark Allocation Completed",
-        modalDescription:
-          "Verify issuer identity before confirming the on-chain allocation is complete.",
-        reviewTitle: "Review Allocation Completion",
-        reviewDescription:
-          "Confirm the on-chain allocation step completed successfully.",
-        identityDescription:
-          "Issuer identity and completion authority are being verified.",
-        taNotificationTitle: "Notify Transfer Agent",
-        taNotificationDescription:
-          "The executed mint result and holder-register posting package are being sent to TA.",
-        taConfirmationTitle: "Transfer Agent Confirmation",
-        taConfirmationDescription:
-          "Transfer Agent confirmation has been received for the post-mint register package.",
-        onChainTitle: "Record On-chain Completion",
-        onChainDescription:
-          "The on-chain issuance workflow is being updated with the completion flag, booked allocation reference, and holder-register posting baseline.",
-        successTitle: "Allocation completed",
-        successDescription:
-          "The fund has completed the allocation step.",
-        impactType: "hybrid",
-        requiresTa: true,
-        requiresOnChain: true,
-        nextStepHint: "This action will notify TA, reconcile the posted mint result, and write the completion flag plus register baseline reference on chain.",
-        affectedObjects: ["Mint execution result", "Booked holder register", "Completion flag", "Register baseline reference"],
+        nextStepHint: "Shows Tx Submitted, Pending Confirmation, Confirmed, and Reconciled gates so a failed transaction can recover before completion.",
+        affectedObjects: [
+          "Approved allocation workbook",
+          "Mint instruction",
+          "Wallet allocation list",
+          "Tx receipt checkpoint",
+          "Mint/register reconciliation",
+        ],
       }, fund, context);
     case "Allocation Completed":
-      return finalizeIssuanceAction({
-        previewKey: "complete-issuance",
-        label: "Complete Issuance",
-        nextStatus: "Issuance Completed",
-        message: "Issuance process completed",
-        icon: ShieldCheck,
-        variant: "default" as const,
-        modalTitle: "Complete Issuance",
-        modalDescription:
-          "Verify issuer identity and complete the closed-end issuance process.",
-        reviewTitle: "Review Issuance Completion",
-        reviewDescription:
-          "Confirm the issuance can move from allocation completion to final completion.",
-        identityDescription:
-          "Issuer identity and issuance-completion authority are being verified.",
-        taNotificationTitle: "Notify Transfer Agent",
-        taNotificationDescription:
-          "The final issuance close-out memo and register baseline confirmation are being sent to TA.",
-        taConfirmationTitle: "Transfer Agent Confirmation",
-        taConfirmationDescription:
-          "Transfer Agent confirmation has been received for the issuance close-out package.",
-        successTitle: "Issuance completed",
-        successDescription:
-          "The closed-end issuance process has been completed.",
-        impactType: "ta",
-        requiresTa: true,
-        requiresOnChain: false,
-        nextStepHint: "This action will notify TA to close the issuance workflow and confirm the register baseline.",
-        affectedObjects: ["Initial holder register baseline", "TA close-out memo", "Operational handoff pack"],
-      }, fund, context);
     case "Issuance Completed":
       return finalizeIssuanceAction({
-        previewKey: "activate-closed-end-fund",
-        label: "Activate Fund",
+        previewKey: "finalize-activate-issuance",
+        label: "Finalize & Activate Issuance",
         nextStatus: "Issuance Active",
-        message: "Closed-end fund is now active",
+        message: "Closed-end issuance finalized and activated",
         icon: PlayCircle,
         variant: "default" as const,
-        modalTitle: "Activate Closed-end Fund",
+        modalTitle: "Finalize & Activate Issuance",
         modalDescription:
-          "Verify issuer identity and activate the fund after issuance completion.",
-        reviewTitle: "Review Fund Activation",
+          "Verify issuer identity, complete TA close-out, acknowledge the final register baseline, and activate the issuance on chain.",
+        reviewTitle: "Review Finalization And Activation",
         reviewDescription:
-          "Confirm the fund is ready to enter its active post-issuance state.",
+          "Confirm TA close-out, issuer acknowledgement, register baseline, and activation readiness before moving to active issuance.",
         identityDescription:
-          "Issuer identity and fund-activation authority are being verified.",
-        onChainTitle: "Execute On-chain Activation",
+          "Issuer identity and final activation authority are being verified.",
+        taNotificationTitle: "Notify Transfer Agent",
+        taNotificationDescription:
+          "The final issuance close-out memo, booked allocation evidence, and register baseline confirmation are being sent to TA.",
+        taConfirmationTitle: "Transfer Agent Confirmation",
+        taConfirmationDescription:
+          "Transfer Agent confirmation has been received for the close-out memo and locked register baseline.",
+        onChainTitle: "Activate On-chain",
         onChainDescription:
-          "The fund is being moved into its active post-issuance state on chain.",
-        successTitle: "Fund activated",
+          "The fund activation flag is being written on chain against the locked initial holder register baseline.",
+        successTitle: "Issuance active",
         successDescription:
-          "The closed-end fund is now active.",
-        impactType: "onchain",
-        requiresTa: false,
+          "The closed-end fund is active with the TA close-out and register baseline retained for audit.",
+        impactType: "hybrid",
+        requiresTa: true,
         requiresOnChain: true,
-        nextStepHint: "This action will activate the fund on chain using the confirmed register baseline.",
-        affectedObjects: ["Active fund ledger baseline", "Fund activation flag", "Post-issuance operating state"],
+        nextStepHint: "Combines final completion and activation while exposing TA close-out, issuer acknowledge, register baseline, and activate-on-chain recovery gates.",
+        affectedObjects: [
+          "TA close-out memo",
+          "Issuer acknowledgement",
+          "Initial holder register baseline",
+          "Activation transaction",
+          "Post-issuance operating state",
+        ],
       }, fund, context);
     default:
       return null;
@@ -4170,14 +4298,31 @@ export function FundIssuanceDetail() {
   const issuerActionWorkflowReference = issuerAction
     ? buildIssuanceWorkflowSourceReference(fundData.id, issuerAction.previewKey)
     : undefined;
+  const fundIssuanceWorkflows = workflowState.instances.filter(
+    (item) => item.sourceType === "Issuance" && item.fundId === fundData.id,
+  );
   const issuerActionWorkflow = issuerActionWorkflowReference
-    ? workflowState.instances.find(
-        (item) => item.sourceType === "Issuance" && item.sourceReference === issuerActionWorkflowReference,
-      )
+    ? fundIssuanceWorkflows.find((item) => item.sourceReference === issuerActionWorkflowReference)
     : undefined;
   const issuerActionWorkflowTask = issuerActionWorkflow
     ? workflowState.tasks.find((item) => item.workflowId === issuerActionWorkflow.workflowId)
     : undefined;
+  const issuerWorkflowMatchResults: (typeof workflowState.matchResults)[number][] = [];
+  fundIssuanceWorkflows.forEach((workflow) => {
+    const workflowTask = workflowState.tasks.find((item) => item.workflowId === workflow.workflowId);
+    const matchResult =
+      (workflowTask?.matchResultId
+        ? workflowState.matchResults.find((match) => match.matchResultId === workflowTask.matchResultId)
+        : undefined) ||
+      workflowState.matchResults.find((match) => match.workflowId === workflow.workflowId);
+
+    if (
+      matchResult &&
+      !issuerWorkflowMatchResults.some((item) => item.matchResultId === matchResult.matchResultId)
+    ) {
+      issuerWorkflowMatchResults.push(matchResult);
+    }
+  });
   const issuerActionTaGate: IssuanceTaWorkflowGate | undefined = issuerAction?.requiresTa
     ? !issuerActionWorkflow
       ? {
@@ -4293,7 +4438,7 @@ export function FundIssuanceDetail() {
     owner: order.cashConfirmedBy || fundData.cashConfirmationOwner || "Issuer Ops",
   }));
   const issuanceApprovalCashFlows = [...canonicalIssuanceCashFlows, ...expectedIssuanceCashFlows];
-  const issuanceApprovalEvidenceRows: ApprovalReviewEvidenceRow[] = issuanceApprovalObjects.map((item) => ({
+  const issuanceApprovalObjectEvidenceRows: ApprovalReviewEvidenceRow[] = issuanceApprovalObjects.map((item) => ({
     id: item.label,
     title: item.label,
     type: "Issuance control",
@@ -4302,6 +4447,28 @@ export function FundIssuanceDetail() {
     detail: item.detail,
     reference: fundData.id,
   }));
+  const issuanceWorkflowMatchEvidenceRows: ApprovalReviewEvidenceRow[] =
+    issuerWorkflowMatchResults.map((matchResult) => {
+      const workflow = fundIssuanceWorkflows.find(
+        (item) => item.workflowId === matchResult.workflowId,
+      );
+
+      return {
+        id: matchResult.matchResultId,
+        title: "Match Result",
+        type: "TA workflow",
+        status: matchResult.matched ? "Matched" : "Exception",
+        statusTone: matchResult.matched ? "success" : "danger",
+        detail: `${matchResult.checks.filter((check) => check.passed).length}/${
+          matchResult.checks.length
+        } checks passed${matchResult.exception ? ` - ${matchResult.exception}` : ""}`,
+        reference: workflow?.sourceReference || matchResult.matchResultId,
+      };
+    });
+  const issuanceApprovalEvidenceRows: ApprovalReviewEvidenceRow[] = [
+    ...issuanceApprovalObjectEvidenceRows,
+    ...issuanceWorkflowMatchEvidenceRows,
+  ];
   const issuanceApprovalMetrics: ApprovalReviewMetric[] = [
     {
       label: "Subscription orders",
@@ -4331,6 +4498,25 @@ export function FundIssuanceDetail() {
       tone: manualExcludedSubscriptionOrders.length > 0 ? "warning" : "muted",
     },
   ];
+  const issuanceHasApprovalReviewData =
+    issuanceApprovalSnapshotRows.length > 0 ||
+    issuanceApprovalListRows.length > 0 ||
+    issuanceApprovalCashFlows.length > 0 ||
+    issuanceApprovalEvidenceRows.length > 0;
+  const issuanceHasUnfinishedWorkflow = fundIssuanceWorkflows.some(
+    (workflow) => !["IssuerAcknowledged", "Reconciled"].includes(workflow.status),
+  );
+  const issuanceNeedsIssuerAcknowledge = fundIssuanceWorkflows.some(
+    (workflow) => workflow.status === "SubmittedToIssuer",
+  );
+  const showApprovalReviewWorkspace =
+    !isMarketplaceView &&
+    userRole === "issuer" &&
+    !["Draft", "Issuance Active"].includes(fundData.status) &&
+    issuanceHasApprovalReviewData &&
+    (Boolean(issuerAction?.requiresTa) ||
+      issuanceHasUnfinishedWorkflow ||
+      issuanceNeedsIssuerAcknowledge);
   const issuanceWorkflowTimings: WorkflowStepTiming[] = isOpenEnd
     ? [
         {
@@ -4534,7 +4720,7 @@ export function FundIssuanceDetail() {
         />
       </div>
 
-      {!isMarketplaceView && (
+      {showApprovalReviewWorkspace && (
         <div className="mb-8">
           <ApprovalReviewWorkspace
             title="Approval Review Workspace"
@@ -4548,6 +4734,18 @@ export function FundIssuanceDetail() {
                 label: fundData.status,
                 tone: getIssuanceReviewTone(fundData.status),
               },
+              ...(issuerWorkflowMatchResults.length > 0
+                ? [
+                    {
+                      label: issuerWorkflowMatchResults.some((match) => !match.matched)
+                        ? "Match exception"
+                        : "Match passed",
+                      tone: issuerWorkflowMatchResults.some((match) => !match.matched)
+                        ? "danger" as const
+                        : "success" as const,
+                    },
+                  ]
+                : []),
             ]}
             metrics={issuanceApprovalMetrics}
             snapshotTitle="Subscription Order Snapshot"

@@ -30,7 +30,6 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover";
 import { ProcessFlowCard } from "../components/ProcessFlowCard";
-import { InfoAlert } from "../components/InfoAlert";
 import { useApp } from "../context/AppContext";
 import { FundIssuance, NavUpdateMode } from "../data/fundDemoData";
 
@@ -552,10 +551,6 @@ export function CreateFundIssuance() {
         </TabsList>
 
         <TabsContent value="about-deal" className="space-y-6">
-          <InfoAlert variant="info" title="Fund Details">
-            When the fund type is set to <strong>Open-end</strong>, this form switches to an operating model focused on ongoing dealing, daily NAV processing, and T+1 settlement.
-          </InfoAlert>
-
           <div className="bg-white border rounded-lg p-6 space-y-6">
             <div className="space-y-2">
               <Label>Fund name</Label>

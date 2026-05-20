@@ -116,13 +116,11 @@ Inside TA pages, use `Product Provider` when showing responsibility boundaries.
 
 When logged in as `transferAgent`, top navigation should show:
 
-1. `Dashboard`
-2. `Work Queue`
-3. `Holder Register`
-4. `Dealing Cycles`
-5. `Transfers`
-6. `Reconciliation`
-7. `Evidence`
+1. `Console`
+2. `Workflows`
+3. `Exceptions`
+4. `Book of Record / Fund Management`
+5. `Book of Record / User Management`
 
 Recommended route map:
 
@@ -130,13 +128,10 @@ Recommended route map:
 | --- | --- |
 | `/ta` | TA Dashboard |
 | `/ta/queue` | Work Queue |
-| `/ta/register` | Holder Register |
-| `/ta/register/:fundId/:classId` | Register Detail |
-| `/ta/dealing-cycles` | Dealing Cycle Queue |
-| `/ta/dealing-cycles/:cycleId` | Dealing Cycle Detail |
-| `/ta/transfers` | Transfers and Wallet Changes |
+| `/ta/queue/:taskId` | Review-gated workflow detail |
+| `/ta/register` | Fund Management, snapshots, register versions, fund audit, and evidence anchors |
+| `/ta/admissions` | User Management, wallet/KYC admissions, holder restrictions, and request to-do list |
 | `/ta/reconciliation` | Reconciliation Breaks |
-| `/ta/evidence` | Evidence Packs |
 
 ## 8. Dashboard Page
 
@@ -391,13 +386,15 @@ Blocking rules:
 - no close-out if burn / cancellation evidence is missing
 - no close-out if payment status is not reconciled
 
-## 12. Transfers Page
+## 12. Transfer Controls Backlog
 
 ### 12.1 Purpose
 
-Handle wallet changes, transfer restrictions, and primary-secondary market interoperability.
+Current MVP workflows do not expose a standalone Transfers page. Wallet changes,
+transfer restrictions, and primary-secondary market interoperability stay out of the
+active Transfer Agent navigation until a licensed secondary-trading workflow is enabled.
 
-Tabs:
+Future tabs:
 
 1. `Wallet Changes`
 2. `Primary-Secondary Bridge`
@@ -467,11 +464,14 @@ Primary actions:
 - `Waive With Reason`
 - `Resolve Break`
 
-## 14. Evidence Page
+## 14. Evidence Pack In Book Of Record
 
 ### 14.1 Purpose
 
-Make the client useful for regulatory, audit, and provider review.
+Make the client useful for regulatory, audit, and provider review without a separate
+Evidence page. Evidence Pack review is embedded in Book of Record / Fund
+Management and appears inside snapshot audit, fund audit, and workflow approval
+packages.
 
 Filters:
 
@@ -495,7 +495,7 @@ Evidence pack contents:
 - exception and waiver history
 - export timestamp and pack hash
 
-Primary CTA:
+Primary CTA inside the embedded evidence context:
 
 - `Export Evidence Pack`
 
@@ -642,7 +642,7 @@ Detailed contract:
 6. Add `TransferAgentWorkQueue` with drawer review pattern.
 7. Add `HolderRegister` page with register version tabs.
 8. Add `Reconciliation` page.
-9. Add `Evidence` page.
+9. Embed evidence pack review in `Book of Record / Fund Management`.
 10. Connect existing fund issuance / redemption / distribution data into TA projections.
 11. Add secondary transfer bridge only after primary register flows are stable.
 

@@ -79,11 +79,15 @@ export function SnapshotReviewPanel({
   positions,
   list,
   lines,
+  readOnly = false,
+  hideActions = false,
 }: {
   snapshot?: HolderSnapshot;
   positions: HolderSnapshotPosition[];
   list?: SettlementList;
   lines: SettlementListLine[];
+  readOnly?: boolean;
+  hideActions?: boolean;
 }) {
   const { overwriteHolderSnapshotPosition, reviewHolderSnapshot } = useApp();
   const [drafts, setDrafts] = useState<Record<string, SnapshotDraft>>({});
@@ -93,7 +97,9 @@ export function SnapshotReviewPanel({
     [lines],
   );
   const reviewComplete = ["review-snapshot", "manual-overwrite", "review"].includes(snapshot?.lastAction || "");
-  const readOnly = !snapshot || ["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(snapshot.status);
+  const lockedByStatus = !snapshot || ["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(snapshot.status);
+  const isReadOnly = readOnly || lockedByStatus;
+  const showActions = !hideActions;
   const totalUnits = positions.reduce((sum, position) => sum + parseAmount(position.units), 0);
   const totalAmount = lines.reduce((sum, line) => sum + parseAmount(line.amount), 0);
   const manualOverwriteCount = new Set([
@@ -126,6 +132,7 @@ export function SnapshotReviewPanel({
   };
 
   const saveRow = (position: HolderSnapshotPosition) => {
+    if (isReadOnly) return;
     const draft = drafts[position.positionId];
     if (!draft) return;
     const line = lineByPosition.get(position.positionId);
@@ -157,6 +164,7 @@ export function SnapshotReviewPanel({
   };
 
   const markReviewed = () => {
+    if (isReadOnly) return;
     if (!snapshot) return;
     const result = reviewHolderSnapshot(snapshot.snapshotId, snapshot.version);
     if (result.success) {
@@ -175,18 +183,22 @@ export function SnapshotReviewPanel({
             <Badge variant={reviewComplete ? "default" : "secondary"}>
               {reviewComplete ? "Reviewed" : "Review Required"}
             </Badge>
+            {readOnly ? <Badge variant="outline">Read-only Preview</Badge> : null}
             {list ? <Badge variant={statusVariant(list.status)}>{list.listType}</Badge> : null}
           </div>
           <CardTitle>Holder Snapshot Output</CardTitle>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Review the holder-level snapshot and expected allocation/payment list before sending it back to issuer review.
-            Manual overwrites are versioned and recorded as audit evidence.
+            {isReadOnly
+              ? "Inspect the holder-level snapshot and expected allocation/payment list exactly as it was recorded for this fund event."
+              : "Review the holder-level snapshot and expected allocation/payment list before sending it back to issuer review. Manual overwrites are versioned and recorded as audit evidence."}
           </p>
         </div>
-        <Button disabled={readOnly || reviewComplete || !snapshot || !list || positions.length === 0} onClick={markReviewed}>
-          <ShieldCheck className="h-4 w-4" />
-          {reviewComplete ? "Snapshot Reviewed" : "Mark Snapshot Reviewed"}
-        </Button>
+        {showActions ? (
+          <Button disabled={isReadOnly || reviewComplete || !snapshot || !list || positions.length === 0} onClick={markReviewed}>
+            <ShieldCheck className="h-4 w-4" />
+            {reviewComplete ? "Snapshot Reviewed" : "Mark Snapshot Reviewed"}
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-5">
         {!snapshot ? (
@@ -247,16 +259,16 @@ export function SnapshotReviewPanel({
                       <label className="flex items-center gap-2">
                         <Checkbox
                           checked={draft.included}
-                          disabled={readOnly}
+                          disabled={isReadOnly}
                           onCheckedChange={(checked) => updateDraft(position.positionId, { included: Boolean(checked) })}
                         />
                         Include in issuer output
                       </label>
-                      <Input disabled={readOnly} value={draft.units} onChange={(event) => updateDraft(position.positionId, { units: event.target.value })} />
-                      <Input disabled={readOnly} value={draft.amount} onChange={(event) => updateDraft(position.positionId, { amount: event.target.value })} />
-                      <Input disabled={readOnly} value={draft.destination} onChange={(event) => updateDraft(position.positionId, { destination: event.target.value })} />
-                      <Textarea disabled={readOnly} value={draft.reason} onChange={(event) => updateDraft(position.positionId, { reason: event.target.value })} placeholder="Override reason" />
-                      <Button disabled={readOnly} onClick={() => saveRow(position)}>Save Row Override</Button>
+                      <Input disabled={isReadOnly} value={draft.units} onChange={(event) => updateDraft(position.positionId, { units: event.target.value })} />
+                      <Input disabled={isReadOnly} value={draft.amount} onChange={(event) => updateDraft(position.positionId, { amount: event.target.value })} />
+                      <Input disabled={isReadOnly} value={draft.destination} onChange={(event) => updateDraft(position.positionId, { destination: event.target.value })} />
+                      <Textarea disabled={isReadOnly} value={draft.reason} onChange={(event) => updateDraft(position.positionId, { reason: event.target.value })} placeholder="Override reason" />
+                      {showActions ? <Button disabled={isReadOnly} onClick={() => saveRow(position)}>Save Row Override</Button> : null}
                     </div>
                   </div>
                 );
@@ -275,7 +287,7 @@ export function SnapshotReviewPanel({
                     <TableHead>Status</TableHead>
                     <TableHead>Override Reason</TableHead>
                     <TableHead>Trace</TableHead>
-                    <TableHead>Action</TableHead>
+                    {showActions ? <TableHead>Action</TableHead> : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -294,22 +306,22 @@ export function SnapshotReviewPanel({
                         <TableCell>
                           <Checkbox
                             checked={draft.included}
-                            disabled={readOnly}
+                            disabled={isReadOnly}
                             onCheckedChange={(checked) => updateDraft(position.positionId, { included: Boolean(checked) })}
                           />
                         </TableCell>
                         <TableCell>
-                          <Input className="w-32" disabled={readOnly} value={draft.units} onChange={(event) => updateDraft(position.positionId, { units: event.target.value })} />
+                          <Input className="w-32" disabled={isReadOnly} value={draft.units} onChange={(event) => updateDraft(position.positionId, { units: event.target.value })} />
                         </TableCell>
                         <TableCell>
-                          <Input className="w-36" disabled={readOnly} value={draft.amount} onChange={(event) => updateDraft(position.positionId, { amount: event.target.value })} />
+                          <Input className="w-36" disabled={isReadOnly} value={draft.amount} onChange={(event) => updateDraft(position.positionId, { amount: event.target.value })} />
                         </TableCell>
                         <TableCell>
-                          <Input className="w-48" disabled={readOnly} value={draft.destination} onChange={(event) => updateDraft(position.positionId, { destination: event.target.value })} />
+                          <Input className="w-48" disabled={isReadOnly} value={draft.destination} onChange={(event) => updateDraft(position.positionId, { destination: event.target.value })} />
                         </TableCell>
                         <TableCell>
                           <Select
-                            disabled={readOnly || !line}
+                            disabled={isReadOnly || !line}
                             value={draft.included ? draft.status : "Held"}
                             onValueChange={(status) => updateDraft(position.positionId, { status: status as SettlementListLine["status"] })}
                           >
@@ -326,7 +338,7 @@ export function SnapshotReviewPanel({
                         <TableCell>
                           <Textarea
                             className="min-h-16 w-56"
-                            disabled={readOnly}
+                            disabled={isReadOnly}
                             value={draft.reason}
                             onChange={(event) => updateDraft(position.positionId, { reason: event.target.value })}
                             placeholder="Required when excluded or overwritten"
@@ -339,17 +351,19 @@ export function SnapshotReviewPanel({
                             <div className="text-muted-foreground">{position.lastAction || line?.lastAction || "Seed / generated"}</div>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <Button disabled={readOnly} size="sm" onClick={() => saveRow(position)}>
-                            Save
-                          </Button>
-                        </TableCell>
+                        {showActions ? (
+                          <TableCell>
+                            <Button disabled={isReadOnly} size="sm" onClick={() => saveRow(position)}>
+                              Save
+                            </Button>
+                          </TableCell>
+                        ) : null}
                       </TableRow>
                     );
                   })}
                   {positions.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                      <TableCell colSpan={showActions ? 9 : 8} className="py-10 text-center text-muted-foreground">
                         No holder rows are attached to this snapshot yet.
                       </TableCell>
                     </TableRow>

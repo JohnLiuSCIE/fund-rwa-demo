@@ -23,9 +23,10 @@ Current implemented UI mapping:
 | TA operating console | `/ta` | Book of Record summary, workflow health, exceptions, and evidence entry points |
 | TA intake and work queue | `/ta/queue` | Projects `WorkflowTask`; filters first by workflow area, then by task stage |
 | Dedicated TA approval page | `/ta/queue/:taskId` | Pull, respond, match, identity-gated submit, issuer review, and reconcile actions |
-| Book of Record / holder register | `/ta/register` | Holder ownership, register versions, wallet links, restrictions |
+| Book of Record / fund management | `/ta/register` | Fund-scoped register versions, snapshots, holder rows, evidence, and anchors |
+| Book of Record / user management | `/ta/admissions` | Holder onboarding, wallet links, KYC evidence, restrictions, and admissions |
 | Exceptions | `/ta/reconciliation` | Reconciliation breaks and close-out handling |
-| Evidence | `/ta/evidence` | Evidence packs, register/snapshot/list anchors |
+| Evidence | `/ta/register` | Evidence is reviewed through fund snapshots and audit context instead of a standalone route |
 
 Demo implementation note:
 
@@ -314,11 +315,12 @@ Minimum implementation:
 - `TA Dashboard` / `/ta`
 - `Work Queue` / `/ta/queue`
 - `Dedicated Workflow Detail` / `/ta/queue/:taskId`
-- `Book of Record / Holder Register` / `/ta/register`
+- `Book of Record / Fund Management` / `/ta/register`
+- `Book of Record / User Management` / `/ta/admissions`
 - `Reconciliation Breaks` / `/ta/reconciliation`
-- `Evidence Pack` / `/ta/evidence`
+- `Evidence Pack` / fund snapshot audit inside `/ta/register`
 
-Secondary-trading implementation:
+Secondary-trading backlog, not exposed in the current MVP navigation:
 
 - `Primary-Secondary Bridge`
 - `VATP Position Reconciliation`

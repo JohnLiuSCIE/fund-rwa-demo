@@ -45,7 +45,6 @@ import {
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
 type SecureAction =
-  | "accept"
   | "submit"
   | "return";
 
@@ -150,7 +149,6 @@ export function TransferAgentWorkflowDetail() {
     settlementListLines,
     cashMovements,
     evidenceRecords,
-    workflowAcceptTask,
     workflowUpdateChecklist,
     workflowMatchTask,
     workflowReturnTask,
@@ -295,7 +293,7 @@ export function TransferAgentWorkflowDetail() {
 
   const checklistItems = getWorkflowReviewChecklist(instance.sourceType, instance.sourceReference);
   const reviewComplete = checklistItems.every((item) => Boolean(task.reviewChecklist[item.key]));
-  const canRunMatch = instance.status === "TAResponded" || instance.status === "MatchException";
+  const canRunMatch = ["IssuerSubmitted", "TAPulled", "TAResponded", "MatchException"].includes(instance.status);
   const snapshotReviewGateRequired =
     !isCloseOutWorkflow &&
     Boolean(snapshot) &&
@@ -311,6 +309,28 @@ export function TransferAgentWorkflowDetail() {
     reviewComplete &&
     Boolean(match?.matched) &&
     snapshotReviewComplete;
+  const isWorkflowComplete = instance.status === "IssuerAcknowledged" || instance.status === "Reconciled";
+  const isSubmitStage = [
+    "MatchPassed",
+    "SnapshotLocked",
+    "RecipientListGenerated",
+    "PaymentListGenerated",
+  ].includes(instance.status);
+  const primaryDisabledReason = (() => {
+    if (isWorkflowComplete) return "This TA workflow is complete.";
+    if (instance.status === "SubmittedToIssuer") return "TA output is submitted and awaiting issuer acknowledgement.";
+    if (instance.status === "MatchException" && match?.exception) {
+      return "Resolve or return the match exception before continuing.";
+    }
+    if (canRunMatch) return undefined;
+    if (snapshotReviewGateRequired && !snapshotReviewComplete) {
+      return "Review the snapshot output or save a manual overwrite before submitting issuer review.";
+    }
+    if (isSubmitStage && !reviewComplete) return "Complete the Review & Match checklist before submitting.";
+    if (isSubmitStage && !match?.matched) return "Run and pass the data match before submitting.";
+    if (!canSubmit) return "Workflow is not ready for this TA action yet.";
+    return undefined;
+  })();
   const run = (result: { success: boolean; message: string }, options?: { quietSuccess?: boolean }) => {
     const toastOptions = { position: "top-center" as const };
     if (result.success) {
@@ -340,34 +360,30 @@ export function TransferAgentWorkflowDetail() {
   };
 
   const primaryAction = () => {
-    if (instance.status === "IssuerAcknowledged") return;
-    if (instance.status === "IssuerSubmitted" || instance.status === "TAPulled") return requestSecureAction("accept");
+    if (primaryDisabledReason) return;
     if (canRunMatch) return setReviewSheetOpen(true);
     return requestSecureAction("submit");
   };
 
-  const primaryDisabled =
-    (!canRunMatch && !["IssuerSubmitted", "TAPulled"].includes(instance.status) && !canSubmit) ||
-    instance.status === "SubmittedToIssuer" ||
-    instance.status === "Reconciled" ||
-    instance.status === "IssuerAcknowledged";
+  const primaryDisabled = Boolean(primaryDisabledReason);
 
   const steps = getWorkflowSteps(instance.sourceType, instance.sourceReference);
   const currentIndex = Math.max(0, steps.findIndex((step) => step.stepId === instance.currentStepId));
   const completedChecklistCount = checklistItems.filter((item) => task.reviewChecklist[item.key]).length;
   const matchStatusLabel = match ? (match.matched ? "Match passed" : "Match exception") : "Not matched";
-  const primaryActionLabel =
-    instance.status === "IssuerAcknowledged"
-      ? "TA Workflow Complete"
-      : canRunMatch
-        ? "Review & Match"
-        : getWorkflowTaskActionLabel(instance, task);
+  const primaryActionLabel = (() => {
+    if (isWorkflowComplete) return "TA Workflow Complete";
+    if (instance.status === "MatchException" && match?.exception) return "Resolve Exception First";
+    if (snapshotReviewGateRequired && !snapshotReviewComplete) return "Review Snapshot First";
+    if (isSubmitStage && !reviewComplete) return "Complete Review First";
+    if (isSubmitStage && !match?.matched) return "Run Match First";
+    if (canRunMatch) return "Review & Match";
+    return getWorkflowTaskActionLabel(instance, task);
+  })();
   const secureActionLabel =
-    secureAction === "accept"
-      ? "Accept Request"
-      : secureAction === "return"
-          ? "Return To Issuer"
-          : getWorkflowTaskActionLabel(instance, task);
+    secureAction === "return"
+      ? "Return To Issuer"
+      : getWorkflowTaskActionLabel(instance, task);
   const secureActionSummary: ActionModalSummaryItem[] = [
     { label: "Workflow", value: sourceReferenceLabel },
     { label: "Current step", value: instance.currentStepId },
@@ -412,6 +428,22 @@ export function TransferAgentWorkflowDetail() {
     if (sourceDistribution) return order.type === "subscription";
     return false;
   });
+  const approvalMatchLabel = match ? (match.matched ? "Matched" : "Exception") : canRunMatch ? "Pending match" : "Not run";
+  const approvalMatchTone: ReviewTone = match?.matched ? "success" : match ? "danger" : canRunMatch ? "warning" : "muted";
+  const approvalReviewState = reviewComplete
+    ? "Checklist complete"
+    : `${completedChecklistCount}/${checklistItems.length} checks complete`;
+  const approvalReviewTone: ReviewTone = reviewComplete ? "success" : "warning";
+  const approvalNextAction =
+    !reviewComplete
+      ? "Complete checks"
+      : !match
+        ? "Run match"
+        : match.matched
+          ? getWorkflowTaskActionLabel(instance, task)
+          : "Return or resolve";
+  const approvalNextActionTone: ReviewTone =
+    !reviewComplete || !match ? "warning" : match.matched ? "success" : "danger";
   const taApprovalSnapshotRows: ApprovalReviewTableRow[] =
     positions.length > 0
       ? positions.map((position) => ({
@@ -420,6 +452,12 @@ export function TransferAgentWorkflowDetail() {
           subtitle: position.walletAddress,
           status: position.included ? "Included" : position.exclusionReason || "Excluded",
           statusTone: getTaReviewTone(position.included ? "Included" : position.exclusionReason || "Excluded"),
+          matchResult: approvalMatchLabel,
+          matchTone: approvalMatchTone,
+          reviewState: approvalReviewState,
+          reviewTone: approvalReviewTone,
+          nextAction: approvalNextAction,
+          nextActionTone: approvalNextActionTone,
           cells: [
             { label: "Units", value: position.units },
             { label: "Cash / entitlement", value: position.cashAmount || position.entitlementAmount || "Pending" },
@@ -433,6 +471,12 @@ export function TransferAgentWorkflowDetail() {
           subtitle: order.investorWallet,
           status: order.status,
           statusTone: getTaReviewTone(order.status),
+          matchResult: approvalMatchLabel,
+          matchTone: approvalMatchTone,
+          reviewState: approvalReviewState,
+          reviewTone: approvalReviewTone,
+          nextAction: approvalNextAction,
+          nextActionTone: approvalNextActionTone,
           cells: [
             { label: "Order type", value: order.type },
             { label: "Request amount", value: order.requestAmount },
@@ -448,6 +492,12 @@ export function TransferAgentWorkflowDetail() {
           subtitle: line.destination,
           status: line.status,
           statusTone: getTaReviewTone(line.status),
+          matchResult: approvalMatchLabel,
+          matchTone: approvalMatchTone,
+          reviewState: approvalReviewState,
+          reviewTone: approvalReviewTone,
+          nextAction: approvalNextAction,
+          nextActionTone: approvalNextActionTone,
           cells: [
             { label: "Amount", value: `${line.amount} ${line.currency}` },
             { label: "List", value: line.listId },
@@ -461,6 +511,12 @@ export function TransferAgentWorkflowDetail() {
           subtitle: order.investorWallet,
           status: order.unitBookingStatus || order.status,
           statusTone: getTaReviewTone(order.unitBookingStatus || order.status),
+          matchResult: approvalMatchLabel,
+          matchTone: approvalMatchTone,
+          reviewState: approvalReviewState,
+          reviewTone: approvalReviewTone,
+          nextAction: approvalNextAction,
+          nextActionTone: approvalNextActionTone,
           cells: [
             { label: "Source object", value: order.type === "subscription" ? "Subscription order" : "Redemption order" },
             { label: "Estimated value", value: order.estimatedSharesOrCash },
@@ -487,6 +543,12 @@ export function TransferAgentWorkflowDetail() {
       account: movement.reference || movement.instructionId,
       status: movement.status,
       statusTone: getTaReviewTone(movement.status),
+      matchResult: movement.status,
+      matchTone: getTaReviewTone(movement.status),
+      reviewState: approvalReviewState,
+      reviewTone: approvalReviewTone,
+      nextAction: movement.status === "Failed" ? "Resolve cash break" : approvalNextAction,
+      nextActionTone: movement.status === "Failed" ? "danger" : approvalNextActionTone,
       reference: movement.reference || movement.cashMovementId,
       timestamp: movement.confirmedAt || "Pending confirmation",
       owner: movement.owner,
@@ -500,6 +562,12 @@ export function TransferAgentWorkflowDetail() {
     account: order.payerBankAccountMasked || order.investorWallet,
     status: order.paymentStatus || order.status,
     statusTone: getTaReviewTone(order.paymentStatus || order.status),
+    matchResult: approvalMatchLabel,
+    matchTone: approvalMatchTone,
+    reviewState: approvalReviewState,
+    reviewTone: approvalReviewTone,
+    nextAction: approvalNextAction,
+    nextActionTone: approvalNextActionTone,
     reference: order.paymentReference || order.id,
     timestamp: order.cashConfirmedAt || order.cashReceivedAt || order.settlementTime || order.submitTime,
     owner: order.cashConfirmedBy || "Issuer Ops / Bank",
@@ -511,6 +579,12 @@ export function TransferAgentWorkflowDetail() {
     type: record.evidenceType,
     status: record.contentHash ? "Hash linked" : record.retentionClass,
     statusTone: record.contentHash ? "success" : "default",
+    matchResult: record.contentHash ? "Evidence linked" : "Evidence pending",
+    matchTone: record.contentHash ? "success" : "warning",
+    reviewState: approvalReviewState,
+    reviewTone: approvalReviewTone,
+    nextAction: approvalNextAction,
+    nextActionTone: approvalNextActionTone,
     detail: record.storageUri || record.createdAt,
     reference: record.contentHash || record.evidenceRefId,
   }));
@@ -521,7 +595,15 @@ export function TransferAgentWorkflowDetail() {
       type: "MatchResult",
       status: match.matched ? "Match passed" : "Match exception",
       statusTone: match.matched ? "success" : "danger",
-      detail: match.exceptionReason || `${match.checks.filter((check) => check.status === "Pass").length}/${match.checks.length} check(s) passed`,
+      matchResult: match.matched ? "Matched" : "Exception",
+      matchTone: match.matched ? "success" : "danger",
+      reviewState: approvalReviewState,
+      reviewTone: approvalReviewTone,
+      nextAction: match.matched ? getWorkflowTaskActionLabel(instance, task) : "Return or resolve",
+      nextActionTone: match.matched ? "success" : "danger",
+      detail:
+        match.exception ||
+        `${match.checks.filter((check) => check.passed).length}/${match.checks.length} check(s) passed`,
       reference: match.matchResultId,
     });
   }
@@ -554,13 +636,23 @@ export function TransferAgentWorkflowDetail() {
       tone: match?.matched ? "success" : match ? "danger" : "muted",
     },
   ];
+  const sourceLifecycleStatus = sourceDistribution?.status || sourceRedemption?.status || sourceIssuance?.status;
+  const approvalWorkspaceDataCount =
+    positions.length +
+    workflowOrders.length +
+    lines.length +
+    taApprovalCashFlows.length +
+    taApprovalEvidenceRows.length;
+  const approvalWorkspaceControlCount = checklistItems.length + (match ? 1 : 0);
+  const shouldShowApprovalWorkspace =
+    !["Draft", "Finalized"].includes(sourceLifecycleStatus || "") &&
+    !isWorkflowComplete &&
+    (approvalWorkspaceDataCount > 0 || approvalWorkspaceControlCount > 0);
 
   const executeSecureAction = () => {
     if (!secureAction) return;
     let success = false;
-    if (secureAction === "accept") {
-      success = run(workflowAcceptTask(task.taskId));
-    } else if (secureAction === "return") {
+    if (secureAction === "return") {
       success = run(workflowReturnTask(task.taskId, "Match exception returned to issuer."));
     } else {
       success = run(workflowSubmitCurrentStep(task.taskId));
@@ -595,10 +687,17 @@ export function TransferAgentWorkflowDetail() {
                 {sourceFundName} · {sourceReferenceLabel}
               </p>
             </div>
-            <Button disabled={primaryDisabled} onClick={primaryAction}>
-              <ShieldCheck className="h-4 w-4" />
-              {primaryActionLabel}
-            </Button>
+            <div className="flex max-w-sm flex-col items-start gap-2 sm:items-end">
+              <Button disabled={primaryDisabled} onClick={primaryAction}>
+                <ShieldCheck className="h-4 w-4" />
+                {primaryActionLabel}
+              </Button>
+              {primaryDisabledReason ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-right">
+                  {primaryDisabledReason}
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-4">
@@ -609,6 +708,52 @@ export function TransferAgentWorkflowDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {shouldShowApprovalWorkspace ? (
+        <div className="mb-6">
+          <ApprovalReviewWorkspace
+            title="TA Approval Data Package"
+            description="Use this workspace as the controlled review package for the current TA task. It connects source orders, holder snapshot rows, settlement list lines, cash movements, and evidence before the workflow action is released."
+            badges={[
+              {
+                label: task.taskStatus,
+                tone: getTaReviewTone(task.taskStatus),
+              },
+              {
+                label: instance.sourceType,
+                tone: "default",
+              },
+            ]}
+            metrics={taApprovalMetrics}
+            snapshotTitle={positions.length > 0 ? "Holder Snapshot Review" : "Source Order Snapshot"}
+            snapshotRows={taApprovalSnapshotRows}
+            listTitle={lines.length > 0 ? "Settlement List" : "Order / Register Effect List"}
+            listRows={taApprovalListRows}
+            cashFlows={taApprovalCashFlows}
+            evidenceRows={taApprovalEvidenceRows}
+            reviewHint="Review this data package, complete the match checks, then use the workflow action above. The issuer side reads the same workflow-backed state after TA submits output."
+            detailPanel={{
+              title: "TA Decision",
+              status: primaryDisabledReason ? "Blocked" : approvalMatchLabel,
+              tone: primaryDisabledReason ? "warning" : approvalMatchTone,
+              summary:
+                primaryDisabledReason ||
+                "Complete the checklist, record the match decision, then release the next workflow action when available.",
+              rows: [
+                { label: "Checklist", value: `${completedChecklistCount}/${checklistItems.length}` },
+                { label: "Match", value: matchStatusLabel },
+                { label: "Next action", value: primaryActionLabel },
+              ],
+              action: canRunMatch
+                ? {
+                    label: "Open Review & Match",
+                    onClick: () => setReviewSheetOpen(true),
+                  }
+                : undefined,
+            }}
+          />
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
         <Card>
@@ -741,9 +886,9 @@ export function TransferAgentWorkflowDetail() {
               <Button className="w-full" disabled={primaryDisabled} onClick={primaryAction}>
                 {primaryActionLabel}
               </Button>
-              {snapshotReviewGateRequired && !snapshotReviewComplete ? (
+              {primaryDisabledReason ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  Review the snapshot output or save a manual overwrite before submitting it back to issuer review.
+                  {primaryDisabledReason}
                 </div>
               ) : null}
               {canRunMatch || match ? (
@@ -762,42 +907,24 @@ export function TransferAgentWorkflowDetail() {
                 </div>
               ) : null}
               {instance.status === "MatchException" || task.taskStatus === "Blocked" ? (
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  onClick={() => requestSecureAction("return")}
-                >
-                  Return To Issuer
-                </Button>
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                  <div className="font-medium">Exception requires decision</div>
+                  <div className="mt-1 text-red-800">
+                    Return the package to issuer with the recorded match exception, or reopen the Review & Match sheet to
+                    correct the match result.
+                  </div>
+                  <Button
+                    className="mt-3 w-full"
+                    variant="outline"
+                    onClick={() => requestSecureAction("return")}
+                  >
+                    Return To Issuer
+                  </Button>
+                </div>
               ) : null}
             </CardContent>
           </Card>
         </div>
-      </div>
-
-      <div className="mt-6">
-        <ApprovalReviewWorkspace
-          title="TA Approval Data Package"
-          description="Use this workspace as the controlled review package for the current TA task. It connects source orders, holder snapshot rows, settlement list lines, cash movements, and evidence before the workflow action is released."
-          badges={[
-            {
-              label: task.taskStatus,
-              tone: getTaReviewTone(task.taskStatus),
-            },
-            {
-              label: instance.sourceType,
-              tone: "default",
-            },
-          ]}
-          metrics={taApprovalMetrics}
-          snapshotTitle={positions.length > 0 ? "Holder Snapshot Review" : "Source Order Snapshot"}
-          snapshotRows={taApprovalSnapshotRows}
-          listTitle={lines.length > 0 ? "Settlement List" : "Order / Register Effect List"}
-          listRows={taApprovalListRows}
-          cashFlows={taApprovalCashFlows}
-          evidenceRows={taApprovalEvidenceRows}
-          reviewHint="Review this data package, complete the match checks, then use the workflow action above. The issuer side reads the same workflow-backed state after TA submits output."
-        />
       </div>
 
       {!isIssuanceWorkflow && !isCloseOutWorkflow ? (
@@ -892,7 +1019,7 @@ export function TransferAgentWorkflowDetail() {
                     <Checkbox
                       checked={Boolean(task.reviewChecklist[item.key])}
                       onCheckedChange={(checked) => updateChecklistItem(item.key, Boolean(checked))}
-                      disabled={["IssuerSubmitted", "SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(instance.status)}
+                      disabled={["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(instance.status)}
                     />
                     <span>{item.label}</span>
                   </label>
@@ -910,6 +1037,11 @@ export function TransferAgentWorkflowDetail() {
               {match ? (
                 <div className="rounded-lg border p-4">
                   <div className="mb-3 font-medium">{match.matched ? "Match Passed" : "Match Exception"}</div>
+                  {match.exception ? (
+                    <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                      {match.exception}
+                    </div>
+                  ) : null}
                   <div className="grid gap-2">
                     {match.checks.map((check) => (
                       <div key={check.checkId} className="flex items-start justify-between gap-3 rounded-md bg-muted px-3 py-2 text-sm">
@@ -928,6 +1060,13 @@ export function TransferAgentWorkflowDetail() {
                 </div>
               )}
             </div>
+            {!reviewComplete || !canRunMatch ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                {!reviewComplete
+                  ? "Complete every review checklist item before running match."
+                  : "This workflow is no longer in the Review & Match state."}
+              </div>
+            ) : null}
           </div>
 
           <SheetFooter className="border-t">

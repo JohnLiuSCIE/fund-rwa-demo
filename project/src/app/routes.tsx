@@ -25,8 +25,6 @@ import { TransferAgentWorkQueue } from "./pages/TransferAgentWorkQueue";
 import { TransferAgentWorkflowDetail } from "./pages/TransferAgentWorkflowDetail";
 import { HolderRegister } from "./pages/HolderRegister";
 import { TransferAgentReconciliation } from "./pages/TransferAgentReconciliation";
-import { TransferAgentEvidence } from "./pages/TransferAgentEvidence";
-import { TransferAgentTransfers } from "./pages/TransferAgentTransfers";
 
 function ProtectedRoute({ allow }: { allow: UserRole[] }) {
   const { authSession, isAuthSessionExpired } = useApp();
@@ -74,6 +72,7 @@ export function AppRoutes() {
           <Route path="fund-distribution/:id" element={<FundDistributionDetail />} />
         </Route>
         <Route element={<ProtectedRoute allow={["investor"]} />}>
+          <Route path="user" element={<UserCenter />} />
           <Route path="marketplace/fund-issuance" element={<MarketplaceFundIssuance />} />
           <Route path="marketplace/fund-issuance/:id" element={<FundIssuanceDetail />} />
           <Route path="marketplace/fund-redemption" element={<MarketplaceFundRedemption />} />
@@ -88,11 +87,8 @@ export function AppRoutes() {
             <Route path="queue/:taskId" element={<TransferAgentWorkflowDetail />} />
             <Route path="register" element={<HolderRegister />} />
             <Route path="reconciliation" element={<TransferAgentReconciliation />} />
-            <Route path="evidence" element={<TransferAgentEvidence />} />
-            <Route path="transfers" element={<TransferAgentTransfers />} />
           </Route>
         </Route>
-        <Route path="user" element={<UserCenter />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

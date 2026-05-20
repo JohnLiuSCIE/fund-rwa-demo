@@ -161,7 +161,36 @@ function makeTaskId(workflowId: string) {
 }
 
 export function isRedemptionCloseOutReference(sourceType?: WorkflowSourceType, sourceReference?: string) {
-  return sourceType === "Redemption" && Boolean(sourceReference?.includes("--close-out"));
+  return (
+    sourceType === "Redemption" &&
+    Boolean(sourceReference?.includes("--close-out") || sourceReference?.startsWith("red-ce-"))
+  );
+}
+
+const ISSUANCE_CLOSE_BOOK_ACTION_KEYS = [
+  "close-book-calculate-allocation",
+  "close-book",
+  "calculate-allocation",
+];
+const ISSUANCE_EXECUTE_ALLOCATION_ACTION_KEYS = [
+  "execute-allocation-on-chain",
+  "allocate-on-chain",
+  "mark-allocation-completed",
+];
+const ISSUANCE_FINALIZE_ACTIVATE_ACTION_KEYS = [
+  "finalize-activate-issuance",
+  "complete-issuance",
+  "activate-closed-end-fund",
+];
+
+function getWorkflowActionKey(sourceReference?: string) {
+  if (!sourceReference) return "";
+  return sourceReference.split("--").at(-1) || sourceReference;
+}
+
+function hasWorkflowActionKey(sourceReference: string | undefined, actionKeys: string[]) {
+  const actionKey = getWorkflowActionKey(sourceReference);
+  return actionKeys.includes(actionKey) || actionKeys.some((key) => sourceReference?.includes(key));
 }
 
 export function getWorkflowReviewChecklist(
@@ -267,21 +296,21 @@ export function getWorkflowReviewChecklist(
     ];
   }
 
-  if (sourceReference?.includes("close-book") || sourceReference?.includes("calculate-allocation")) {
+  if (sourceType === "Issuance" && hasWorkflowActionKey(sourceReference, ISSUANCE_CLOSE_BOOK_ACTION_KEYS)) {
     return [
       {
         key: "subscriptionWindow",
-        label: "Subscription window and close-book instruction match",
+        label: "Subscription window is closed against the approved close-book instruction",
         matchLabel: "Subscription window closed",
-        passDetail: "Issuer close-book instruction matches the active subscription window.",
+        passDetail: "Issuer close-book instruction matches the active subscription window and closes new intake.",
         failDetail: "Subscription window or close-book source terms are inconsistent.",
       },
       {
         key: "acceptedOrderBook",
-        label: "Accepted order book and cash confirmations are reconciled",
-        matchLabel: "Accepted order book ready",
+        label: "Cash, accepted order book, and manual overrides are reconciled",
+        matchLabel: "Cash/order book reconciled",
         passDetail: "Accepted subscriptions, cash confirmations, and manual overrides are aligned.",
-        failDetail: "Accepted order book or cash confirmation requires review.",
+        failDetail: "Accepted order book, cash confirmation, or manual override requires review.",
       },
       {
         key: "allocationWorkbook",
@@ -292,10 +321,76 @@ export function getWorkflowReviewChecklist(
       },
       {
         key: "registerPackage",
-        label: "Register package and on-chain allocation evidence are linked",
-        matchLabel: "Register package linked",
-        passDetail: "Register package, token allocation evidence, and approval references are attached.",
-        failDetail: "Register package or on-chain evidence is incomplete.",
+        label: "Register package is ready for the allocation handoff",
+        matchLabel: "Register package ready",
+        passDetail: "Register package, register delta, and approval references are attached.",
+        failDetail: "Register package or approval evidence is incomplete.",
+      },
+    ];
+  }
+
+  if (sourceType === "Issuance" && hasWorkflowActionKey(sourceReference, ISSUANCE_EXECUTE_ALLOCATION_ACTION_KEYS)) {
+    return [
+      {
+        key: "mintInstruction",
+        label: "Mint instruction matches the approved allocation workbook",
+        matchLabel: "Mint instruction present",
+        passDetail: "Mint quantity, class, and issuer approval references match the final allocation workbook.",
+        failDetail: "Mint instruction terms do not match the approved allocation workbook.",
+      },
+      {
+        key: "walletAllocationList",
+        label: "Wallet allocation list matches the holder register package",
+        matchLabel: "Wallet allocation list aligned",
+        passDetail: "Wallet addresses, holder rows, and allocation units align with the register package.",
+        failDetail: "Wallet allocation list differs from the holder register package.",
+      },
+      {
+        key: "txSubmittedConfirmed",
+        label: "Allocation transaction is submitted and confirmed",
+        matchLabel: "Tx submitted/confirmed",
+        passDetail: "On-chain transaction hash and confirmation receipt are linked to the allocation run.",
+        failDetail: "Allocation transaction is missing, pending, or not confirmed.",
+      },
+      {
+        key: "mintRegisterReconciliation",
+        label: "Mint result reconciles to the transfer-agent register",
+        matchLabel: "Mint/register reconciled",
+        passDetail: "Minted units, wallet allocations, and booked holder-register rows reconcile.",
+        failDetail: "Minted units or wallet allocations do not reconcile to the holder register.",
+      },
+    ];
+  }
+
+  if (sourceType === "Issuance" && hasWorkflowActionKey(sourceReference, ISSUANCE_FINALIZE_ACTIVATE_ACTION_KEYS)) {
+    return [
+      {
+        key: "taCloseOutMemo",
+        label: "TA close-out memo is complete",
+        matchLabel: "TA close-out memo ready",
+        passDetail: "TA close-out memo confirms completed allocation, register posting, and evidence references.",
+        failDetail: "TA close-out memo is missing or incomplete.",
+      },
+      {
+        key: "issuerAcknowledge",
+        label: "Issuer acknowledge gate is ready",
+        matchLabel: "Issuer acknowledge ready",
+        passDetail: "Issuer acknowledgement package is prepared with the final TA approval context.",
+        failDetail: "Issuer acknowledgement package is not ready.",
+      },
+      {
+        key: "registerBaseline",
+        label: "Initial holder register baseline is locked",
+        matchLabel: "Register baseline locked",
+        passDetail: "Initial holder register baseline is locked for post-issuance operations.",
+        failDetail: "Initial holder register baseline is not locked.",
+      },
+      {
+        key: "goLiveReadiness",
+        label: "Go-live readiness controls are complete",
+        matchLabel: "Go-live readiness complete",
+        passDetail: "Activation readiness, operating handoff, and fund go-live controls are complete.",
+        failDetail: "Activation readiness or operating handoff controls are incomplete.",
       },
     ];
   }
@@ -336,6 +431,10 @@ function buildInitialChecklist(sourceType: WorkflowSourceType, sourceReference?:
   return Object.fromEntries(
     getWorkflowReviewChecklist(sourceType, sourceReference).map((item) => [item.key, false]),
   );
+}
+
+function isWorkflowIntakeStatus(status: WorkflowStatus) {
+  return status === "IssuerSubmitted" || status === "TAPulled";
 }
 
 function migrateChecklist(
@@ -434,10 +533,11 @@ function createInitialWorkflowState(): WorkflowBackendState {
     {
       sourceType: "Distribution",
       sourceReference: "distribution-002",
-      status: "IssuerSubmitted",
-      currentStepId: "TARespond",
-      taskStatus: "New Request",
+      status: "TAResponded",
+      currentStepId: "MatchData",
+      taskStatus: "Match Required",
       ownerRole: "transferAgent",
+      assignee: "ta-operator-demo",
       createdAt: "2026-05-20T17:30:00.000Z",
       updatedAt: "2026-05-20T17:30:00.000Z",
       logs: [
@@ -447,6 +547,13 @@ function createInitialWorkflowState(): WorkflowBackendState {
           message: "Issuer submitted 2026 interim distribution record-date request to TA.",
           stepId: "IssuerSubmitted",
           createdAt: "2026-05-20T17:30:00.000Z",
+        },
+        {
+          action: "respond",
+          actorRole: "transferAgent",
+          message: "TA review and data match opened for the request.",
+          stepId: "TARespond",
+          createdAt: "2026-05-20T17:31:00.000Z",
         },
       ],
     },
@@ -679,6 +786,109 @@ function normalizeCompletedHandoffs(state: WorkflowBackendState): WorkflowBacken
   return changed ? { ...state, instances, tasks } : state;
 }
 
+function isSameChecklist(
+  current: Record<string, boolean> | undefined,
+  next: Record<string, boolean>,
+) {
+  const currentChecklist = current || {};
+  const currentKeys = Object.keys(currentChecklist);
+  const nextKeys = Object.keys(next);
+  return (
+    currentKeys.length === nextKeys.length &&
+    nextKeys.every((key) => Boolean(currentChecklist[key]) === Boolean(next[key]))
+  );
+}
+
+function normalizeWorkflowTaskChecklists(state: WorkflowBackendState): WorkflowBackendState {
+  let changed = false;
+  const tasks = state.tasks.map((task) => {
+    const nextChecklist = migrateChecklist(task.reviewChecklist, task.sourceType, task.sourceReference);
+    if (isSameChecklist(task.reviewChecklist, nextChecklist)) return task;
+    changed = true;
+    return {
+      ...task,
+      reviewChecklist: nextChecklist,
+    };
+  });
+
+  return changed ? { ...state, tasks } : state;
+}
+
+function normalizeTaReviewIntake(state: WorkflowBackendState): WorkflowBackendState {
+  const intakeWorkflowIds = new Set(
+    state.instances
+      .filter((instance) => isWorkflowIntakeStatus(instance.status))
+      .map((instance) => instance.workflowId),
+  );
+  if (intakeWorkflowIds.size === 0) return state;
+
+  const migratedAt = now();
+  let changed = false;
+  const instances = state.instances.map((instance) => {
+    if (!intakeWorkflowIds.has(instance.workflowId)) return instance;
+    changed = true;
+    return {
+      ...instance,
+      status: "TAResponded" as const,
+      currentStepId: "MatchData" as const,
+      updatedAt: migratedAt,
+      version: instance.version + 1,
+      lastActorRole: "transferAgent" as const,
+      lastAction: "respond",
+    };
+  });
+  const tasks = state.tasks.map((task) => {
+    if (!intakeWorkflowIds.has(task.workflowId)) return task;
+    changed = true;
+    return {
+      ...task,
+      ownerRole: "transferAgent" as const,
+      taskStatus: "Match Required" as const,
+      currentStepId: "MatchData" as const,
+      reviewRequired: true,
+      matchRequired: true,
+      assignee: task.assignee || "ta-operator-demo",
+      updatedAt: migratedAt,
+      version: task.version + 1,
+    };
+  });
+  const migratedLogs = Array.from(intakeWorkflowIds)
+    .filter(
+      (workflowId) =>
+        !state.actionLogs.some(
+          (log) =>
+            log.workflowId === workflowId &&
+            log.action === "respond" &&
+            log.stepId === "TARespond" &&
+            log.message.includes("Review & Match"),
+        ),
+    )
+    .map((workflowId) =>
+      auditLog(
+        workflowId,
+        "transferAgent",
+        "respond",
+        "TA intake migrated directly into Review & Match.",
+        makeTaskId(workflowId),
+        `WorkflowMigration:${workflowId}:ReviewMatch`,
+        "TARespond",
+      ),
+    );
+
+  return changed
+    ? {
+        ...state,
+        instances,
+        tasks,
+        actionLogs: [...migratedLogs, ...state.actionLogs],
+      }
+    : state;
+}
+
+function normalizeWorkflowState(state: WorkflowBackendState): WorkflowBackendState {
+  return normalizeWorkflowTaskChecklists(normalizeTaReviewIntake(normalizeCompletedHandoffs(state)));
+}
+
 function broadcast() {
   if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
   const channel = new BroadcastChannel(CHANNEL_NAME);
@@ -698,7 +908,7 @@ export function loadWorkflowState(): WorkflowBackendState {
   if (typeof window === "undefined") return createInitialWorkflowState();
   const existing = safeParseState(window.localStorage.getItem(STORAGE_KEY));
   if (existing) {
-    const normalized = normalizeCompletedHandoffs(existing);
+    const normalized = normalizeWorkflowState(existing);
     if (normalized !== existing) return persist(normalized, false);
     return existing;
   }
@@ -814,8 +1024,8 @@ export function createIssuerWorkflowInstruction(input: {
       snapshotId: input.snapshotId,
       fundId: input.fundId,
       classId: input.classId,
-      status: "IssuerSubmitted",
-      currentStepId: "TARespond",
+      status: "TAResponded",
+      currentStepId: "MatchData",
       createdAt,
       updatedAt: createdAt,
       version: 1,
@@ -825,7 +1035,10 @@ export function createIssuerWorkflowInstruction(input: {
       lastActorRole: input.actorRole,
       lastAction: "create",
     };
-    const task = buildTask(instance, "New Request", "transferAgent", true, true);
+    const task = {
+      ...buildTask(instance, "Match Required", "transferAgent", true, true),
+      assignee: "ta-operator-demo",
+    };
     result = {
       success: true,
       message: "Workflow request created.",
@@ -841,10 +1054,19 @@ export function createIssuerWorkflowInstruction(input: {
           instance.workflowId,
           input.actorRole,
           "create",
-          "Issuer submitted request to transfer agent.",
+          "Issuer submitted request to transfer agent; Review & Match is open.",
           task.taskId,
           input.idempotencyKey,
           "IssuerSubmitted",
+        ),
+        auditLog(
+          instance.workflowId,
+          "transferAgent",
+          "respond",
+          "TA review and data match opened for the request.",
+          task.taskId,
+          input.idempotencyKey,
+          "TARespond",
         ),
         ...state.actionLogs,
       ],
@@ -899,8 +1121,8 @@ export function pullWorkflowTask(
       result = { success: false, message: "Only new issuer requests can be pulled.", error: "INVALID_STATE" };
       return state;
     }
-    const nextInstance = setInstanceStatus(instance, "TAPulled", "TARespond", actorRole, "pull");
-    result = { success: true, message: "Workflow request pulled into TA review.", workflowId: instance.workflowId, taskId };
+    const nextInstance = setInstanceStatus(instance, "TAResponded", "MatchData", actorRole, "pull");
+    result = { success: true, message: "Workflow request opened for Review & Match.", workflowId: instance.workflowId, taskId };
     return {
       ...state,
       instances: state.instances.map((item) => item.workflowId === instance.workflowId ? nextInstance : item),
@@ -914,7 +1136,7 @@ export function pullWorkflowTask(
           instance.workflowId,
           actorRole,
           "pull",
-          "TA pulled request into workflow.",
+          "TA opened request for Review & Match.",
           taskId,
           options?.idempotencyKey,
           "TARespond",
@@ -1041,8 +1263,8 @@ export function matchWorkflowTask(
       result = { success: false, message: "Complete the review checklist before matching data.", error: "INVALID_STATE" };
       return state;
     }
-    if (!["TAResponded", "MatchException"].includes(instance.status)) {
-      result = { success: false, message: "Respond to the request before running match.", error: "INVALID_STATE" };
+    if (!["IssuerSubmitted", "TAPulled", "TAResponded", "MatchException"].includes(instance.status)) {
+      result = { success: false, message: "Open Review & Match before running match.", error: "INVALID_STATE" };
       return state;
     }
     const matchResult: MatchResult = {
@@ -1362,7 +1584,7 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType, sourceReference
   if (sourceType === "Issuance") {
     return [
       { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
-      { stepId: "TARespond" as const, label: "TA Accept", owner: "Transfer Agent" },
+      { stepId: "TARespond" as const, label: "TA Intake", owner: "Transfer Agent" },
       { stepId: "MatchData" as const, label: "Review & Match", owner: "Transfer Agent" },
       { stepId: "SubmitIssuerReview" as const, label: "Submit Issuer Review", owner: "Transfer Agent" },
       { stepId: "IssuerAcknowledge" as const, label: "Issuer Acknowledge", owner: "Issuer" },
@@ -1372,7 +1594,7 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType, sourceReference
   if (isRedemptionCloseOutReference(sourceType, sourceReference)) {
     return [
       { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
-      { stepId: "TARespond" as const, label: "TA Accept", owner: "Transfer Agent" },
+      { stepId: "TARespond" as const, label: "TA Intake", owner: "Transfer Agent" },
       { stepId: "MatchData" as const, label: "Close-out Match", owner: "Transfer Agent" },
       { stepId: "ReconcileCloseOut" as const, label: "Reconcile Close-out", owner: "Transfer Agent" },
     ];
@@ -1380,7 +1602,7 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType, sourceReference
 
   return [
     { stepId: "IssuerSubmitted" as const, label: "Issuer Submit", owner: "Issuer" },
-    { stepId: "TARespond" as const, label: "TA Accept", owner: "Transfer Agent" },
+    { stepId: "TARespond" as const, label: "TA Intake", owner: "Transfer Agent" },
     { stepId: "MatchData" as const, label: "Review & Match", owner: "Transfer Agent" },
     { stepId: "LockSnapshot" as const, label: "Lock Snapshot", owner: "Transfer Agent" },
     { stepId: "GenerateList" as const, label: sourceType === "Distribution" ? "Recipient List" : "Payment List", owner: "Transfer Agent" },
@@ -1392,8 +1614,7 @@ export function getWorkflowSteps(sourceType: WorkflowSourceType, sourceReference
 export function getWorkflowTaskActionLabel(instance?: WorkflowInstance, task?: WorkflowTask) {
   if (!instance || !task) return "Open Workflow";
   if (task.taskStatus === "Completed") return "View Workflow";
-  if (instance.status === "IssuerSubmitted" || instance.status === "TAPulled") return "Accept Request";
-  if (instance.status === "TAResponded" || instance.status === "MatchException") return "Review & Match";
+  if (isWorkflowIntakeStatus(instance.status) || instance.status === "TAResponded" || instance.status === "MatchException") return "Review & Match";
   if (instance.status === "MatchPassed") {
     if (isRedemptionCloseOutReference(instance.sourceType, instance.sourceReference)) return "Reconcile Close-out";
     return instance.sourceType === "Issuance" ? "Submit TA Approval" : "Lock Snapshot";

@@ -432,8 +432,8 @@ Target design:
   - `/ta` for the console
   - `/ta/queue` for workflow intake
   - `/ta/queue/:taskId` for the review-gated approval page
-  - `/ta/register` for Book of Record / holder register lookup
-  - `/ta/reconciliation` and `/ta/evidence` for exceptions and evidence
+  - `/ta/register` for Book of Record / fund management, snapshots, holder register lookup, and evidence audit
+  - `/ta/reconciliation` for exceptions and reconciliation breaks
 - Demo role is tab-scoped with `sessionStorage`; canonical workflow data is shared through `localStorage` and `BroadcastChannel`.
 - Redemption workflows may be event-level or order-level. Use `sourceEventReference` and `relatedOrderIds` to map an order task such as `red-ce-001` back to the issuer event such as `redemption-003`.
 

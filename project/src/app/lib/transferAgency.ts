@@ -29,8 +29,7 @@ export type TransferAgentTaskType =
   | "GenerateRecipientList"
   | "GeneratePaymentList"
   | "SubmitIssuerReview"
-  | "ReconcileCloseOut"
-  | "SecondaryBridgePlaceholder";
+  | "ReconcileCloseOut";
 
 export type TransferAgentTaskProjection = {
   taskId: string;
@@ -246,25 +245,7 @@ export function buildTransferAgentTasks({
     )
     .filter(Boolean) as TransferAgentTaskProjection[];
 
-  const placeholderTransfers = instructions
-    .filter((instruction) => instruction.instructionType === "Transfer" && instruction.sourceActorType === "VATP")
-    .map((instruction) => ({
-      taskId: `task-${instruction.instructionId}`,
-      instructionId: instruction.instructionId,
-      fundId: instruction.fundId,
-      classId: instruction.classId,
-      fundName: getFundName(funds, instruction.fundId),
-      taskType: "SecondaryBridgePlaceholder" as const,
-      priority: "Normal" as const,
-      source: `${instruction.sourceActorType} / ${instruction.sourceChannel}`,
-      registerImpact: "Transfer",
-      blockingIssue: "Designed, not enabled in MVP",
-      nextActionLabel: "View Placeholder",
-      dueAt: instruction.updatedAt,
-      status: "Designed Only",
-    }));
-
-  return [...tasks, ...placeholderTransfers].sort((a, b) => {
+  return tasks.sort((a, b) => {
     const priorityWeight = { Critical: 0, High: 1, Normal: 2 };
     return priorityWeight[a.priority] - priorityWeight[b.priority] || a.fundName.localeCompare(b.fundName);
   });
@@ -513,10 +494,13 @@ function buildIssuerTaHandoffProjection({
     ? holderSnapshotPositions.filter((position) => position.snapshotId === snapshot.snapshotId)
     : [];
   const lines = list ? settlementListLines.filter((line) => line.listId === list.listId) : [];
+  const instructionEvidenceRefIds = new Set(instruction?.evidenceRefIds || []);
+  const lineEvidenceRefIds = new Set(lines.flatMap((line) => line.evidenceRefIds));
   const evidence = evidenceRecords.filter(
     (record) =>
       (instruction && record.instructionId === instruction.instructionId) ||
-      lines.some((line) => line.evidenceRefIds.includes(record.evidenceRefId)),
+      instructionEvidenceRefIds.has(record.evidenceRefId) ||
+      lineEvidenceRefIds.has(record.evidenceRefId),
   );
   const totalUnits = positions.reduce((sum, position) => sum + parseLeadingNumber(position.units), 0);
   const totalAmount = lines.reduce((sum, line) => sum + parseLeadingNumber(line.amount), 0);

@@ -2171,6 +2171,22 @@ export function FundRedemptionDetail() {
   };
   const workflowForPrimaryAction = getWorkflowForRedemptionAction(primarySetupAction);
   const workflowTaskForPrimaryAction = getWorkflowTaskForRedemptionAction(primarySetupAction);
+  const redemptionWorkflowMatchResults: (typeof workflowState.matchResults)[number][] = [];
+  redemptionRelatedWorkflows.forEach((workflow) => {
+    const workflowTask = workflowState.tasks.find((task) => task.workflowId === workflow.workflowId);
+    const matchResult =
+      (workflowTask?.matchResultId
+        ? workflowState.matchResults.find((match) => match.matchResultId === workflowTask.matchResultId)
+        : undefined) ||
+      workflowState.matchResults.find((match) => match.workflowId === workflow.workflowId);
+
+    if (
+      matchResult &&
+      !redemptionWorkflowMatchResults.some((item) => item.matchResultId === matchResult.matchResultId)
+    ) {
+      redemptionWorkflowMatchResults.push(matchResult);
+    }
+  });
   const primaryActionNeedsTa =
     primarySetupAction?.impactType === "ta" || primarySetupAction?.impactType === "hybrid";
   const redemptionActionGate: RedemptionActionGate | undefined = primaryActionNeedsTa
@@ -2645,22 +2661,54 @@ export function FundRedemptionDetail() {
     owner: request.cashConfirmedBy || "Issuer Ops / Bank",
   }));
   const approvalCashFlows = [...canonicalCashFlows, ...expectedRedemptionCashFlows];
+  const redemptionEvidenceRecordsById = new Map<string, (typeof evidenceRecords)[number]>();
+  redemptionTaProjection.evidence.forEach((record) => {
+    redemptionEvidenceRecordsById.set(record.evidenceRefId, record);
+  });
+  evidenceRecords
+    .filter(
+      (record) =>
+        record.fundId === redemption.fundId &&
+        (!record.instructionId || record.instructionId === redemptionTaProjection.instruction?.instructionId),
+    )
+    .forEach((record) => {
+      redemptionEvidenceRecordsById.set(record.evidenceRefId, record);
+    });
+  const redemptionEvidenceRecordRows: ApprovalReviewEvidenceRow[] = Array.from(redemptionEvidenceRecordsById.values())
+    .map((record) => ({
+      id: record.evidenceRefId,
+      title: record.label,
+      type: record.evidenceType,
+      status: record.contentHash ? "Hash linked" : record.retentionClass,
+      statusTone: record.contentHash ? "success" : "default",
+      detail: record.storageUri || record.createdAt,
+      reference: record.contentHash || record.evidenceRefId,
+    }));
+  const redemptionWorkflowMatchEvidenceRows: ApprovalReviewEvidenceRow[] =
+    redemptionWorkflowMatchResults.map((matchResult) => {
+      const workflow = redemptionRelatedWorkflows.find(
+        (item) => item.workflowId === matchResult.workflowId,
+      );
+      const isCloseOutMatch = isRedemptionCloseOutReference(
+        workflow?.sourceType,
+        workflow?.sourceReference,
+      );
+
+      return {
+        id: matchResult.matchResultId,
+        title: isCloseOutMatch ? "Match Result - Close-out" : "Match Result",
+        type: "TA workflow",
+        status: matchResult.matched ? "Matched" : "Exception",
+        statusTone: matchResult.matched ? "success" : "danger",
+        detail: `${matchResult.checks.filter((check) => check.passed).length}/${
+          matchResult.checks.length
+        } checks passed${matchResult.exception ? ` - ${matchResult.exception}` : ""}`,
+        reference: matchResult.matchResultId,
+      };
+    });
   const approvalEvidenceRows: ApprovalReviewEvidenceRow[] = [
-    ...evidenceRecords
-      .filter(
-        (record) =>
-          record.fundId === redemption.fundId &&
-          (!record.instructionId || record.instructionId === redemptionTaProjection.instruction?.instructionId),
-      )
-      .map((record) => ({
-        id: record.evidenceRefId,
-        title: record.label,
-        type: record.evidenceType,
-        status: record.contentHash ? "Hash linked" : record.retentionClass,
-        statusTone: record.contentHash ? "success" : "default",
-        detail: record.storageUri || record.createdAt,
-        reference: record.contentHash || record.evidenceRefId,
-      })),
+    ...redemptionEvidenceRecordRows,
+    ...redemptionWorkflowMatchEvidenceRows,
     ...chainRequirements.map((requirement) => ({
       id: `chain-${requirement.label}`,
       title: requirement.label,
@@ -2703,6 +2751,23 @@ export function FundRedemptionDetail() {
       tone: manuallyExcludedRequests.length > 0 ? "warning" : "muted",
     },
   ];
+  const redemptionHasApprovalReviewData =
+    approvalSnapshotRows.length > 0 ||
+    approvalPaymentRows.length > 0 ||
+    approvalCashFlows.length > 0 ||
+    redemptionEvidenceRecordRows.length > 0 ||
+    redemptionWorkflowMatchEvidenceRows.length > 0;
+  const redemptionHasUnfinishedWorkflow = redemptionRelatedWorkflows.some(
+    (workflow) => !["IssuerAcknowledged", "Reconciled"].includes(workflow.status),
+  );
+  const redemptionNeedsIssuerAcknowledge = redemptionRelatedWorkflows.some(
+    (workflow) => workflow.status === "SubmittedToIssuer",
+  );
+  const showApprovalReviewWorkspace =
+    userRole === "issuer" &&
+    !["Draft", "Window Closed"].includes(redemption.status) &&
+    redemptionHasApprovalReviewData &&
+    (primaryActionNeedsTa || redemptionHasUnfinishedWorkflow || redemptionNeedsIssuerAcknowledge);
 
   const runTaCommand = (result: { success: boolean; message?: string }) => {
     if (result.success) {
@@ -2909,30 +2974,44 @@ export function FundRedemptionDetail() {
         />
       </div>
 
-      <div className="mb-8">
-        <ApprovalReviewWorkspace
-          title="Approval Review Workspace"
-          description="Review the redemption data package before using the workflow action above. Snapshot rows, payment list, cash movement, manual overwrites, and evidence stay connected to the same issuer and TA workflow state."
-          badges={[
-            {
-              label: redemptionActionGate?.taLock?.status === "approved" ? "TA approved" : "Workflow gated",
-              tone: redemptionActionGate?.taLock?.status === "approved" ? "success" : "warning",
-            },
-            {
-              label: redemption.status,
-              tone: getReviewTone(redemption.status),
-            },
-          ]}
-          metrics={approvalMetrics}
-          snapshotTitle="Holder Snapshot Review"
-          snapshotRows={approvalSnapshotRows}
-          listTitle="Redemption Payment List"
-          listRows={approvalPaymentRows}
-          cashFlows={approvalCashFlows}
-          evidenceRows={approvalEvidenceRows}
-          reviewHint="Use this workspace for data review and manual roster overwrite. When the package is ready and any TA lock is cleared, continue from the workflow action above."
-        />
-      </div>
+      {showApprovalReviewWorkspace && (
+        <div className="mb-8">
+          <ApprovalReviewWorkspace
+            title="Approval Review Workspace"
+            description="Review the redemption data package before using the workflow action above. Snapshot rows, payment list, cash movement, manual overwrites, and evidence stay connected to the same issuer and TA workflow state."
+            badges={[
+              {
+                label: redemptionActionGate?.taLock?.status === "approved" ? "TA approved" : "Workflow gated",
+                tone: redemptionActionGate?.taLock?.status === "approved" ? "success" : "warning",
+              },
+              {
+                label: redemption.status,
+                tone: getReviewTone(redemption.status),
+              },
+              ...(redemptionWorkflowMatchResults.length > 0
+                ? [
+                    {
+                      label: redemptionWorkflowMatchResults.some((match) => !match.matched)
+                        ? "Match exception"
+                        : "Match passed",
+                      tone: redemptionWorkflowMatchResults.some((match) => !match.matched)
+                        ? "danger" as const
+                        : "success" as const,
+                    },
+                  ]
+                : []),
+            ]}
+            metrics={approvalMetrics}
+            snapshotTitle="Holder Snapshot Review"
+            snapshotRows={approvalSnapshotRows}
+            listTitle="Redemption Payment List"
+            listRows={approvalPaymentRows}
+            cashFlows={approvalCashFlows}
+            evidenceRows={approvalEvidenceRows}
+            reviewHint="Use this workspace for data review and manual roster overwrite. When the package is ready and any TA lock is cleared, continue from the workflow action above."
+          />
+        </div>
+      )}
 
       {isOpenEndFund && (
         <div className="mb-8">

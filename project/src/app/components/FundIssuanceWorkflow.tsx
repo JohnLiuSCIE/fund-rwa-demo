@@ -31,20 +31,20 @@ const CLOSED_END_ISSUANCE_STEPS: WorkflowStep[] = [
   },
   {
     id: "step-3",
-    label: "Allocation",
-    description: "Allocation period",
+    label: "Close Book & Calculate Allocation",
+    description: "Close, match, calculate",
     owner: "Maker / TA",
   },
   {
     id: "step-4",
-    label: "On-chain Issuance",
-    description: "Issue allocations on-chain",
+    label: "Execute Allocation On-chain",
+    description: "Mint and reconcile",
     owner: "TA / System",
   },
   {
     id: "step-5",
-    label: "Completed",
-    description: "Issuance complete",
+    label: "Finalize & Activate Issuance",
+    description: "Close out and go live",
     owner: "TA / System",
   },
 ];
@@ -508,58 +508,74 @@ function getClosedEndSubsteps(currentStatus?: string) {
     case "Allocation Period":
     case "Calculated":
       return {
-        title: "Step 3 Breakdown",
-        description: "Allocation starts after subscription closes and ends with calculation.",
+        title: "Step 3: Close Book & Calculate Allocation",
+        description: "Close book, match TA inputs, then lock workbook and register gates.",
         steps: [
           stage("3.1 Close Book", "Close subscription", "Maker / System", [
             "Final subscription book",
             "Investor acceptance list",
             "Closed subscription gate",
           ]),
-          stage("3.2 Allocation", "Run allocation period", "Maker / TA", [
+          stage("3.2 TA Match", "Reconcile cash, order book, and overrides", "Maker / TA", [
+            "Cash confirmation file",
+            "Manual override log",
+            "TA match checkpoint",
+          ]),
+          stage("3.3 Allocation Workbook", "Calculate allocation result", "Maker / TA", [
             "Allocation workbook",
             "Cap table draft",
+            "Register package",
           ]),
-          stage("3.3 Calculated", "Finalize result", "TA", [
+          stage("3.4 Calculated", "Finalize result", "TA", [
             "Final allocation file",
             "Register delta approval",
           ]),
         ],
-        currentIndex: currentStatus === "Allocation Period" ? 1 : 2,
+        currentIndex: currentStatus === "Allocation Period" ? 1 : 3,
       };
     case "Allocate On Chain":
     case "Allocation Completed":
       return {
-        title: "Step 4 Breakdown",
-        description: "Move allocation on chain, then confirm execution completion.",
+        title: "Step 4: Execute Allocation On-chain",
+        description: "Keep mint prep, tx confirmation, and register reconciliation separate.",
         steps: [
-          stage("4.1 On-chain", "Execute issuance", "TA / System", [
+          stage("4.1 Mint Instruction", "Prepare mint package", "TA", [
             "Mint instruction file",
             "Wallet allocation list",
           ]),
-          stage("4.2 Completed", "Confirm allocation", "TA", [
+          stage("4.2 Tx Submitted/Confirmed", "Submit and confirm allocation transaction", "TA / System", [
+            "Transaction hash",
+            "Confirmation receipt",
+          ]),
+          stage("4.3 TA Match", "Reconcile mint result to register", "TA", [
+            "Mint/register reconciliation",
             "Booked holder register",
             "Issuance execution confirmation",
           ]),
         ],
-        currentIndex: currentStatus === "Allocate On Chain" ? 0 : 1,
+        currentIndex: currentStatus === "Allocate On Chain" ? 1 : 2,
       };
     case "Issuance Completed":
     case "Issuance Active":
       return {
-        title: "Step 5 Breakdown",
-        description: "Completion is explicit: issuance completion first, then fund activation.",
+        title: "Step 5: Finalize & Activate Issuance",
+        description: "Preserve close-out, issuer acknowledgement, baseline, and activation gates.",
         steps: [
-          stage("5.1 Issuance Done", "Close issuance workflow", "TA", [
-            "Initial holder register baseline",
+          stage("5.1 TA Close-out", "Close issuance workflow", "TA", [
             "TA close-out memo",
+            "Evidence package",
           ]),
-          stage("5.2 Fund Active", "Activate fund", "Maker / System", [
+          stage("5.2 Issuer Acknowledge", "Acknowledge TA close-out", "Issuer", [
+            "Issuer acknowledgement",
+            "Initial holder register baseline",
+          ]),
+          stage("5.3 Activate", "Activate fund", "Maker / System", [
             "Active fund ledger baseline",
+            "Go-live readiness checklist",
             "Post-issuance operating handoff",
           ]),
         ],
-        currentIndex: currentStatus === "Issuance Completed" ? 0 : 1,
+        currentIndex: currentStatus === "Issuance Completed" ? 1 : 2,
       };
     default:
       return null;

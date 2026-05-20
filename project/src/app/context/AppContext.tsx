@@ -61,6 +61,7 @@ import {
   subscribeWorkflowState,
   updateWorkflowTaskChecklist,
   type WorkflowBackendState,
+  type WorkflowCommandOptions,
   type WorkflowCommandResult,
 } from "../lib/workflowBackend";
 import {
@@ -788,7 +789,7 @@ function buildOpenEndSummaryUpdates(fund: FundIssuance, orders: FundOrder[]) {
 function buildLifecycleDemoSeed(fund: FundIssuance, nextStatus: string, existingOrders: FundOrder[]) {
   if (existingOrders.length > 0) return null;
 
-  if (fund.fundType === "Closed-end" && nextStatus === "Allocation Period") {
+  if (fund.fundType === "Closed-end" && ["Allocation Period", "Calculated"].includes(nextStatus)) {
     const orders = buildClosedEndDemoOrders(fund);
     const totalSubscribedAmount = orders.reduce(
       (sum, order) => sum + parseLeadingNumber(order.requestAmount),
@@ -805,16 +806,20 @@ function buildLifecycleDemoSeed(fund: FundIssuance, nextStatus: string, existing
         allocationStatus: "Ongoing",
         transferAgentOps: {
           ...fund.transferAgentOps,
-          transferAgentStatus: "Allocation Intake Ready",
+          transferAgentStatus: nextStatus === "Calculated" ? "Allocation Workbook Ready" : "Allocation Intake Ready",
           holderRegisterDate: formatDateTime(setTime(anchorDate, 17, 0)),
           registerVersion:
             fund.transferAgentOps?.registerVersion || `PRE-${symbol}-${formatDateTag(anchorDate)}`,
           investorOnboardingStatus:
             fund.transferAgentOps?.investorOnboardingStatus || "KYC / subscription eligibility reviewed",
           orderBookStatus: "Subscription book locked after seeded 7-day demo intake",
-          allocationBookStatus: "Pending calculation from demo order book",
+          allocationBookStatus:
+            nextStatus === "Calculated"
+              ? "Calculated from locked demo order book"
+              : "Pending calculation from demo order book",
           ledgerApprovalStatus: "Pre-allocation register draft prepared",
-          mintInstructionStatus: "Pending final allocation",
+          mintInstructionStatus:
+            nextStatus === "Calculated" ? "Ready for mint instruction approval" : "Pending final allocation",
           lastTransferAgentAction:
             "Injected demo subscription activity to simulate a completed seven-day intake window before allocation.",
         },
@@ -1402,23 +1407,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const recordIssuanceMintOnChain = (fund: FundIssuance) => {
-    recordOnChainEvent({
-      onChainEventId: `chain-mint-${fund.id}`.replace(/[^a-zA-Z0-9-]/g, "-"),
-      sourceType: "Issuance",
+    const baseEvent = {
+      sourceType: "Issuance" as const,
       sourceReference: fund.id,
-      eventType: "FundUnitMint",
+      eventType: "FundUnitMint" as const,
       fundId: fund.id,
       classId: fund.shareClass,
       chainId: "wb-hk-chain",
       contractAddress: fund.tokenAddress,
       method: "mintBatch",
       txHash: mockHex(`tx:mint:${fund.id}`),
-      blockNumber: mockBlockNumber(`mint:${fund.id}`),
-      status: "Confirmed",
       payloadHash: mockHex(`payload:mint:${fund.id}:${fund.allocationStatus || "allocation"}`),
       amount: fund.totalSubscribedAmount,
       currency: fund.tokenSymbol || fund.tokenName,
-      idempotencyKey: `OnChain:${fund.id}:FundUnitMint`,
+    };
+
+    recordOnChainEvent({
+      ...baseEvent,
+      onChainEventId: `chain-mint-submitted-${fund.id}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+      status: "Submitted",
+      idempotencyKey: `OnChain:${fund.id}:FundUnitMint:Submitted`,
+    });
+
+    if (fund.status !== "Allocation Completed") return;
+
+    recordOnChainEvent({
+      ...baseEvent,
+      onChainEventId: `chain-mint-confirmed-${fund.id}`.replace(/[^a-zA-Z0-9-]/g, "-"),
+      blockNumber: mockBlockNumber(`mint:${fund.id}`),
+      status: "Confirmed",
+      idempotencyKey: `OnChain:${fund.id}:FundUnitMint:Confirmed`,
       confirmedAt: new Date().toISOString(),
     });
   };
@@ -1442,6 +1460,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   };
 
+  const assertWalletApprovalReady = (
+    wallet: WalletLink,
+    account?: RegisterAccount,
+  ): TransferAgencyCommandResult | null => {
+    const blockedReason =
+      wallet.proofStatus === "Missing"
+        ? "KYC proof is required before this wallet can be approved."
+        : wallet.proofStatus === "Expired"
+          ? "Expired proof must be refreshed before approval."
+          : wallet.proofStatus === "Rejected"
+            ? "Rejected proof cannot be approved without a new submission."
+            : ["Removed", "Suspended"].includes(wallet.whitelistStatus)
+              ? "Suspended or removed wallets require remediation before approval."
+              : account && ["Restricted", "Suspended", "Closed"].includes(account.accountStatus)
+                ? "Restricted, suspended, or closed holder accounts must be resolved before approval."
+                : !wallet.proofRefId
+                  ? "Proof evidence is required before this wallet can be approved."
+                  : undefined;
+
+    if (!blockedReason) return null;
+    return {
+      success: false,
+      error: "ADMISSION_NOT_READY",
+      currentVersion: wallet.version,
+      message: blockedReason,
+    };
+  };
+
   const updateWalletLinkAdmission = (
     walletLinkId: string,
     expectedVersion: number | undefined,
@@ -1456,6 +1502,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!current) return { success: false, error: "NOT_FOUND", message: "Wallet link was not found." };
     const conflict = assertExpectedVersion(current.version, expectedVersion ?? current.version);
     if (conflict) return conflict;
+    const currentAccount = registerAccounts.find(
+      (account) => account.registerAccountId === current.registerAccountId,
+    );
+    const approvalBlocked = action === "approve" ? assertWalletApprovalReady(current, currentAccount) : null;
+    if (approvalBlocked) return approvalBlocked;
 
     const now = new Date().toISOString();
     setWalletLinks((prev) =>
@@ -2536,6 +2587,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   };
 
+  const assertWorkflowTaskFresh = (
+    taskId: string,
+    options: WorkflowCommandOptions,
+  ): WorkflowCommandResult | null => {
+    const latestTask = loadWorkflowState().tasks.find((item) => item.taskId === taskId);
+    if (!latestTask) {
+      return { success: false, message: "Workflow task was not found.", taskId, error: "NOT_FOUND" };
+    }
+    if (options.expectedVersion !== undefined && latestTask.version !== options.expectedVersion) {
+      return {
+        success: false,
+        message: `Workflow task changed from version ${options.expectedVersion} to ${latestTask.version}. Refresh and retry.`,
+        taskId,
+        error: "VERSION_CONFLICT",
+        currentVersion: latestTask.version,
+      };
+    }
+    return null;
+  };
+
   const workflowPullTask = (taskId: string) =>
     finishWorkflowCommand(
       pullWorkflowTask(taskId, authSession?.role || "transferAgent", workflowCommandOptions(taskId, "Pull")),
@@ -2576,6 +2647,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
 
   const workflowSubmitCurrentStep = (taskId: string): WorkflowCommandResult => {
+    const options = workflowCommandOptions(taskId, "Submit");
+    const conflict = assertWorkflowTaskFresh(taskId, options);
+    if (conflict) return finishWorkflowCommand(conflict);
+
     const { instance, snapshot, instruction, sourceEventReference } = getWorkflowRuntime(taskId);
     if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
     const isCloseOutWorkflow = isRedemptionCloseOutReference(instance.sourceType, instance.sourceReference);
@@ -2610,11 +2685,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
     }
     return finishWorkflowCommand(
-      submitWorkflowStep(taskId, authSession?.role || "transferAgent", workflowCommandOptions(taskId, "Submit")),
+      submitWorkflowStep(taskId, authSession?.role || "transferAgent", options),
     );
   };
 
   const workflowAcknowledgeTask = (taskId: string): WorkflowCommandResult => {
+    const options = workflowCommandOptions(taskId, "Acknowledge");
+    const conflict = assertWorkflowTaskFresh(taskId, options);
+    if (conflict) return finishWorkflowCommand(conflict);
+
     const { instance, snapshot } = getWorkflowRuntime(taskId);
     if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
     if (instance.sourceType !== "Issuance") {
@@ -2629,11 +2708,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     return finishWorkflowCommand(
-      acknowledgeWorkflowTask(taskId, authSession?.role || "issuer", workflowCommandOptions(taskId, "Acknowledge")),
+      acknowledgeWorkflowTask(taskId, authSession?.role || "issuer", options),
     );
   };
 
   const workflowReconcileTask = (taskId: string): WorkflowCommandResult => {
+    const options = workflowCommandOptions(taskId, "Reconcile");
+    const conflict = assertWorkflowTaskFresh(taskId, options);
+    if (conflict) return finishWorkflowCommand(conflict);
+
     const { instance, snapshot, sourceEventReference } = getWorkflowRuntime(taskId);
     if (!instance) return { success: false, message: "Workflow was not found.", error: "NOT_FOUND" };
     if (instance.sourceType === "Issuance") {
@@ -2658,7 +2741,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
     }
     return finishWorkflowCommand(
-      reconcileWorkflowTask(taskId, authSession?.role || "transferAgent", workflowCommandOptions(taskId, "Reconcile")),
+      reconcileWorkflowTask(taskId, authSession?.role || "transferAgent", options),
     );
   };
 
@@ -3074,7 +3157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ]);
     }
 
-    if (targetFund && status === "Allocation Period") {
+    if (targetFund && ["Allocation Period", "Calculated"].includes(status)) {
       const scenarioOrders = demoSeed?.orders.length
         ? demoSeed.orders
         : fundOrders.filter((order) => order.fundId === id && order.type === "subscription");
