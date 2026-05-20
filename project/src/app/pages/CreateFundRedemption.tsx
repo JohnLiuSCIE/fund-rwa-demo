@@ -94,6 +94,11 @@ export function CreateFundRedemption() {
       ? selectedFund.currentNav
       : selectedFund.initialNav
     : "N/A";
+  const selectedFundStatus = selectedFund?.status || "Unknown";
+  const selectedFundIsPaused = selectedFundStatus.toLowerCase().includes("paused");
+  const selectedFundEligibilityCopy = selectedFundIsPaused
+    ? "Paused fund is allowed for draft setup. Activation remains a later approval/control step."
+    : "Fund can be used for draft setup. Activation checks happen after approval.";
 
   useEffect(() => {
     const defaults = buildDefaultRedemptionSchedule(minimumNoticePeriodDays, redemptionMode);
@@ -360,31 +365,47 @@ export function CreateFundRedemption() {
               </div>
 
               {selectedFund ? (
-                <div className="rounded-lg border bg-secondary/50 p-5 space-y-3 text-sm">
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Fund token</span>
-                        <span className="font-medium">{selectedFund.tokenName}</span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Reference NAV</span>
-                        <span className="font-medium">{displayedNav}</span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Fund type</span>
-                        <span className="font-medium">{selectedFund.fundType}</span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Dealing frequency</span>
-                        <span className="font-medium">{selectedFund.dealingFrequency || "Window-based / Event-driven"}</span>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <span className="text-muted-foreground">Settlement cycle</span>
+                <div className="rounded-lg border bg-secondary/50 p-5 space-y-4 text-sm">
+                  <div
+                    className={
+                      selectedFundIsPaused
+                        ? "rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800"
+                        : "rounded-lg border border-slate-200 bg-white p-3 text-slate-700"
+                    }
+                  >
+                    <div className="font-medium">
+                      {selectedFundIsPaused ? "Paused fund setup allowed" : "Draft setup eligible"}
+                    </div>
+                    <div className="mt-1 text-sm">{selectedFundEligibilityCopy}</div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Fund token</span>
+                      <span className="font-medium">{selectedFund.tokenName}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Reference NAV</span>
+                      <span className="font-medium">{displayedNav}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Fund type</span>
+                      <span className="font-medium">{selectedFund.fundType}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Dealing frequency</span>
+                      <span className="font-medium">{selectedFund.dealingFrequency || "Window-based / Event-driven"}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Settlement cycle</span>
                       <span className="font-medium">{selectedFund.settlementCycle || "T+1"}</span>
                     </div>
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">Subscription status</span>
                       <span className="font-medium">{selectedFund.subscriptionStatus || "Open"}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Fund lifecycle</span>
+                      <span className="text-right font-medium">{selectedFundStatus}</span>
                     </div>
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">Redemption status</span>

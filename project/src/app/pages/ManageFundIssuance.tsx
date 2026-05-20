@@ -58,8 +58,8 @@ export function ManageFundIssuance() {
   };
 
   return (
-    <div className="container mx-auto px-6 py-8 max-w-7xl">
-      <div className="flex items-center justify-between mb-8">
+    <div className="container mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 style={{ fontFamily: "var(--font-heading)" }}>
             {userRole === "issuer" ? "Fund Operations" : "Fund Marketplace Inventory"}
@@ -71,7 +71,7 @@ export function ManageFundIssuance() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
@@ -105,14 +105,14 @@ export function ManageFundIssuance() {
             setStatusFilter("All");
           }}
         >
-          <TabsList>
-            <TabsTrigger value="issuance-pipeline">Issuance Pipeline</TabsTrigger>
-            <TabsTrigger value="active-operations">Active Operations</TabsTrigger>
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:w-auto">
+            <TabsTrigger value="issuance-pipeline" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Issuance Pipeline</TabsTrigger>
+            <TabsTrigger value="active-operations" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Active Operations</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
-      <div className="grid md:grid-cols-4 gap-4 mb-6">
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
         <div className="bg-white border rounded-lg p-4">
           <div className="text-sm text-muted-foreground mb-1">
             {manageView === "issuance-pipeline" ? "Pipeline Funds" : "Operating Funds"}
@@ -155,8 +155,57 @@ export function ManageFundIssuance() {
         </div>
       </div>
 
-      <div className="bg-white border rounded-lg overflow-hidden">
-        <Table>
+      <div className="space-y-3 md:hidden">
+        {filteredFunds.map((fund) => (
+          <div key={fund.id} className="rounded-lg border bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-mono text-xs text-muted-foreground">{fund.id}</div>
+                <div className="mt-1 font-medium">{fund.name}</div>
+              </div>
+              <StatusBadge status={fund.status} />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">
+                  {manageView === "issuance-pipeline" ? "Allocation" : "Dealing"}
+                </div>
+                <div className="mt-1 font-medium">
+                  {manageView === "issuance-pipeline"
+                    ? fund.allocationStatus || "N/A"
+                    : fund.dealingFrequency || fund.redemptionFrequency || "One-off"}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">
+                  {manageView === "issuance-pipeline" ? "Initial NAV" : "Current NAV"}
+                </div>
+                <div className="mt-1 font-medium">
+                  {manageView === "issuance-pipeline" ? fund.initialNav : fund.currentNav}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Button className="flex-1" variant="outline" size="sm" onClick={() => handleViewDetails(fund.id)}>
+                <Eye className="mr-1 h-4 w-4" />
+                View
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => copyToClipboard(fund.id)} aria-label={`Copy ${fund.id}`}>
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+        {filteredFunds.length === 0 && (
+          <div className="rounded-lg border bg-white py-12 text-center text-sm text-muted-foreground">
+            No funds matched the current filter.
+          </div>
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-lg border bg-white md:block">
+        <div className="overflow-x-auto">
+        <Table className="min-w-[880px]">
           <TableHeader>
             <TableRow>
               <TableHead>ID</TableHead>
@@ -249,6 +298,7 @@ export function ManageFundIssuance() {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
     </div>
   );

@@ -61,21 +61,21 @@ export function ManageFundRedemption() {
           <span className="text-foreground">Redemptions</span>
         </div>
       )}
-      <div className="flex items-center justify-between mb-8">
-        <div>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h1 style={{ fontFamily: "var(--font-heading)" }}>
             {inFundContext ? "Fund Redemptions" : "Global Redemption Queue"}
           </h1>
-          <p className="text-muted-foreground mt-2">
+          <p className="mt-2 max-w-3xl text-muted-foreground">
             {inFundContext
               ? `Manage redemption operations for ${linkedFund?.name || "this fund"}.`
               : "Manage redemption operations across all funds from the issuer operations queue."}
           </p>
         </div>
 
-        <Button onClick={() => navigate(createPath)}>
+        <Button className="w-full sm:w-auto sm:shrink-0" onClick={() => navigate(createPath)}>
           <Plus className="w-4 h-4 mr-2" />
-          {inFundContext ? "Create Redemption For This Fund" : "Create Redemption Event"}
+          Create Redemption
         </Button>
       </div>
 
@@ -98,7 +98,7 @@ export function ManageFundRedemption() {
         </div>
       </div>
 
-      <div className="bg-white border rounded-lg overflow-hidden">
+      <div className="hidden overflow-hidden rounded-lg border bg-white sm:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -154,6 +154,57 @@ export function ManageFundRedemption() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      <div className="space-y-3 sm:hidden">
+        {visibleRedemptions.map((redemption) => (
+          <div key={redemption.id} className="rounded-lg border bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium leading-snug">{redemption.fundName}</div>
+                <div className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                  {redemption.id}
+                </div>
+              </div>
+              <StatusBadge status={redemption.status} />
+            </div>
+            <div className="mt-3 line-clamp-2 text-sm text-muted-foreground">
+              {redemption.description}
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Mode</div>
+                <Badge variant="outline" className="mt-1 max-w-full whitespace-normal text-left">
+                  {redemption.redemptionMode}
+                </Badge>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Settlement</div>
+                <div className="mt-1 font-medium">{redemption.settlementCycle}</div>
+              </div>
+              <div className="col-span-2">
+                <div className="text-xs text-muted-foreground">Latest NAV</div>
+                <div className="mt-1 font-medium">{redemption.latestNav}</div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4 w-full"
+              onClick={() => navigate(getDetailPath(redemption.id))}
+            >
+              <Eye className="w-4 h-4 mr-1" />
+              View
+            </Button>
+          </div>
+        ))}
+        {visibleRedemptions.length === 0 && (
+          <div className="rounded-lg border border-dashed bg-white p-8 text-center text-muted-foreground">
+            {inFundContext
+              ? "No redemptions have been created for this fund yet."
+              : "No redemption events found."}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -373,14 +373,14 @@ function FieldChips({ cells, max = 4 }: { cells: ApprovalReviewCell[]; max?: num
   const visible = cells.slice(0, max);
   const hidden = cells.length - visible.length;
   return (
-    <div className="flex max-w-[300px] flex-wrap gap-1.5">
+    <div className="flex max-w-[520px] flex-wrap gap-1.5">
       {visible.map((cell) => (
         <span
           key={cell.label}
-          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 text-xs"
+          className="inline-flex min-w-[150px] max-w-full items-start gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
         >
           <span className="shrink-0 text-muted-foreground">{cell.label}</span>
-          <span className="truncate font-medium">{cell.value}</span>
+          <span className="min-w-0 whitespace-normal break-words font-medium">{cell.value}</span>
         </span>
       ))}
       {hidden > 0 ? (
@@ -388,6 +388,90 @@ function FieldChips({ cells, max = 4 }: { cells: ApprovalReviewCell[]; max?: num
           +{hidden} more
         </span>
       ) : null}
+    </div>
+  );
+}
+
+function ReviewRowsMobileCards({
+  rows,
+  emptyMessage,
+}: {
+  rows: ApprovalReviewTableRow[];
+  emptyMessage: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed bg-background p-6 text-center text-sm text-muted-foreground">
+        {emptyMessage}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {rows.map((row) => {
+        const match = getRowMatch(row);
+        const review = getRowReview(row);
+        const next = getRowNextAction(row);
+
+        return (
+          <div key={row.id} className="rounded-lg border bg-background p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium leading-snug">{row.title}</div>
+                {row.subtitle ? (
+                  <div className="mt-1 break-all text-xs text-muted-foreground">{row.subtitle}</div>
+                ) : null}
+              </div>
+              <StatusPill label={match.label} tone={match.tone} />
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-md border bg-muted/30 p-2">
+                <div className="text-muted-foreground">Match</div>
+                <div className="mt-1">
+                  <StatusPill label={match.label} tone={match.tone} />
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/30 p-2">
+                <div className="text-muted-foreground">Review</div>
+                <div className="mt-1">
+                  <StatusPill label={review.label} tone={review.tone} />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-sm">
+              {row.cells.map((cell) => (
+                <div key={cell.label} className="flex items-start justify-between gap-3 rounded-md border bg-muted/20 px-2 py-1.5">
+                  <span className="shrink-0 text-xs text-muted-foreground">{cell.label}</span>
+                  <span className="min-w-0 break-words text-right font-medium">{cell.value}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3">
+              {row.action ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-center"
+                  disabled={row.action.disabled}
+                  onClick={row.action.onClick}
+                >
+                  <PencilLine className="h-4 w-4" />
+                  {row.action.label}
+                </Button>
+              ) : (
+                <span className={cn("inline-flex w-full justify-center rounded-md border px-2 py-1.5 text-xs", rowToneClass(next.tone))}>
+                  {next.label}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -400,62 +484,68 @@ function ReviewRowsTable({
   emptyMessage: string;
 }) {
   return (
-    <Table className="min-w-[760px] table-fixed">
-      <TableHeader>
-        <TableRow>
-          <TableHead>Record</TableHead>
-          <TableHead>Match Result</TableHead>
-          <TableHead>Review State</TableHead>
-          <TableHead>Key Values</TableHead>
-          <TableHead className="text-right">Next Action</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => {
-          const match = getRowMatch(row);
-          const review = getRowReview(row);
-          const next = getRowNextAction(row);
-          return (
-            <TableRow key={row.id}>
-              <TableCell className="whitespace-normal align-top">
-                <div className="font-medium">{row.title}</div>
-                {row.subtitle ? (
-                  <div className="mt-1 break-all text-xs text-muted-foreground">{row.subtitle}</div>
-                ) : null}
-              </TableCell>
-              <TableCell className="align-top">
-                <StatusPill label={match.label} tone={match.tone} />
-              </TableCell>
-              <TableCell className="align-top">
-                <StatusPill label={review.label} tone={review.tone} />
-              </TableCell>
-              <TableCell className="whitespace-normal align-top">
-                <FieldChips cells={row.cells} />
-              </TableCell>
-              <TableCell className="text-right align-top">
-                {row.action ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={row.action.disabled}
-                    onClick={row.action.onClick}
-                  >
-                    <PencilLine className="h-4 w-4" />
-                    {row.action.label}
-                  </Button>
-                ) : (
-                  <span className={cn("inline-flex rounded-md border px-2 py-1 text-xs", rowToneClass(next.tone))}>
-                    {next.label}
-                  </span>
-                )}
-              </TableCell>
-            </TableRow>
-          );
-        })}
-        {rows.length === 0 ? <EmptyRow colSpan={5} message={emptyMessage} /> : null}
-      </TableBody>
-    </Table>
+    <>
+      <div className="md:hidden">
+        <ReviewRowsMobileCards rows={rows} emptyMessage={emptyMessage} />
+      </div>
+      <Table className="hidden min-w-[980px] md:table">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[24%]">Record</TableHead>
+            <TableHead className="w-[13%]">Match Result</TableHead>
+            <TableHead className="w-[13%]">Review State</TableHead>
+            <TableHead className="w-[36%]">Key Values</TableHead>
+            <TableHead className="w-[14%] text-right">Next Action</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => {
+            const match = getRowMatch(row);
+            const review = getRowReview(row);
+            const next = getRowNextAction(row);
+            return (
+              <TableRow key={row.id}>
+                <TableCell className="whitespace-normal align-top">
+                  <div className="font-medium">{row.title}</div>
+                  {row.subtitle ? (
+                    <div className="mt-1 break-all text-xs text-muted-foreground">{row.subtitle}</div>
+                  ) : null}
+                </TableCell>
+                <TableCell className="align-top">
+                  <StatusPill label={match.label} tone={match.tone} />
+                </TableCell>
+                <TableCell className="align-top">
+                  <StatusPill label={review.label} tone={review.tone} />
+                </TableCell>
+                <TableCell className="whitespace-normal align-top">
+                  <FieldChips cells={row.cells} />
+                </TableCell>
+                <TableCell className="text-right align-top">
+                  {row.action ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="max-w-full whitespace-normal text-right"
+                      disabled={row.action.disabled}
+                      onClick={row.action.onClick}
+                    >
+                      <PencilLine className="h-4 w-4" />
+                      {row.action.label}
+                    </Button>
+                  ) : (
+                    <span className={cn("inline-flex rounded-md border px-2 py-1 text-xs", rowToneClass(next.tone))}>
+                      {next.label}
+                    </span>
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+          {rows.length === 0 ? <EmptyRow colSpan={5} message={emptyMessage} /> : null}
+        </TableBody>
+      </Table>
+    </>
   );
 }
 
@@ -691,7 +781,7 @@ export function ApprovalReviewWorkspace({
             <div className="text-sm font-semibold">{heading}</div>
             <StatusPill label={activeStage.status} tone={activeStage.tone} />
           </div>
-          <div className="overflow-x-auto">{content}</div>
+          <div className="md:overflow-x-auto">{content}</div>
         </div>
         <ReviewDetailPanel panel={detailPanel} stage={activeStage} />
       </div>

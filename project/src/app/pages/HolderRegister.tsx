@@ -159,6 +159,25 @@ function SnapshotReferenceValue({
   );
 }
 
+function HashValue({ value }: { value?: string }) {
+  return (
+    <div className="max-w-[280px] whitespace-normal break-all font-mono text-xs [overflow-wrap:anywhere]">
+      {value || "No hash"}
+    </div>
+  );
+}
+
+function ScrollTableFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <Badge variant="outline">Scroll columns</Badge>
+      </div>
+      <div className="overflow-x-auto rounded-lg border [scrollbar-width:thin]">{children}</div>
+    </div>
+  );
+}
+
 function SnapshotIdStack({
   snapshot,
   officialSnapshotId,
@@ -1107,12 +1126,20 @@ export function HolderRegister() {
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-4">
-        <div className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
-          <TabsList className="min-w-max max-w-none justify-start rounded-lg">
-            <TabsTrigger className="shrink-0 px-3" value="overview">Fund Summary</TabsTrigger>
-            <TabsTrigger className="shrink-0 px-3" value="versions">Regional / Register Version</TabsTrigger>
-            <TabsTrigger className="shrink-0 px-3" value="snapshots">Snapshots</TabsTrigger>
-            <TabsTrigger className="shrink-0 px-3" value="audit">Fund Audit</TabsTrigger>
+        <div className="pb-1">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg p-1 sm:inline-flex sm:w-auto sm:grid-cols-none">
+            <TabsTrigger className="min-h-9 whitespace-normal px-2 text-center leading-tight sm:shrink-0 sm:px-3" value="overview">
+              Fund Summary
+            </TabsTrigger>
+            <TabsTrigger className="min-h-9 whitespace-normal px-2 text-center leading-tight sm:shrink-0 sm:px-3" value="versions">
+              Register Version
+            </TabsTrigger>
+            <TabsTrigger className="min-h-9 whitespace-normal px-2 text-center leading-tight sm:shrink-0 sm:px-3" value="snapshots">
+              Snapshots
+            </TabsTrigger>
+            <TabsTrigger className="min-h-9 whitespace-normal px-2 text-center leading-tight sm:shrink-0 sm:px-3" value="audit">
+              Fund Audit
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -1215,7 +1242,7 @@ export function HolderRegister() {
         <TabsContent value="versions">
           <Card>
             <CardHeader>
-              <CardTitle>Regional / Register Version</CardTitle>
+              <CardTitle>Register Version</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3 md:hidden">
@@ -1334,7 +1361,7 @@ export function HolderRegister() {
                         </div>
                         <Badge variant={statusVariant(snapshot.status)}>{snapshot.status}</Badge>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
                         <div>
                           <div className="text-muted-foreground">Class</div>
                           <div className="font-medium">{snapshot.classId}</div>
@@ -1363,7 +1390,8 @@ export function HolderRegister() {
                 })}
               </div>
 
-              <div className="hidden overflow-x-auto md:block">
+              <div className="hidden md:block">
+                <ScrollTableFrame>
                 <Table className="min-w-[1080px]">
                   <TableHeader>
                     <TableRow>
@@ -1398,7 +1426,7 @@ export function HolderRegister() {
                           </TableCell>
                           <TableCell>
                             <div>{snapshot.sourceType}</div>
-                            <div className="font-mono text-xs text-muted-foreground">{snapshot.sourceReference}</div>
+                            <div className="break-all font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">{snapshot.sourceReference}</div>
                           </TableCell>
                           <TableCell>{snapshot.classId}</TableCell>
                           <TableCell>
@@ -1429,6 +1457,7 @@ export function HolderRegister() {
                     )}
                   </TableBody>
                 </Table>
+                </ScrollTableFrame>
               </div>
             </CardContent>
           </Card>
@@ -1531,13 +1560,13 @@ export function HolderRegister() {
                     </div>
                   ) : null}
 
-                  <div className="grid gap-5 xl:grid-cols-2">
+                  <div className="grid gap-5 2xl:grid-cols-2">
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 text-sm font-medium">
                         <FileCheck2 className="h-4 w-4 text-muted-foreground" />
                         Evidence Records
                       </div>
-                      <div className="overflow-x-auto rounded-lg border">
+                      <ScrollTableFrame>
                         <Table className="min-w-[680px]">
                           <TableHeader>
                             <TableRow>
@@ -1559,9 +1588,7 @@ export function HolderRegister() {
                                 <TableCell>
                                   <Badge variant={retentionVariant(record.retentionClass)}>{record.retentionClass}</Badge>
                                 </TableCell>
-                                <TableCell className="max-w-[220px] truncate font-mono text-xs">
-                                  {record.contentHash || "Derived / pending"}
-                                </TableCell>
+                                <TableCell><HashValue value={record.contentHash || "Derived / pending"} /></TableCell>
                               </TableRow>
                             ))}
                             {selectedSnapshotAudit.records.length === 0 ? (
@@ -1573,7 +1600,7 @@ export function HolderRegister() {
                             ) : null}
                           </TableBody>
                         </Table>
-                      </div>
+                      </ScrollTableFrame>
                     </div>
 
                     <div className="space-y-3">
@@ -1581,7 +1608,7 @@ export function HolderRegister() {
                         <Fingerprint className="h-4 w-4 text-muted-foreground" />
                         Anchoring Events
                       </div>
-                      <div className="overflow-x-auto rounded-lg border">
+                      <ScrollTableFrame>
                         <Table className="min-w-[680px]">
                           <TableHeader>
                             <TableRow>
@@ -1602,10 +1629,8 @@ export function HolderRegister() {
                                 <TableCell>
                                   <Badge variant={statusVariant(event.status)}>{event.status}</Badge>
                                 </TableCell>
-                                <TableCell className="max-w-[180px] truncate font-mono text-xs">{event.targetId}</TableCell>
-                                <TableCell className="max-w-[220px] truncate font-mono text-xs">
-                                  {event.merkleRoot || event.contentHash}
-                                </TableCell>
+                                <TableCell><HashValue value={event.targetId} /></TableCell>
+                                <TableCell><HashValue value={event.merkleRoot || event.contentHash} /></TableCell>
                               </TableRow>
                             ))}
                             {selectedSnapshotAudit.anchors.length === 0 ? (
@@ -1617,7 +1642,7 @@ export function HolderRegister() {
                             ) : null}
                           </TableBody>
                         </Table>
-                      </div>
+                      </ScrollTableFrame>
                     </div>
                   </div>
                 </CardContent>
@@ -1633,7 +1658,7 @@ export function HolderRegister() {
         </TabsContent>
 
         <TabsContent value="audit">
-          <div className="grid gap-6 xl:grid-cols-[1.25fr_.85fr]">
+          <div className="grid gap-6 2xl:grid-cols-[1.25fr_.85fr]">
             <Card>
               <CardHeader>
                 <CardTitle>Fund-Level Audit</CardTitle>
@@ -1649,7 +1674,7 @@ export function HolderRegister() {
                         </div>
                         <Badge variant={statusVariant(event.statusTone)}>{event.status}</Badge>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
                         <div>
                           <div className="text-muted-foreground">Type</div>
                           <div>{event.kind}</div>
@@ -1671,7 +1696,8 @@ export function HolderRegister() {
                   ))}
                 </div>
 
-                <div className="hidden overflow-x-auto md:block">
+                <div className="hidden md:block">
+                  <ScrollTableFrame>
                   <Table className="min-w-[980px]">
                     <TableHeader>
                       <TableRow>
@@ -1695,7 +1721,7 @@ export function HolderRegister() {
                           <TableCell>
                             <Badge variant={statusVariant(event.statusTone)}>{event.status}</Badge>
                           </TableCell>
-                          <TableCell className="max-w-[220px] truncate font-mono text-xs">{event.reference}</TableCell>
+                          <TableCell><HashValue value={event.reference} /></TableCell>
                           <TableCell>
                             <div>{event.evidenceCount} record(s)</div>
                             <div className="text-xs text-muted-foreground">{event.anchorCount} anchor(s)</div>
@@ -1712,6 +1738,7 @@ export function HolderRegister() {
                       )}
                     </TableBody>
                   </Table>
+                  </ScrollTableFrame>
                 </div>
               </CardContent>
             </Card>
@@ -1731,7 +1758,7 @@ export function HolderRegister() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
+                <ScrollTableFrame>
                   <Table className="min-w-[720px]">
                     <TableHeader>
                       <TableRow>
@@ -1755,7 +1782,7 @@ export function HolderRegister() {
                               {item.status}
                             </Badge>
                           </TableCell>
-                          <TableCell className="max-w-[220px] truncate font-mono text-xs">{item.hash || "No hash"}</TableCell>
+                          <TableCell><HashValue value={item.hash} /></TableCell>
                         </TableRow>
                       ))}
                       {evidenceDetails.length === 0 && (
@@ -1767,7 +1794,7 @@ export function HolderRegister() {
                       )}
                     </TableBody>
                   </Table>
-                </div>
+                </ScrollTableFrame>
               </CardContent>
             </Card>
           </div>

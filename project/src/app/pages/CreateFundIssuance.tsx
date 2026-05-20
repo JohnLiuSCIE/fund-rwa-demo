@@ -498,7 +498,7 @@ export function CreateFundIssuance() {
   };
 
   return (
-    <div className="container mx-auto px-6 py-8 max-w-6xl">
+    <div className="container mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-8">
         <h1 style={{ fontFamily: "var(--font-heading)" }}>Create Fund Issuance</h1>
         <p className="text-muted-foreground mt-2">
@@ -535,17 +535,17 @@ export function CreateFundIssuance() {
       </div>
 
       <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-8">
-        <TabsList className="grid w-full grid-cols-4 h-auto p-1 bg-secondary">
-          <TabsTrigger value="about-deal" className="text-sm py-3">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-secondary p-1 md:grid-cols-4">
+          <TabsTrigger value="about-deal" className="min-h-10 whitespace-normal px-2 py-2 text-xs sm:text-sm">
             About Deal
           </TabsTrigger>
-          <TabsTrigger value="about-token" className="text-sm py-3">
+          <TabsTrigger value="about-token" className="min-h-10 whitespace-normal px-2 py-2 text-xs sm:text-sm">
             About Token
           </TabsTrigger>
-          <TabsTrigger value="subscription-rules" className="text-sm py-3">
+          <TabsTrigger value="subscription-rules" className="min-h-10 whitespace-normal px-2 py-2 text-xs sm:text-sm">
             Subscription & Rules
           </TabsTrigger>
-          <TabsTrigger value="fund-documents" className="text-sm py-3">
+          <TabsTrigger value="fund-documents" className="min-h-10 whitespace-normal px-2 py-2 text-xs sm:text-sm">
             Fund Documents
           </TabsTrigger>
         </TabsList>

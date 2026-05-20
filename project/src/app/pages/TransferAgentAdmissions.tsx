@@ -59,6 +59,7 @@ type AdmissionTab = "all" | "needsReview" | "whitelisted" | "restricted";
 type RiskFilter = "all" | "high" | "watch" | "standard";
 type AdmissionRiskLevel = "High" | "Watch" | "Standard";
 type WalletAction = "approve" | "reject" | "remove";
+type EvidenceHealthLabel = "Evidence linked" | "Evidence missing" | "Fallback proof ref" | "Remediation open";
 
 type AdmissionRow = {
   wallet: WalletLink;
@@ -111,7 +112,7 @@ type AdmissionSummary = {
   readyToApprove: number;
   whitelisted: number;
   restricted: number;
-  evidenceLinked: number;
+  holdersLackingEvidence: number;
 };
 
 type AdmissionAlert = {
@@ -255,6 +256,53 @@ function evidenceStorage(record?: EvidenceRecord) {
   return record?.storageUri || "No storage URI recorded";
 }
 
+function getEvidenceHealth(row: AdmissionRow): {
+  label: EvidenceHealthLabel;
+  variant: BadgeVariant;
+  hasRecordGap: boolean;
+  owner?: string;
+  recovery: string;
+} {
+  const openTask = row.openRemediationTasks[0];
+  if (openTask) {
+    return {
+      label: "Remediation open",
+      variant: "secondary",
+      hasRecordGap: row.relatedEvidence.length === 0 || !row.proofEvidence,
+      owner: openTask.responsibleParty,
+      recovery: openTask.actionLabel,
+    };
+  }
+
+  if (row.relatedEvidence.length === 0) {
+    return {
+      label: row.wallet.proofRefId ? "Fallback proof ref" : "Evidence missing",
+      variant: row.wallet.proofRefId ? "secondary" : "destructive",
+      hasRecordGap: true,
+      owner: row.wallet.proofRefId ? "TA Ops" : "Investor",
+      recovery: row.wallet.proofRefId ? "Link EvidenceRecord" : "Collect KYC proof",
+    };
+  }
+
+  if (!row.proofEvidence && row.wallet.proofRefId) {
+    return {
+      label: "Fallback proof ref",
+      variant: "secondary",
+      hasRecordGap: true,
+      owner: "TA Ops",
+      recovery: "Link EvidenceRecord",
+    };
+  }
+
+  return {
+    label: "Evidence linked",
+    variant: "default",
+    hasRecordGap: false,
+    owner: "TA Ops",
+    recovery: "No recovery needed",
+  };
+}
+
 function actionButtonVariant(action: WalletAction): "default" | "outline" | "destructive" {
   if (action === "approve") return "default";
   if (action === "reject") return "outline";
@@ -321,7 +369,9 @@ function getAdmissionRisk(row: AdmissionRow): AdmissionRiskLevel {
 }
 
 function getNextAction(row: AdmissionRow): NextAction {
-  if (row.openRemediationTasks.length > 0) {
+  const evidenceHealth = getEvidenceHealth(row);
+
+  if (evidenceHealth.label === "Remediation open") {
     const task = row.openRemediationTasks[0];
     return {
       label: "Remediation open",
@@ -330,11 +380,19 @@ function getNextAction(row: AdmissionRow): NextAction {
     };
   }
 
+  if (evidenceHealth.label === "Fallback proof ref") {
+    return {
+      label: "Fallback proof ref",
+      detail: "Proof ref exists, but the EvidenceRecord is unavailable.",
+      variant: "secondary",
+    };
+  }
+
   if (row.wallet.proofStatus === "Missing") {
     return {
-      label: "Collect KYC proof",
+      label: "Evidence missing",
       detail: "Approval stays blocked until proof evidence is linked.",
-      variant: "secondary",
+      variant: "destructive",
     };
   }
 
@@ -350,7 +408,7 @@ function getNextAction(row: AdmissionRow): NextAction {
     const approveBlocked = !canApproveAdmission(row);
     return {
       label: approveBlocked ? "Review evidence gap" : "Approve / reject",
-      detail: approveBlocked ? getApproveBlockReason(row) : "Evidence is available for a TA decision.",
+      detail: approveBlocked ? getApproveBlockReason(row) : "Evidence linked for TA decision.",
       variant: "secondary",
     };
   }
@@ -653,7 +711,11 @@ export function TransferAgentAdmissions() {
       readyToApprove: readyToApproveRows.length,
       whitelisted: whitelistedRows.length,
       restricted: restrictedRows.length,
-      evidenceLinked: admissionRegisterRows.filter(({ row }) => row.proofEvidence || row.kycEvidence).length,
+      holdersLackingEvidence: new Set(
+        admissionRegisterRows
+          .filter(({ row }) => getEvidenceHealth(row).hasRecordGap)
+          .map(({ row }) => row.account.holderId),
+      ).size,
     }),
     [admissionRegisterRows, needsReviewRows.length, readyToApproveRows.length, restrictedRows.length, whitelistedRows.length],
   );
@@ -1054,10 +1116,10 @@ function CompactAdmissionSummary({
       variant: "outline" as BadgeVariant,
     },
     {
-      label: "Evidence",
-      value: `${summary.evidenceLinked}/${summary.totalWallets}`,
+      label: "Lacking evidence",
+      value: summary.holdersLackingEvidence,
       icon: FileSearch,
-      variant: "outline" as BadgeVariant,
+      variant: summary.holdersLackingEvidence ? ("secondary" as BadgeVariant) : ("outline" as BadgeVariant),
     },
     {
       label: "Alerts",
@@ -1159,6 +1221,64 @@ function NextActionBlock({ item, compact = false }: { item: AdmissionRegisterRow
   );
 }
 
+function EvidenceHealthBlock({ row, compact = false }: { row: AdmissionRow; compact?: boolean }) {
+  const health = getEvidenceHealth(row);
+
+  return (
+    <div className="min-w-0">
+      <div className="text-xs text-muted-foreground">Evidence</div>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        <Badge variant={health.variant}>{health.label}</Badge>
+        <Badge variant="outline">{row.relatedEvidence.length} linked</Badge>
+      </div>
+      <div className={`${compact ? "mt-1 text-xs" : "mt-2 text-sm"} break-words text-muted-foreground`}>
+        {health.owner ? `${health.owner} / ${health.recovery}` : health.recovery}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceRecordUnavailableBlock({
+  row,
+  compact = false,
+}: {
+  row: AdmissionRow;
+  compact?: boolean;
+}) {
+  const health = getEvidenceHealth(row);
+  if (!health.hasRecordGap) return null;
+
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+      <div className="flex items-center gap-2 font-medium">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        Evidence record unavailable
+      </div>
+      <div className="mt-2 grid gap-2 text-destructive/90 sm:grid-cols-3">
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide">Holder</div>
+          <div className="break-words font-medium">{row.account.holderName}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide">Fund / Class</div>
+          <div className="break-words font-medium">{row.fundName} / {row.account.classId}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide">Exception</div>
+          <div className="break-words font-medium">
+            {health.label} / {row.relatedEvidence.length} linked
+          </div>
+        </div>
+      </div>
+      {!compact ? (
+        <div className="mt-2 text-xs text-destructive/80">
+          Owner / recovery: {health.owner || "TA Ops"} / {health.recovery}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function PriorityAdmissionsQueue({
   rows,
   renderActions,
@@ -1185,6 +1305,9 @@ function PriorityAdmissionsQueue({
                 </div>
                 <div className="mt-2 break-words text-xs text-muted-foreground">
                   {item.alertReasons[0] || item.nextAction.detail}
+                </div>
+                <div className="mt-2">
+                  <EvidenceHealthBlock row={row} compact />
                 </div>
               </div>
               <div className="shrink-0 text-right text-xs text-muted-foreground">
@@ -1359,6 +1482,7 @@ function AdmissionsRegisterRows({
                   </div>
                 </div>
                 <NextActionBlock item={item} compact />
+                <EvidenceHealthBlock row={row} compact />
               </div>
 
               <div className="mt-3">{renderActions(row)}</div>
@@ -1408,11 +1532,9 @@ function AdmissionsRegisterRows({
                 <NextActionBlock item={item} compact />
               </TableCell>
               <TableCell className="whitespace-normal align-top">
-                <div className="truncate text-sm font-medium">
-                  {row.proofEvidence?.label || row.wallet.proofRefId || "Missing proof"}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {row.relatedEvidence.length} linked
+                <EvidenceHealthBlock row={row} compact />
+                <div className="mt-2 break-all font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                  {row.proofEvidence?.evidenceRefId || row.wallet.proofRefId || "No proof reference"}
                 </div>
               </TableCell>
               <TableCell className="whitespace-normal align-top">{renderActions(row)}</TableCell>
@@ -1574,6 +1696,7 @@ function WalletActionSheetContent({
   const evidence = row.proofEvidence;
   const kycEvidence = row.kycEvidence || evidence;
   const approveBlocked = action === "approve" && !canApproveAdmission(row);
+  const showEvidenceException = (action === "approve" || action === "remove") && getEvidenceHealth(row).hasRecordGap;
 
   return (
     <SheetContent className="!w-full overflow-y-auto sm:!max-w-2xl">
@@ -1581,9 +1704,15 @@ function WalletActionSheetContent({
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <Badge variant={statusVariant(row.requestLabel)}>{row.requestLabel}</Badge>
           <Badge variant="outline">Version {row.wallet.version}</Badge>
+          <EvidenceHealthBlock row={row} compact />
         </div>
         <SheetTitle>{meta.title}</SheetTitle>
         <SheetDescription>{meta.description}</SheetDescription>
+        {showEvidenceException ? (
+          <div className="pt-3">
+            <EvidenceRecordUnavailableBlock row={row} />
+          </div>
+        ) : null}
       </SheetHeader>
 
       <div className="space-y-4 px-4 pb-2">
@@ -1693,8 +1822,10 @@ function WalletActionSheetContent({
         </section>
       </div>
 
-      <SheetFooter className="border-t">
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <SheetFooter className="sticky bottom-0 border-t bg-background">
+        <div className="w-full space-y-3">
+          {showEvidenceException ? <EvidenceRecordUnavailableBlock row={row} compact /> : null}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
@@ -1706,6 +1837,7 @@ function WalletActionSheetContent({
           >
             {meta.buttonLabel}
           </Button>
+          </div>
         </div>
       </SheetFooter>
     </SheetContent>

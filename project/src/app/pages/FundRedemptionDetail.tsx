@@ -126,6 +126,23 @@ interface RedemptionActionGate {
   taLock?: TransferAgentApprovalLockState;
 }
 
+interface RedemptionApprovalGateSummary {
+  blockingCount: number;
+  advisoryCount: number;
+  totalReviewIssues: number;
+  nextReview: string;
+  workspaceAvailable: boolean;
+}
+
+interface RedemptionBurnSafetySummary {
+  ctaMeaning: string;
+  readiness: string;
+  paymentListState: string;
+  burnEvidence: string;
+  remainingStatus: string;
+  paymentRows: string;
+}
+
 function getNextRedemptionOrderAction(order: FundOrder) {
   switch (order.status) {
     case "Submitted":
@@ -526,6 +543,11 @@ function getTrailingUnit(value?: string) {
   return lastToken || "";
 }
 
+function compactReference(value?: string) {
+  if (!value || value.length <= 24) return value || "";
+  return `${value.slice(0, 10)}...${value.slice(-8)}`;
+}
+
 function getPaymentStatusLabel(status: FundOrder["status"]) {
   switch (status) {
     case "Completed":
@@ -620,6 +642,28 @@ function getReviewTone(status?: string): ReviewTone {
     return "warning";
   }
   return "default";
+}
+
+function isReviewIssueTone(tone?: ReviewTone) {
+  return tone === "warning" || tone === "danger";
+}
+
+function countApprovalTableIssues(rows: ApprovalReviewTableRow[]) {
+  return rows.filter((row) =>
+    [row.statusTone, row.matchTone, row.reviewTone, row.nextActionTone].some(isReviewIssueTone),
+  ).length;
+}
+
+function countApprovalCashIssues(rows: ApprovalReviewCashFlow[]) {
+  return rows.filter((row) =>
+    [row.statusTone, row.matchTone, row.reviewTone, row.nextActionTone].some(isReviewIssueTone),
+  ).length;
+}
+
+function countApprovalEvidenceIssues(rows: ApprovalReviewEvidenceRow[]) {
+  return rows.filter((row) =>
+    [row.statusTone, row.matchTone, row.reviewTone, row.nextActionTone].some(isReviewIssueTone),
+  ).length;
 }
 
 function buildRedemptionImpactBadges({
@@ -761,6 +805,84 @@ function getRedemptionActionPanelSurfaceClasses(impactType: RedemptionActionImpa
   }
 }
 
+function ActionGateStrip({
+  summary,
+  onOpenWorkspace,
+}: {
+  summary?: RedemptionApprovalGateSummary;
+  onOpenWorkspace: () => void;
+}) {
+  if (!summary) return null;
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-white/80 bg-white/90 p-3 text-sm md:grid-cols-5">
+      <div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Blocking
+        </div>
+        <div className={cn("mt-1 font-medium", summary.blockingCount > 0 ? "text-amber-700" : "text-green-700")}>
+          {summary.blockingCount}
+        </div>
+      </div>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Advisory
+        </div>
+        <div className="mt-1 font-medium">{summary.advisoryCount}</div>
+      </div>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Total Review Issues
+        </div>
+        <div className={cn("mt-1 font-medium", summary.totalReviewIssues > 0 ? "text-amber-700" : "text-green-700")}>
+          {summary.totalReviewIssues}
+        </div>
+      </div>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Next Review
+        </div>
+        <div className="mt-1 font-medium">{summary.nextReview}</div>
+      </div>
+      <div className="flex items-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="w-full bg-white"
+          disabled={!summary.workspaceAvailable}
+          onClick={onOpenWorkspace}
+        >
+          Review Workspace
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function BurnSafetyStrip({ summary }: { summary?: RedemptionBurnSafetySummary }) {
+  if (!summary) return null;
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-cyan-100 bg-cyan-50/70 p-3 text-sm md:grid-cols-2 2xl:grid-cols-5">
+      {[
+        ["CTA meaning", summary.ctaMeaning],
+        ["Burn readiness", summary.readiness],
+        ["Payment list", summary.paymentListState],
+        ["Burn evidence", summary.burnEvidence],
+        ["Reconciliation", summary.remainingStatus],
+      ].map(([label, value]) => (
+        <div key={label} className="min-w-0">
+          <div className="text-xs font-medium uppercase tracking-wide text-cyan-700">
+            {label}
+          </div>
+          <div className="mt-1 break-words font-medium text-slate-900">{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RedemptionNextActionPanel({
   action,
   currentStatus,
@@ -768,10 +890,13 @@ function RedemptionNextActionPanel({
   disabledReason,
   buttonLabel,
   taLock,
+  approvalGateSummary,
+  burnSafetySummary,
   secondaryActions,
   onOpen,
   onOpenSecondary,
   onViewMore,
+  onOpenWorkspace,
 }: {
   action: RedemptionWorkflowActionConfig;
   currentStatus: string;
@@ -779,10 +904,13 @@ function RedemptionNextActionPanel({
   disabledReason?: string;
   buttonLabel?: string;
   taLock?: TransferAgentApprovalLockState;
+  approvalGateSummary?: RedemptionApprovalGateSummary;
+  burnSafetySummary?: RedemptionBurnSafetySummary;
   secondaryActions: RedemptionWorkflowActionConfig[];
   onOpen: () => void;
   onOpenSecondary: (action: RedemptionWorkflowActionConfig) => void;
   onViewMore: (link: RedemptionViewLink) => void;
+  onOpenWorkspace: () => void;
 }) {
   return (
     <div
@@ -829,6 +957,10 @@ function RedemptionNextActionPanel({
           </div>
 
           <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
+
+          <ActionGateStrip summary={approvalGateSummary} onOpenWorkspace={onOpenWorkspace} />
+
+          <BurnSafetyStrip summary={burnSafetySummary} />
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {action.previewSummary.map((item) => (
@@ -1576,15 +1708,20 @@ function buildRedemptionControlChecks(
   fund?: FundIssuance,
 ) {
   const minimumNoticePeriod = fund?.noticePeriodDays ?? 0;
+  const fundIsPaused = fund?.status.toLowerCase().includes("paused") ?? false;
   const hasWindowSchedule =
     redemption.redemptionMode !== "Window-based" ||
     (Boolean(redemption.windowStart) && Boolean(redemption.windowEnd));
 
   return [
     {
-      label: "Linked fund is in an operating stage",
+      label: fundIsPaused ? "Paused fund draft setup allowed" : "Linked fund is in an operating stage",
       ok: Boolean(fund) && !["Draft", "Pending Approval"].includes(fund.status),
-      detail: fund ? fund.status : "Linked fund missing",
+      detail: fund
+        ? fundIsPaused
+          ? "Paused fund can be configured as a draft; activation remains blocked until the fund resumes."
+          : fund.status
+        : "Linked fund missing",
     },
     {
       label: "Reference NAV is available",
@@ -1987,6 +2124,7 @@ export function FundRedemptionDetail() {
     (ReturnType<typeof getRedemptionRequestActionConfig> & { orderId: string }) | null
   >(null);
   const detailSectionRef = useRef<HTMLDivElement | null>(null);
+  const approvalWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const {
     fundRedemptions,
     fundOrders,
@@ -2180,6 +2318,11 @@ export function FundRedemptionDetail() {
   const redemptionApprovalPackage = redemptionApprovalWorkflow
     ? workflowState.approvalPackages.find((item) => item.workflowId === redemptionApprovalWorkflow.workflowId)
     : undefined;
+  const unresolvedApprovalBlockers = redemptionApprovalPackage
+    ? workflowState.approvalPackageBlockers.filter(
+        (blocker) => blocker.packageId === redemptionApprovalPackage.packageId && !blocker.resolvedAt,
+      )
+    : [];
   const redemptionApprovalPackageSummary = redemptionApprovalPackage
     ? {
         packageId: redemptionApprovalPackage.packageId,
@@ -2188,9 +2331,7 @@ export function FundRedemptionDetail() {
         decisionCount: workflowState.approvalDecisions.filter(
           (decision) => decision.packageId === redemptionApprovalPackage.packageId,
         ).length,
-        blockerCount: workflowState.approvalPackageBlockers.filter(
-          (blocker) => blocker.packageId === redemptionApprovalPackage.packageId && !blocker.resolvedAt,
-        ).length,
+        blockerCount: unresolvedApprovalBlockers.length,
       }
     : undefined;
   const redemptionWorkflowMatchResults: (typeof workflowState.matchResults)[number][] = [];
@@ -2539,6 +2680,13 @@ export function FundRedemptionDetail() {
     }
   };
 
+  const openApprovalWorkspace = () => {
+    approvalWorkspaceRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
   const handleExcludeFromSettlement = (request: FundOrder) => {
     const updated = updateFundRedemption(
       redemption.id,
@@ -2614,7 +2762,7 @@ export function FundRedemptionDetail() {
     return {
       id: row.id,
       title: row.investorName,
-      subtitle: row.destinationAccount,
+      subtitle: compactReference(row.destinationAccount),
       status: rowStatus,
       statusTone: getReviewTone(rowStatus),
       cells: [
@@ -2644,7 +2792,7 @@ export function FundRedemptionDetail() {
   const approvalPaymentRows: ApprovalReviewTableRow[] = paymentRows.map((row) => ({
     id: row.id,
     title: row.investorName,
-    subtitle: row.destinationAccount,
+    subtitle: compactReference(row.destinationAccount),
     status: row.paymentStatus,
     statusTone: getReviewTone(row.paymentStatus),
     cells: [
@@ -2793,6 +2941,106 @@ export function FundRedemptionDetail() {
     hasUnfinishedWorkflow: redemptionHasUnfinishedWorkflow,
     needsIssuerAcknowledge: redemptionNeedsIssuerAcknowledge,
   });
+  const totalApprovalReviewIssues =
+    countApprovalTableIssues(approvalSnapshotRows) +
+    countApprovalTableIssues(approvalPaymentRows) +
+    countApprovalCashIssues(approvalCashFlows) +
+    countApprovalEvidenceIssues(approvalEvidenceRows);
+  const blockingReviewIssueCount =
+    unresolvedApprovalBlockers.length + (redemptionActionGate?.disabled ? 1 : 0);
+  const advisoryReviewIssueCount = Math.max(totalApprovalReviewIssues - blockingReviewIssueCount, 0);
+  const approvalGateSummary: RedemptionApprovalGateSummary | undefined = primarySetupAction
+    ? {
+        blockingCount: blockingReviewIssueCount,
+        advisoryCount: advisoryReviewIssueCount,
+        totalReviewIssues: totalApprovalReviewIssues,
+        nextReview: redemptionActionGate?.disabled
+          ? redemptionActionGate.reason
+          : workflowTaskForPrimaryAction?.taskStatus ||
+            redemptionApprovalPackage?.submissionStatus ||
+            "Issuer action review",
+        workspaceAvailable: showApprovalReviewWorkspace,
+      }
+    : undefined;
+  const existingBurnEvidence = scopedOnChainEvents
+    .filter((event) => event.eventType === "FundUnitBurn")
+    .map((event) =>
+      [
+        event.txHash || event.onChainEventId,
+        event.status,
+        event.amount ? `${event.amount}${event.currency ? ` ${event.currency}` : ""}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(" / "),
+    );
+  const hasConfirmedBurnEvidence = scopedOnChainEvents.some(
+    (event) =>
+      event.eventType === "FundUnitBurn" &&
+      ["Confirmed", "Finalized"].includes(event.status),
+  );
+  const burnSafetySummary: RedemptionBurnSafetySummary | undefined =
+    primarySetupAction?.label === "Burn On Chain"
+      ? {
+          ctaMeaning: hasConfirmedBurnEvidence
+            ? "Confirmed burn exists; CTA is a duplicate re-run/review control."
+            : "Post first burn instruction.",
+          readiness:
+            hasConfirmedBurnEvidence
+              ? "Burn already confirmed"
+              : transferAgentOps?.paymentListStatus && transferAgentOps.fundingCheckStatus
+              ? "Ready after issuer identity"
+              : "Check TA package",
+          paymentListState: transferAgentOps?.paymentListStatus || "Pending generation",
+          burnEvidence:
+            existingBurnEvidence.length > 0
+              ? existingBurnEvidence.slice(0, 2).join(", ")
+              : "No burn transaction recorded yet",
+          remainingStatus:
+            transferAgentOps?.reconciliationStatus || "Cash settlement and TA reconciliation remain after burn",
+          paymentRows: `${paidPaymentCount}/${paymentRows.length} paid`,
+        }
+      : undefined;
+  const actionModalSummary = pendingAction
+    ? [
+        ...(pendingAction.label === "Burn On Chain" && burnSafetySummary
+          ? [
+              { label: "Burn Readiness", value: burnSafetySummary.readiness },
+              { label: "CTA Meaning", value: burnSafetySummary.ctaMeaning },
+              { label: "Existing Burn Evidence", value: burnSafetySummary.burnEvidence },
+              { label: "Remaining Reconciliation", value: burnSafetySummary.remainingStatus },
+            ]
+          : []),
+        ...(approvalGateSummary
+          ? [
+              { label: "Blocking Issues", value: `${approvalGateSummary.blockingCount}` },
+              { label: "Advisory Issues", value: `${approvalGateSummary.advisoryCount}` },
+              { label: "Total Review Issues", value: `${approvalGateSummary.totalReviewIssues}` },
+              { label: "Next Required Review", value: approvalGateSummary.nextReview },
+            ]
+          : []),
+        ...pendingAction.previewSummary,
+      ]
+    : [];
+  const actionModalDetails = pendingAction
+    ? [
+        ...(pendingAction.label === "Burn On Chain" && burnSafetySummary
+          ? [
+              {
+                title: "Burn Safety Evidence",
+                kind: "onchain" as const,
+                items: [
+                  `Payment list: ${burnSafetySummary.paymentListState}`,
+                  `CTA meaning: ${burnSafetySummary.ctaMeaning}`,
+                  `Existing burn evidence: ${burnSafetySummary.burnEvidence}`,
+                  `Payment progress: ${burnSafetySummary.paymentRows}`,
+                  `Remaining status: ${burnSafetySummary.remainingStatus}`,
+                ],
+              },
+            ]
+          : []),
+        ...pendingAction.previewDetails,
+      ]
+    : [];
 
   const runTaCommand = (result: { success: boolean; message?: string }) => {
     if (result.success) {
@@ -2979,6 +3227,8 @@ export function FundRedemptionDetail() {
                 }
                 buttonLabel={redemptionActionGate?.buttonLabel}
                 taLock={redemptionActionGate?.taLock}
+                approvalGateSummary={approvalGateSummary}
+                burnSafetySummary={burnSafetySummary}
                 secondaryActions={secondarySetupActions}
                 onOpen={() => {
                   if (redemptionActionGate?.mode === "send" && !redemptionActionGate.disabled) {
@@ -2993,6 +3243,7 @@ export function FundRedemptionDetail() {
                   setActionModalOpen(true);
                 }}
                 onViewMore={(link) => openDetailTab(link.tab)}
+                onOpenWorkspace={openApprovalWorkspace}
               />
             ) : undefined
           }
@@ -3000,7 +3251,7 @@ export function FundRedemptionDetail() {
       </div>
 
       {showApprovalReviewWorkspace && (
-        <div className="mb-8">
+        <div ref={approvalWorkspaceRef} className="mb-8 scroll-mt-24">
           <ApprovalReviewWorkspace
             title="Approval Review Workspace"
             description="Review the redemption data package before using the workflow action above. Snapshot rows, payment list, cash movement, manual overwrites, and evidence stay connected to the same issuer and TA workflow state."
@@ -3723,9 +3974,9 @@ export function FundRedemptionDetail() {
           steps={pendingAction.modalSteps}
           startLabel="Start"
           completionLabel="Done"
-          summary={pendingAction.previewSummary}
+          summary={actionModalSummary}
           impactBadges={pendingAction.impactBadges}
-          detailGroups={pendingAction.previewDetails}
+          detailGroups={actionModalDetails}
         />
       )}
 

@@ -286,7 +286,7 @@ export function OperationActionModal({
         if (!nextOpen) reset();
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto border bg-white shadow-2xl sm:!max-w-5xl xl:!max-w-6xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto border bg-white pb-0 shadow-2xl sm:!max-w-5xl xl:!max-w-6xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -313,9 +313,9 @@ export function OperationActionModal({
             {summary.length > 0 && (
               <div className="space-y-2 rounded-lg bg-secondary p-4 text-sm">
                 {summary.map((item) => (
-                  <div key={item.label} className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">{item.label}</span>
-                    <span className="font-medium text-right">{item.value}</span>
+                  <div key={item.label} className="flex items-start justify-between gap-4">
+                    <span className="shrink-0 text-muted-foreground">{item.label}</span>
+                    <span className="min-w-0 break-words text-right font-medium">{item.value}</span>
                   </div>
                 ))}
               </div>
@@ -341,7 +341,7 @@ export function OperationActionModal({
                     </div>
                     <div className="mt-3 space-y-2 text-sm text-muted-foreground">
                       {group.items.map((item) => (
-                        <div key={item}>{item}</div>
+                        <div key={item} className="break-words">{item}</div>
                       ))}
                     </div>
                   </div>
@@ -349,7 +349,7 @@ export function OperationActionModal({
               </div>
             )}
             <p className="text-sm text-muted-foreground">{current.description}</p>
-            <div className="flex justify-end gap-3">
+            <div className="sticky bottom-0 -mx-6 flex justify-end gap-3 border-t bg-white px-6 py-4">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>

@@ -530,6 +530,109 @@ function getDistributionActionPanelSurfaceClasses(impactType: DistributionAction
   }
 }
 
+function getDistributionDecisionOwner(actionOwner?: WorkflowActionOwner, gate?: DistributionActionGate) {
+  if (gate?.mode === "send") return "Issuer -> TA";
+  if (gate?.taLock?.status === "waiting") return "Transfer Agent";
+  if (gate?.taLock?.status === "approved") return "Issuer";
+  return actionOwner === "checker" ? "Issuer Checker" : "Issuer Maker";
+}
+
+function CompactDecisionField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words text-sm font-medium text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function DistributionDecisionSummary({
+  currentStatus,
+  action,
+  gate,
+  permissionAllowed,
+  permissionReason,
+  fundingStatus,
+  reviewIssueLabel,
+  disabled,
+  disabledReason,
+  buttonLabel,
+  onOpen,
+}: {
+  currentStatus: string;
+  action: DistributionWorkflowActionConfig | null;
+  gate?: DistributionActionGate;
+  permissionAllowed: boolean;
+  permissionReason?: string;
+  fundingStatus: string;
+  reviewIssueLabel: string;
+  disabled: boolean;
+  disabledReason?: string;
+  buttonLabel?: string;
+  onOpen: () => void;
+}) {
+  const blocker =
+    !permissionAllowed
+      ? permissionReason || "Permission required"
+      : gate?.disabled
+        ? gate.reason
+        : "No workflow blocker";
+  const nextAction = action ? buttonLabel || action.label : "No workflow action";
+
+  return (
+    <div className="mb-6 rounded-xl border bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm font-semibold">Distribution Decision</div>
+            <Badge variant="outline">{currentStatus}</Badge>
+            {gate?.taLock ? (
+              <Badge
+                variant="outline"
+                className={
+                  gate.taLock.status === "approved"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }
+              >
+                {gate.taLock.title}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <CompactDecisionField label="Owner" value={getDistributionDecisionOwner(action?.actionOwner, gate)} />
+            <CompactDecisionField label="Next Action" value={nextAction} />
+            <CompactDecisionField label="Blocker" value={blocker} />
+            <CompactDecisionField label="Funding" value={fundingStatus} />
+          </div>
+          <div className="mt-3 rounded-lg border bg-secondary/30 px-3 py-2 text-sm">
+            <span className="font-medium">Review issues: </span>
+            <span className="text-muted-foreground">{reviewIssueLabel}</span>
+          </div>
+        </div>
+        {action ? (
+          <div className="xl:w-64 xl:shrink-0">
+            <Button
+              type="button"
+              className={cn("w-full", getActionButtonClasses(action.actionOwner, action.variant))}
+              variant={action.variant}
+              disabled={disabled}
+              title={disabled ? disabledReason : undefined}
+              onClick={onOpen}
+            >
+              {gate?.taLock?.status === "waiting" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {buttonLabel || action.label}
+            </Button>
+            {disabled && disabledReason ? (
+              <div className="mt-2 break-words text-xs text-muted-foreground">{disabledReason}</div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function DistributionNextActionPanel({
   action,
   currentStatus,
@@ -537,6 +640,10 @@ function DistributionNextActionPanel({
   disabledReason,
   buttonLabel,
   taLock,
+  ownerLabel,
+  blockerLabel,
+  reviewIssueLabel,
+  fundingStatus,
   onOpen,
   onViewMore,
 }: {
@@ -546,6 +653,10 @@ function DistributionNextActionPanel({
   disabledReason?: string;
   buttonLabel?: string;
   taLock?: TransferAgentApprovalLockState;
+  ownerLabel: string;
+  blockerLabel: string;
+  reviewIssueLabel: string;
+  fundingStatus: string;
   onOpen: () => void;
   onViewMore: (link: DistributionViewLink) => void;
 }) {
@@ -595,12 +706,24 @@ function DistributionNextActionPanel({
 
           <div className="text-sm text-muted-foreground">{action.nextStepHint}</div>
 
-          {!taLock && disabledReason ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {disabled ? "Blocked: " : "Required first: "}
-              {disabledReason}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-lg border bg-white/90 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Owner</div>
+              <div className="mt-1 text-sm font-medium">{ownerLabel}</div>
             </div>
-          ) : null}
+            <div className="rounded-lg border bg-white/90 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workflow Blocker</div>
+              <div className="mt-1 break-words text-sm font-medium">{blockerLabel}</div>
+            </div>
+            <div className="rounded-lg border bg-white/90 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Review Issues</div>
+              <div className="mt-1 break-words text-sm font-medium">{reviewIssueLabel}</div>
+            </div>
+            <div className="rounded-lg border bg-white/90 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Funding</div>
+              <div className="mt-1 break-words text-sm font-medium">{fundingStatus}</div>
+            </div>
+          </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {action.previewSummary.map((item) => (
@@ -2278,6 +2401,27 @@ export function FundDistributionDetail() {
     hasUnfinishedWorkflow: distributionHasUnfinishedWorkflow,
     needsIssuerAcknowledge: distributionNeedsIssuerAcknowledge,
   });
+  const actionPermission = getActionPermission();
+  const fundingStatus = transferAgentOps?.fundingCheckStatus || "Pending funding confirmation";
+  const reviewIssueCount = [
+    ...approvalSnapshotRows.map((row) => row.statusTone),
+    ...approvalRecipientRows.map((row) => row.statusTone),
+    ...approvalCashFlows.map((flow) => flow.statusTone),
+    ...approvalEvidenceRows.map((row) => row.statusTone),
+  ].filter((tone) => tone === "warning" || tone === "danger").length;
+  const reviewIssueLabel =
+    reviewIssueCount > 0
+      ? `${reviewIssueCount} review issue${reviewIssueCount === 1 ? "" : "s"} to clear`
+      : "No review issues flagged";
+  const workflowBlockerLabel =
+    !actionPermission.allowed
+      ? actionPermission.reason || "Permission required"
+      : distributionActionGate?.disabled
+        ? distributionActionGate.reason
+        : "No workflow blocker";
+  const primaryActionDisabled = !actionPermission.allowed || Boolean(distributionActionGate?.disabled);
+  const primaryActionDisabledReason = distributionActionGate?.reason || actionPermission.reason;
+  const primaryActionOwner = getDistributionDecisionOwner(structuredAction?.actionOwner, distributionActionGate);
 
   const runTaCommand = (result: { success: boolean; message?: string }) => {
     if (result.success) {
@@ -2361,6 +2505,16 @@ export function FundDistributionDetail() {
     runTaCommand(createTransferAgencyInstructionFromIssuer("Distribution", distribution.id));
   };
 
+  const openPrimaryDistributionAction = () => {
+    if (!structuredAction) return;
+    if (distributionActionGate?.mode === "send" && !distributionActionGate.disabled) {
+      openDistributionTaAction();
+      return;
+    }
+    setPendingAction(structuredAction);
+    setActionModalOpen(true);
+  };
+
   return (
     <div className="container mx-auto px-6 py-8 max-w-7xl">
       {/* Breadcrumbs */}
@@ -2402,10 +2556,24 @@ export function FundDistributionDetail() {
             )}
           </div>
         </div>
-        {!getActionPermission().allowed && (
-          <p className="text-sm text-muted-foreground">{getActionPermission().reason}</p>
+        {!actionPermission.allowed && (
+          <p className="text-sm text-muted-foreground">{actionPermission.reason}</p>
         )}
       </div>
+
+      <DistributionDecisionSummary
+        currentStatus={currentStatus}
+        action={structuredAction}
+        gate={distributionActionGate}
+        permissionAllowed={actionPermission.allowed}
+        permissionReason={actionPermission.reason}
+        fundingStatus={fundingStatus}
+        reviewIssueLabel={reviewIssueLabel}
+        disabled={primaryActionDisabled}
+        disabledReason={primaryActionDisabledReason}
+        buttonLabel={distributionActionGate?.buttonLabel}
+        onOpen={openPrimaryDistributionAction}
+      />
 
       {/* Workflow Progress */}
       <div className="mb-8">
@@ -2417,18 +2585,15 @@ export function FundDistributionDetail() {
               <DistributionNextActionPanel
                 action={structuredAction}
                 currentStatus={currentStatus}
-                disabled={!getActionPermission().allowed || Boolean(distributionActionGate?.disabled)}
-                disabledReason={distributionActionGate?.reason || getActionPermission().reason}
+                disabled={primaryActionDisabled}
+                disabledReason={primaryActionDisabledReason}
                 buttonLabel={distributionActionGate?.buttonLabel}
                 taLock={distributionActionGate?.taLock}
-                onOpen={() => {
-                  if (distributionActionGate?.mode === "send" && !distributionActionGate.disabled) {
-                    openDistributionTaAction();
-                    return;
-                  }
-                  setPendingAction(structuredAction);
-                  setActionModalOpen(true);
-                }}
+                ownerLabel={primaryActionOwner}
+                blockerLabel={workflowBlockerLabel}
+                reviewIssueLabel={reviewIssueLabel}
+                fundingStatus={fundingStatus}
+                onOpen={openPrimaryDistributionAction}
                 onViewMore={(link) => openDetailTab(link.tab)}
               />
             ) : undefined

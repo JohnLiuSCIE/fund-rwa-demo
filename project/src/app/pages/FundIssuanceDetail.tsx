@@ -1793,6 +1793,137 @@ function getIssuanceTaHandoffDescription() {
   return "Send this issuer action into the transfer-agent workflow. The main page will wait for TA response before the next action can proceed.";
 }
 
+function getIssuerActionOwnerLabel(action: IssuanceActionConfig) {
+  return (action.actionOwner || "maker") === "checker" ? "Checker" : "Issuer";
+}
+
+function getDecisionSurfaceClasses(tone: "issuer" | "ta" | "investor" | "system") {
+  switch (tone) {
+    case "ta":
+      return "border-teal-200 bg-teal-50/80";
+    case "investor":
+      return "border-blue-200 bg-blue-50/80";
+    case "system":
+      return "border-emerald-200 bg-emerald-50/80";
+    case "issuer":
+    default:
+      return "border-slate-200 bg-white";
+  }
+}
+
+function getIssuerActionBlockerLabel(
+  action: IssuanceActionConfig,
+  taGate?: IssuanceTaWorkflowGate,
+  permissionReason?: string,
+) {
+  if (permissionReason) return permissionReason;
+  if (taGate?.taLock?.status === "waiting") return "Waiting for TA match and approval evidence.";
+  if (taGate?.buttonLabel) return "TA request package must be sent before issuer execution.";
+
+  switch (action.previewKey) {
+    case "close-book-calculate-allocation":
+      return "Evidence: cash-confirmed book, overrides, allocation inputs, TA match.";
+    case "execute-allocation-on-chain":
+      return "Evidence: approved workbook, mint instruction, wallet list, TA checks.";
+    case "finalize-activate-issuance":
+      return "Evidence: TA close-out, register baseline, issuer acknowledgement.";
+    case "activate-daily-dealing":
+      return "Evidence: launch-cycle close, recurring calendar, TA servicing package.";
+    case "pause-daily-dealing":
+      return "Evidence: pause reason, investor gate impact, on-chain control authority.";
+    default:
+      return action.nextStepHint;
+  }
+}
+
+function getCanonicalDecisionState({
+  fundData,
+  action,
+  taGate,
+  disabled,
+  disabledReason,
+}: {
+  fundData: FundIssuance;
+  action: IssuanceActionConfig | null;
+  taGate?: IssuanceTaWorkflowGate;
+  disabled: boolean;
+  disabledReason?: string;
+}) {
+  if (action) {
+    if (taGate?.taLock?.status === "waiting") {
+      return {
+        label: "TA action pending",
+        owner: "Transfer Agent",
+        blocker: getIssuerActionBlockerLabel(action, taGate, disabledReason),
+        cta: taGate.buttonLabel || action.label,
+        disabledReason: taGate.disabledReason || disabledReason,
+        tone: "ta" as const,
+      };
+    }
+
+    const owner = taGate?.buttonLabel ? "Issuer" : getIssuerActionOwnerLabel(action);
+    return {
+      label: "Issuer action now",
+      owner,
+      blocker: getIssuerActionBlockerLabel(action, taGate, disabledReason),
+      cta: taGate?.buttonLabel || action.label,
+      disabledReason: disabled ? disabledReason : undefined,
+      tone: "issuer" as const,
+    };
+  }
+
+  const investorWindowOpen =
+    fundData.status === "Open For Subscription" ||
+    ["Initial Subscription", "Active Dealing"].includes(fundData.status);
+
+  if (investorWindowOpen) {
+    return {
+      label: "Investor window open",
+      owner: "Investor / TA",
+      blocker:
+        fundData.fundType === "Open-end"
+          ? "Investors can subscribe while TA monitors the current dealing batch."
+          : "Subscription book is open until issuer closes the book for allocation.",
+      cta: "Monitor Orders",
+      disabledReason: undefined,
+      tone: "investor" as const,
+    };
+  }
+
+  return {
+    label: "System active",
+    owner: "TA / System",
+    blocker: "No issuer action is currently required on this fund.",
+    cta: "No action",
+    disabledReason: "No issuer action is currently available.",
+    tone: "system" as const,
+  };
+}
+
+function getIssuerActionStartLabel(action: IssuanceActionConfig, mode: "execute" | "ta") {
+  if (mode === "ta") {
+    switch (action.previewKey) {
+      case "activate-daily-dealing":
+        return "Send Activation Request";
+      case "close-book-calculate-allocation":
+        return "Send Close-book Package";
+      default:
+        return "Send TA Request";
+    }
+  }
+
+  switch (action.previewKey) {
+    case "pause-daily-dealing":
+      return "Pause Daily Dealing";
+    case "activate-daily-dealing":
+      return "Activate Daily Dealing";
+    case "close-book-calculate-allocation":
+      return "Close Book And Calculate";
+    default:
+      return "Start";
+  }
+}
+
 function buildIssuanceActionPreview(
   action: IssuanceActionBaseConfig,
   fundData: FundIssuance,
@@ -3592,6 +3723,168 @@ function IssuanceNextActionPanel({
   );
 }
 
+function IssuanceDecisionSummary({
+  action,
+  currentStatus,
+  state,
+  disabled,
+  disabledReason,
+  buttonLabel,
+  taLock,
+  viewLinks,
+  onViewMore,
+  onOpen,
+}: {
+  action: IssuanceActionConfig | null;
+  currentStatus: string;
+  state: ReturnType<typeof getCanonicalDecisionState>;
+  disabled: boolean;
+  disabledReason?: string;
+  buttonLabel?: string;
+  taLock?: TransferAgentApprovalLockState;
+  viewLinks: ActionViewLink[];
+  onViewMore: (link: ActionViewLink) => void;
+  onOpen: () => void;
+}) {
+  return (
+    <div className={cn("rounded-lg border p-4 shadow-sm", getDecisionSurfaceClasses(state.tone))}>
+      <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-start">
+        <div className="min-w-0 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="bg-white/80">
+              {state.label}
+            </Badge>
+            <StatusBadge status={currentStatus} />
+            <Badge
+              variant="outline"
+              className={
+                state.tone === "ta"
+                  ? "border-teal-200 bg-white/80 text-teal-700"
+                  : state.tone === "system"
+                    ? "border-emerald-200 bg-white/80 text-emerald-700"
+                    : "border-slate-200 bg-white/80 text-slate-700"
+              }
+            >
+              Owner: {state.owner}
+            </Badge>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="min-w-0">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Current state
+              </div>
+              <div className="mt-1 break-words text-sm font-medium text-foreground">
+                {currentStatus}
+                {action ? ` -> ${action.nextStatus}` : ""}
+              </div>
+            </div>
+            <div className="min-w-0 md:col-span-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Blocker / evidence needed
+              </div>
+              <div className="mt-1 text-sm text-foreground">{state.blocker}</div>
+            </div>
+          </div>
+
+          {viewLinks.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+              {viewLinks.slice(0, 4).map((link) => (
+                <Button
+                  key={`${link.tab}-${link.ordersTab || "main"}-${link.label}`}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 bg-white/90"
+                  onClick={() => onViewMore(link)}
+                >
+                  {link.label}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 lg:w-64">
+          {action ? (
+            <>
+              <Button
+                type="button"
+                variant={action.variant}
+                disabled={disabled}
+                title={disabled ? disabledReason : undefined}
+                className={cn(
+                  "w-full justify-center whitespace-normal text-center leading-tight",
+                  getActionButtonClasses(action.actionOwner || "maker", action.variant),
+                )}
+                onClick={onOpen}
+              >
+                {taLock?.status === "waiting" ? (
+                  <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
+                ) : (
+                  <action.icon className="mr-2 h-4 w-4 shrink-0" />
+                )}
+                {buttonLabel || action.label}
+              </Button>
+              <TransferAgentApprovalLock state={taLock} />
+            </>
+          ) : (
+            <Button type="button" variant="outline" disabled className="w-full whitespace-normal">
+              {state.cta}
+            </Button>
+          )}
+          {(disabled && disabledReason) || state.disabledReason ? (
+            <div className="text-xs text-muted-foreground">
+              {disabledReason || state.disabledReason}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IssuanceApprovalPrerequisiteStrip({
+  decisionState,
+  metrics,
+  evidenceRows,
+}: {
+  decisionState: ReturnType<typeof getCanonicalDecisionState>;
+  metrics: ApprovalReviewMetric[];
+  evidenceRows: ApprovalReviewEvidenceRow[];
+}) {
+  const issueEvidenceCount = evidenceRows.filter((row) => row.statusTone === "danger" || row.statusTone === "warning").length;
+  const blockerText =
+    decisionState.tone === "ta"
+      ? "TA approval is the blocker before issuer execution."
+      : decisionState.blocker;
+
+  return (
+    <div className="mb-3 grid gap-3 rounded-lg border bg-white p-4 md:grid-cols-[1fr_auto] md:items-center">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">Blockers vs evidence</div>
+        <div className="mt-1 text-sm text-muted-foreground">{blockerText}</div>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1 md:flex-wrap md:justify-end md:overflow-visible md:pb-0">
+        <Badge variant="outline" className="shrink-0 bg-slate-50">
+          {metrics.length} checks
+        </Badge>
+        <Badge
+          variant="outline"
+          className={cn(
+            "shrink-0",
+            issueEvidenceCount > 0
+              ? "border-amber-200 bg-amber-50 text-amber-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700",
+          )}
+        >
+          {issueEvidenceCount > 0 ? `${issueEvidenceCount} evidence gaps` : "Evidence aligned"}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
 function renderOrderTable(
   orders: FundOrder[],
   fundData: FundIssuance,
@@ -3601,7 +3894,8 @@ function renderOrderTable(
   deniedReason?: string,
 ) {
   return (
-    <Table>
+    <div className="overflow-x-auto">
+    <Table className="min-w-[920px]">
       <TableHeader>
         <TableRow>
           <TableHead>Order ID</TableHead>
@@ -3705,6 +3999,7 @@ function renderOrderTable(
         )}
       </TableBody>
     </Table>
+    </div>
   );
 }
 
@@ -4617,6 +4912,28 @@ export function FundIssuanceDetail() {
     userRole === "issuer" &&
     updateFundPermission.allowed &&
     editableSections.length > 0;
+  const issuerActionDisabled =
+    !issuerActionPermission.allowed || Boolean(issuerActionTaGate?.disabled);
+  const issuerActionDisabledReason =
+    issuerActionTaGate?.disabledReason || issuerActionPermission.reason;
+  const issuerDecisionState = getCanonicalDecisionState({
+    fundData,
+    action: issuerAction,
+    taGate: issuerActionTaGate,
+    disabled: issuerActionDisabled,
+    disabledReason: issuerActionDisabledReason,
+  });
+  const issuerActionViewLinks = issuerAction ? getActionViewLinks(issuerAction) : [];
+  const openIssuerAction = () => {
+    if (!issuerAction) return;
+    if (issuerActionTaGate?.mode) {
+      setPendingIssuerTaAction({ action: issuerAction, mode: issuerActionTaGate.mode });
+      setIssuerTaActionModalOpen(true);
+      return;
+    }
+    setPendingIssuerAction(issuerAction);
+    setIssuerActionModalOpen(true);
+  };
   return (
     <div className="container mx-auto max-w-7xl px-6 py-8">
       <div className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
@@ -4711,39 +5028,37 @@ export function FundIssuanceDetail() {
         )}
       </div>
 
-      <div className="mb-8">
-        <FundIssuanceWorkflow
-          currentStatus={fundData.status}
-          fundType={fundData.fundType}
-          stepTimings={issuanceWorkflowTimings}
-          actionPanel={
-            !isMarketplaceView && issuerAction ? (
-              <IssuanceNextActionPanel
-                action={issuerAction}
-                currentStatus={fundData.status}
-                disabled={!issuerActionPermission.allowed || Boolean(issuerActionTaGate?.disabled)}
-                disabledReason={issuerActionTaGate?.disabledReason || issuerActionPermission.reason}
-                buttonLabel={issuerActionTaGate?.buttonLabel}
-                taLock={issuerActionTaGate?.taLock}
-                viewLinks={getActionViewLinks(issuerAction)}
-                onViewMore={(link) => openClosedEndSnapshot(link.tab, link.ordersTab)}
-                onOpen={() => {
-                  if (issuerActionTaGate?.mode) {
-                    setPendingIssuerTaAction({ action: issuerAction, mode: issuerActionTaGate.mode });
-                    setIssuerTaActionModalOpen(true);
-                    return;
-                  }
-                  setPendingIssuerAction(issuerAction);
-                  setIssuerActionModalOpen(true);
-                }}
-              />
-            ) : undefined
-          }
-        />
+      <div className="mb-8 space-y-4">
+        {!isMarketplaceView && (
+          <IssuanceDecisionSummary
+            action={issuerAction}
+            currentStatus={fundData.status}
+            state={issuerDecisionState}
+            disabled={issuerActionDisabled}
+            disabledReason={issuerActionDisabledReason}
+            buttonLabel={issuerActionTaGate?.buttonLabel}
+            taLock={issuerActionTaGate?.taLock}
+            viewLinks={issuerActionViewLinks}
+            onViewMore={(link) => openClosedEndSnapshot(link.tab, link.ordersTab)}
+            onOpen={openIssuerAction}
+          />
+        )}
+        <div className="overflow-x-auto pb-2 [&_.relative.grid]:min-w-[680px] sm:[&_.relative.grid]:min-w-0">
+          <FundIssuanceWorkflow
+            currentStatus={fundData.status}
+            fundType={fundData.fundType}
+            stepTimings={issuanceWorkflowTimings}
+          />
+        </div>
       </div>
 
       {showApprovalReviewWorkspace && (
         <div className="mb-8">
+          <IssuanceApprovalPrerequisiteStrip
+            decisionState={issuerDecisionState}
+            metrics={issuanceApprovalMetrics}
+            evidenceRows={issuanceApprovalEvidenceRows}
+          />
           <ApprovalReviewWorkspace
             title="Approval Review Workspace"
             description="Review the issuance package before using the workflow action above. Subscription orders, allocation rows, cash movement, manual overwrites, and TA approval objects are shown together against the same fund workflow state."
@@ -5067,13 +5382,13 @@ export function FundIssuanceDetail() {
         <div className="lg:col-span-2">
           {isOpenEnd ? (
             <Tabs defaultValue="overview" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-6">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="information">Information</TabsTrigger>
-                <TabsTrigger value="dealing">Dealing</TabsTrigger>
-                <TabsTrigger value="ta-ledger">TA Ledger</TabsTrigger>
-                <TabsTrigger value="orders">Orders</TabsTrigger>
-                <TabsTrigger value="nav-history">NAV & Events</TabsTrigger>
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6">
+                <TabsTrigger value="overview" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Overview</TabsTrigger>
+                <TabsTrigger value="information" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Information</TabsTrigger>
+                <TabsTrigger value="dealing" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Dealing</TabsTrigger>
+                <TabsTrigger value="ta-ledger" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">TA Ledger</TabsTrigger>
+                <TabsTrigger value="orders" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Orders</TabsTrigger>
+                <TabsTrigger value="nav-history" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">NAV & Events</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="space-y-6">
@@ -5438,10 +5753,10 @@ export function FundIssuanceDetail() {
 
               <TabsContent value="orders" className="space-y-6">
                 <Tabs defaultValue="subscription" className="space-y-4">
-                  <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="subscription">Subscription Orders</TabsTrigger>
-                    <TabsTrigger value="redemption">Redemption Orders</TabsTrigger>
-                    <TabsTrigger value="buyers">Buyers</TabsTrigger>
+                  <TabsList className="grid h-auto w-full grid-cols-3 gap-1">
+                    <TabsTrigger value="subscription" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Subscription Orders</TabsTrigger>
+                    <TabsTrigger value="redemption" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Redemption Orders</TabsTrigger>
+                    <TabsTrigger value="buyers" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Buyers</TabsTrigger>
                   </TabsList>
                   <TabsContent value="subscription">
                     {renderOrderTable(
@@ -5488,13 +5803,13 @@ export function FundIssuanceDetail() {
                 onValueChange={(value) => setClosedEndTab(value as ClosedEndTab)}
                 className="space-y-6"
               >
-              <TabsList className="grid w-full grid-cols-6">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="information">Information</TabsTrigger>
-                <TabsTrigger value="timeline">Timeline</TabsTrigger>
-                <TabsTrigger value="nav-history">NAV & Events</TabsTrigger>
-                <TabsTrigger value="ta-ledger">TA Ledger</TabsTrigger>
-                <TabsTrigger value="orders">Orders</TabsTrigger>
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6">
+                <TabsTrigger value="overview" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Overview</TabsTrigger>
+                <TabsTrigger value="information" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Information</TabsTrigger>
+                <TabsTrigger value="timeline" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Timeline</TabsTrigger>
+                <TabsTrigger value="nav-history" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">NAV & Events</TabsTrigger>
+                <TabsTrigger value="ta-ledger" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">TA Ledger</TabsTrigger>
+                <TabsTrigger value="orders" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Orders</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="space-y-6">
@@ -5885,15 +6200,15 @@ export function FundIssuanceDetail() {
                 >
                   <TabsList
                     className={cn(
-                      "grid w-full",
-                      !isMarketplaceView ? "grid-cols-4" : "grid-cols-3",
+                      "grid h-auto w-full gap-1",
+                      !isMarketplaceView ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3",
                     )}
                   >
-                    <TabsTrigger value="orders">Orders</TabsTrigger>
-                    <TabsTrigger value="buyers">Buyers</TabsTrigger>
-                    <TabsTrigger value="allocation">Allocation Preview</TabsTrigger>
+                    <TabsTrigger value="orders" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Orders</TabsTrigger>
+                    <TabsTrigger value="buyers" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Buyers</TabsTrigger>
+                    <TabsTrigger value="allocation" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Allocation Preview</TabsTrigger>
                     {!isMarketplaceView && (
-                      <TabsTrigger value="manual">Manual Override</TabsTrigger>
+                      <TabsTrigger value="manual" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Manual Override</TabsTrigger>
                     )}
                   </TabsList>
 
@@ -6079,7 +6394,7 @@ export function FundIssuanceDetail() {
           steps={buildIssuanceExecutionSteps(pendingIssuerAction)}
           impactBadges={buildIssuanceExecutionImpactBadges(pendingIssuerAction)}
           detailGroups={pendingIssuerAction.previewDetails}
-          startLabel="Start"
+          startLabel={getIssuerActionStartLabel(pendingIssuerAction, "execute")}
           completionLabel="Done"
           summary={pendingIssuerAction.previewSummary}
         />
@@ -6099,8 +6414,8 @@ export function FundIssuanceDetail() {
           description={getIssuanceTaHandoffDescription()}
           steps={buildIssuanceTaHandoffSteps(pendingIssuerTaAction.action)}
           impactBadges={buildIssuanceTaHandoffImpactBadges(pendingIssuerTaAction.action)}
-          detailGroups={pendingIssuerTaAction.action.previewDetails}
-          startLabel="Confirm And Send"
+          detailGroups={[]}
+          startLabel={getIssuerActionStartLabel(pendingIssuerTaAction.action, "ta")}
           completionLabel="Done"
           summary={pendingIssuerTaAction.action.previewSummary}
         />

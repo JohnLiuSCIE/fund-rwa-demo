@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "../context/AppContext";
 
@@ -32,6 +34,10 @@ function buildDefaultDistributionSchedule() {
     recordDate: toDateTimeLocalValue(recordDate),
     paymentDate: toDateTimeLocalValue(paymentDate),
   };
+}
+
+function formatReviewDate(value: string) {
+  return value ? value.replace("T", " ") : "Missing";
 }
 
 export function CreateFundDistribution() {
@@ -79,6 +85,59 @@ export function CreateFundDistribution() {
       ? selectedFund.currentNav
       : selectedFund.initialNav
     : "N/A";
+  const paymentAfterRecord =
+    !recordDate ||
+    !paymentDate ||
+    new Date(paymentDate).getTime() >= new Date(recordDate).getTime();
+  const reviewChecks = [
+    {
+      label: "Fund selected",
+      value: selectedFund ? `${selectedFund.name} / ${selectedFund.fundType}` : "Missing",
+      ok: Boolean(selectedFund),
+      required: true,
+    },
+    {
+      label: "Record date",
+      value: formatReviewDate(recordDate),
+      ok: Boolean(recordDate),
+      required: true,
+    },
+    {
+      label: "Payment date",
+      value: formatReviewDate(paymentDate),
+      ok: Boolean(paymentDate) && paymentAfterRecord,
+      required: true,
+    },
+    {
+      label: "Payout route",
+      value: `${payoutMode} / ${payoutToken || "token missing"} / ${
+        payoutAccount || (payoutMode === "Direct Transfer" ? "default treasury account" : "default claim wallet")
+      }`,
+      ok: Boolean(payoutMode) && Boolean(payoutToken),
+      required: true,
+    },
+    {
+      label: "Rate basis",
+      value: distributionRate
+        ? `${distributionRate} ${distributionRateType === "Fixed Rate" ? "%" : distributionUnit}`
+        : "Missing",
+      ok: Boolean(distributionRate) && Boolean(distributionRateType) && Boolean(distributionUnit),
+      required: true,
+    },
+    {
+      label: "Day-count basis",
+      value: `${actualDaysInPeriod || "period missing"} / ${actualDaysInYear || "year missing"}`,
+      ok: Boolean(actualDaysInPeriod) && Boolean(actualDaysInYear),
+      required: true,
+    },
+    {
+      label: "Recipient rule",
+      value: "All record-date holders from the linked holder register",
+      ok: true,
+      required: false,
+    },
+  ];
+  const requiredComplete = reviewChecks.filter((check) => check.required).every((check) => check.ok);
 
   useEffect(() => {
     const defaults = buildDefaultDistributionSchedule();
@@ -452,48 +511,50 @@ export function CreateFundDistribution() {
         <TabsContent value="rules" className="space-y-6">
           <Card>
             <CardContent className="space-y-4 pt-6">
-              {isClosedEndSelected ? (
-                <div className="space-y-4 rounded-lg border bg-secondary/30 p-4">
-                  <div>
-                    <div className="text-sm font-medium">Eligibility Logic</div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      All holders on the record date are eligible for this distribution. No
-                      additional investor rules are required for this distribution event.
-                    </p>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">Recipient List</div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      The recipient list will be generated from the linked fund holder
-                      register after the record date is locked.
-                    </p>
+              <div className="flex flex-col gap-3 rounded-lg border bg-secondary/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold">Decision checklist</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Required fields must be complete before the distribution draft is created.
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-4 rounded-lg border bg-secondary/30 p-4">
-                  <div>
-                    <div className="text-sm font-medium">Recipient Determination</div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {isClosedEndSelected
-                        ? "All holders on the record date are eligible for this distribution. No additional investor admission checks are required at the event stage."
-                        : "Distribution recipients are determined from the linked fund holder register on the record date. No investor admission threshold is configured at the distribution stage."}
-                    </p>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">Recipient List</div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      The recipient list will be generated from the linked fund holder
-                      register after the record date is locked.
-                    </p>
-                  </div>
-                </div>
-              )}
+                <Badge
+                  variant="outline"
+                  className={
+                    requiredComplete
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-amber-200 bg-amber-50 text-amber-700"
+                  }
+                >
+                  {requiredComplete ? "Required complete" : "Required incomplete"}
+                </Badge>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {reviewChecks.map((check) => {
+                  const Icon = check.ok ? CheckCircle2 : check.required ? TriangleAlert : CircleDashed;
+                  return (
+                    <div key={check.label} className="rounded-lg border p-3">
+                      <div className="flex items-start gap-3">
+                        <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${check.ok ? "text-emerald-600" : "text-amber-600"}`} />
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium">{check.label}</span>
+                            {check.required ? <Badge variant="outline">Required</Badge> : null}
+                          </div>
+                          <div className="mt-1 break-words text-sm text-muted-foreground">{check.value}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
               <div className="flex justify-between pt-4">
                 <Button variant="outline" onClick={() => setActiveTab("about-distribution")}>
                   Back
                 </Button>
-                <Button onClick={handleCreate}>
+                <Button disabled={!requiredComplete} onClick={handleCreate}>
                   {inFundContext ? "Create Distribution For This Fund" : `Create ${eventLabel}`}
                 </Button>
               </div>

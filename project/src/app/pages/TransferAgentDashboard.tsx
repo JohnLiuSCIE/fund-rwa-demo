@@ -41,6 +41,22 @@ function getBacklogLink(taskType: string) {
   return "/ta/register";
 }
 
+function isClosedBreak(status: string) {
+  return ["Resolved", "Waived"].includes(status);
+}
+
+function getSeverityWeight(severity: string) {
+  if (severity === "Critical") return 0;
+  if (severity === "High") return 1;
+  if (severity === "Medium") return 2;
+  return 3;
+}
+
+function getBreakNextAction(ownerRole: string) {
+  if (ownerRole === "TransferAgent") return "Resolve or waive";
+  return `Review evidence from ${ownerRole}`;
+}
+
 export function TransferAgentDashboard() {
   const {
     fundIssuances,
@@ -69,7 +85,10 @@ export function TransferAgentDashboard() {
       reconciliationBreaks,
     }),
   ].slice(0, 6);
-  const openBreaks = reconciliationBreaks.filter((item) => !["Resolved", "Waived"].includes(item.status));
+  const openBreaks = reconciliationBreaks.filter((item) => !isClosedBreak(item.status));
+  const highestRiskBreak = [...openBreaks].sort(
+    (a, b) => getSeverityWeight(a.severity) - getSeverityWeight(b.severity) || a.detectedAt.localeCompare(b.detectedAt),
+  )[0];
   const totalUnits = registerAccounts.reduce((sum, account) => {
     const match = account.units.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
     return sum + (match ? Number(match[0]) : 0);
@@ -132,6 +151,53 @@ export function TransferAgentDashboard() {
           </Button>
         </div>
       </div>
+
+      {highestRiskBreak && (
+        <Card className="mb-6 border-destructive/40 bg-destructive/[0.03]">
+          <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <Badge variant={highestRiskBreak.severity === "Critical" ? "destructive" : "secondary"}>
+                  {highestRiskBreak.severity}
+                </Badge>
+                <Badge variant="outline">{highestRiskBreak.status}</Badge>
+                <span className="break-all font-mono text-xs text-muted-foreground">{highestRiskBreak.breakId}</span>
+              </div>
+              <CardTitle>Top Exception Risk</CardTitle>
+            </div>
+            <Button asChild>
+              <Link to="/ta/reconciliation">
+                Resolve Break
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+              <div>
+                <div className="text-muted-foreground">Break type</div>
+                <div className="font-medium">{highestRiskBreak.breakType}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Owner</div>
+                <div className="font-medium">{highestRiskBreak.ownerRole}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Detected</div>
+                <div className="font-medium">{highestRiskBreak.detectedAt}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Blocker</div>
+                <div className="font-medium">{highestRiskBreak.description}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Next action</div>
+                <div className="font-medium">{getBreakNextAction(highestRiskBreak.ownerRole)}</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="mb-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard icon={ShieldCheck} label="Registered Holders" value={registerAccounts.length} variant="primary" />

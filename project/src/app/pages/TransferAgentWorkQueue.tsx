@@ -71,6 +71,15 @@ function getMatchBadgeVariant(match?: { matched: boolean }): BadgeVariant {
   return match.matched ? "secondary" : "destructive";
 }
 
+function getSourceSubtypeLabel(instance: WorkflowInstance, isCloseOut: boolean, relatedOrderId?: string) {
+  if (instance.sourceType === "Distribution") return "Snapshot / payment list";
+  if (instance.sourceType === "Redemption") {
+    if (isCloseOut) return "Close-out reconciliation";
+    return relatedOrderId ? `Redemption order ${relatedOrderId}` : "Snapshot / payment list";
+  }
+  return formatIssuanceActionReference(instance.sourceReference);
+}
+
 export function TransferAgentWorkQueue() {
   const { fundIssuances, fundDistributions, fundRedemptions, fundOrders, workflowState } = useApp();
   const fundNameById = new Map(fundIssuances.map((fund) => [fund.id, fund.name]));
@@ -113,6 +122,7 @@ export function TransferAgentWorkQueue() {
     return {
       eventName,
       fundName,
+      subtypeLabel: getSourceSubtypeLabel(instance, isCloseOut, relatedRedemptionOrder?.id),
       sourceLabel:
         instance.sourceType === "Redemption" && redemption
           ? `Redemption / ${redemption.id}${isCloseOut ? " · Close-out reconciliation" : " · Snapshot/payment list"}`
@@ -380,6 +390,17 @@ export function TransferAgentWorkQueue() {
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">{meta.fundName}</div>
                   </div>
 
+                  <div className="mt-3 space-y-2 rounded-md border bg-muted/40 p-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant="outline" className="bg-background">
+                        {meta.subtypeLabel}
+                      </Badge>
+                      <Badge variant={getMatchBadgeVariant(match)}>{getMatchLabel(match)}</Badge>
+                    </div>
+                    <div className="break-words font-mono text-muted-foreground">{meta.sourceLabel}</div>
+                    {meta.relatedLabel ? <div className="text-muted-foreground">{meta.relatedLabel}</div> : null}
+                  </div>
+
                   <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-t pt-3">
                     <div className="min-w-0">
                       <div className="text-xs text-muted-foreground">Next step</div>
@@ -393,7 +414,6 @@ export function TransferAgentWorkQueue() {
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     <Badge variant="outline">{getWorkflowAreaLabel(instance!.sourceType)}</Badge>
-                    <Badge variant={getMatchBadgeVariant(match)}>{getMatchLabel(match)}</Badge>
                     {!reviewComplete ? <Badge variant="outline">Review pending</Badge> : null}
                   </div>
 
@@ -462,6 +482,7 @@ export function TransferAgentWorkQueue() {
                       </TableCell>
                       <TableCell className="whitespace-normal py-3">
                         <Badge variant="outline">{getWorkflowAreaLabel(instance!.sourceType)}</Badge>
+                        <div className="mt-2 text-xs font-medium">{meta.subtypeLabel}</div>
                         <div className="mt-2 text-xs text-muted-foreground">{meta.secondaryScope}</div>
                       </TableCell>
                       <TableCell className="whitespace-normal py-3">

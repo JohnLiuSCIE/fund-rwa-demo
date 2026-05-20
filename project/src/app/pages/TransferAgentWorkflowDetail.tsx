@@ -392,13 +392,14 @@ export function TransferAgentWorkflowDetail() {
   const matchStatusLabel = match ? (match.matched ? "Match passed" : "Match exception") : "Not matched";
   const primaryActionLabel = (() => {
     if (isWorkflowComplete) return "TA Workflow Complete";
-    if (instance.status === "MatchException" && match?.exception) return "Resolve Exception First";
+    if (instance.status === "MatchException" && match?.exception) return "Exception Pending";
     if (snapshotReviewGateRequired && !snapshotReviewComplete) return "Review Snapshot First";
     if (isSubmitStage && !reviewComplete) return "Complete Review First";
     if (isSubmitStage && !match?.matched) return "Run Match First";
     if (canRunMatch) return "Review & Match";
     return getWorkflowTaskActionLabel(instance, task);
   })();
+  const hasMatchException = instance.status === "MatchException" || task.taskStatus === "Blocked";
   const secureActionLabel =
     secureAction === "return"
       ? "Return To Issuer"
@@ -709,7 +710,11 @@ export function TransferAgentWorkflowDetail() {
               </p>
             </div>
             <div className="flex max-w-sm flex-col items-start gap-2 sm:items-end">
-              <Button disabled={primaryDisabled} onClick={primaryAction}>
+              <Button
+                disabled={primaryDisabled}
+                onClick={primaryAction}
+                variant={hasMatchException ? "outline" : "default"}
+              >
                 <ShieldCheck className="h-4 w-4" />
                 {primaryActionLabel}
               </Button>
@@ -905,7 +910,12 @@ export function TransferAgentWorkflowDetail() {
                   <Badge variant={taskVariant(task.taskStatus)}>{task.taskStatus}</Badge>
                 </div>
               </div>
-              <Button className="w-full" disabled={primaryDisabled} onClick={primaryAction}>
+              <Button
+                className="w-full"
+                disabled={primaryDisabled}
+                onClick={primaryAction}
+                variant={hasMatchException ? "outline" : "default"}
+              >
                 {primaryActionLabel}
               </Button>
               {primaryDisabledReason ? (
@@ -928,20 +938,28 @@ export function TransferAgentWorkflowDetail() {
                   </div>
                 </div>
               ) : null}
-              {instance.status === "MatchException" || task.taskStatus === "Blocked" ? (
+              {hasMatchException ? (
                 <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
-                  <div className="font-medium">Exception requires decision</div>
+                  <div className="font-medium">Exception recovery</div>
                   <div className="mt-1 text-red-800">
-                    Return the package to issuer with the recorded match exception, or reopen the Review & Match sheet to
-                    correct the match result.
+                    Return sends the exception back to issuer. Review & Match lets TA correct the match before returning.
                   </div>
-                  <Button
-                    className="mt-3 w-full"
-                    variant="outline"
-                    onClick={() => requestSecureAction("return")}
-                  >
-                    Return To Issuer
-                  </Button>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                    <Button
+                      className="w-full"
+                      variant="destructive"
+                      onClick={() => requestSecureAction("return")}
+                    >
+                      Return To Issuer
+                    </Button>
+                    <Button
+                      className="w-full border-red-300 bg-white text-red-900 hover:bg-red-100 hover:text-red-950"
+                      variant="outline"
+                      onClick={() => setReviewSheetOpen(true)}
+                    >
+                      Open Review & Match
+                    </Button>
+                  </div>
                 </div>
               ) : null}
             </CardContent>
@@ -1009,15 +1027,15 @@ export function TransferAgentWorkflowDetail() {
       </Card>
 
       <Sheet open={reviewSheetOpen} onOpenChange={setReviewSheetOpen}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
-          <SheetHeader>
+        <SheetContent className="w-[100dvw] max-w-[100dvw] gap-0 overflow-hidden sm:max-w-2xl">
+          <SheetHeader className="border-b pr-12">
             <SheetTitle>Review & Match</SheetTitle>
             <SheetDescription>
               Complete the TA review checks, then record the source data match for this workflow step.
             </SheetDescription>
           </SheetHeader>
 
-          <div className="space-y-6 px-4 pb-4">
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4">
             <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
               <div>
                 <div className="text-muted-foreground">Workflow</div>
@@ -1036,16 +1054,27 @@ export function TransferAgentWorkflowDetail() {
             <div>
               <div className="mb-3 font-medium">Review Checklist</div>
               <div className="space-y-3">
-                {checklistItems.map((item) => (
-                  <label key={item.key} className="flex items-center gap-3 rounded-lg border p-3 text-sm">
-                    <Checkbox
-                      checked={Boolean(task.reviewChecklist[item.key])}
-                      onCheckedChange={(checked) => updateChecklistItem(item.key, Boolean(checked))}
-                      disabled={["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(instance.status)}
-                    />
-                    <span>{item.label}</span>
-                  </label>
-                ))}
+                {checklistItems.map((item) => {
+                  const checklistId = `review-checklist-${task.taskId}-${item.key}`;
+                  const labelId = `${checklistId}-label`;
+                  return (
+                    <div
+                      key={item.key}
+                      className="flex items-start gap-3 rounded-lg border p-3 text-sm transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
+                    >
+                      <Checkbox
+                        id={checklistId}
+                        aria-labelledby={labelId}
+                        checked={Boolean(task.reviewChecklist[item.key])}
+                        onCheckedChange={(checked) => updateChecklistItem(item.key, Boolean(checked))}
+                        disabled={["SubmittedToIssuer", "IssuerAcknowledged", "Reconciled"].includes(instance.status)}
+                      />
+                      <label id={labelId} htmlFor={checklistId} className="min-w-0 flex-1 cursor-pointer leading-snug">
+                        {item.label}
+                      </label>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -1091,7 +1120,7 @@ export function TransferAgentWorkflowDetail() {
             ) : null}
           </div>
 
-          <SheetFooter className="border-t">
+          <SheetFooter className="sticky bottom-0 mt-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90">
             <div className="grid w-full gap-2 sm:grid-cols-2">
               <Button
                 disabled={!reviewComplete || !canRunMatch}
