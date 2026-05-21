@@ -34,6 +34,7 @@ import { SnapshotReviewPanel } from "../components/transfer-agent/SnapshotReview
 import { useApp } from "../context/AppContext";
 import { cn } from "../components/ui/utils";
 import { shouldShowTaWorkflowApprovalWorkspace } from "../lib/approvalWorkspaceVisibility";
+import { collectOrderLinkedFundingEvidence } from "../lib/transferAgency";
 import {
   getWorkflowReviewChecklist,
   getWorkflowSteps,
@@ -290,7 +291,7 @@ export function TransferAgentWorkflowDetail() {
   const logs = instance
     ? workflowState.actionLogs.filter((item) => item.workflowId === instance.workflowId)
     : [];
-  const evidence = snapshot
+  const snapshotEvidence = snapshot
     ? evidenceRecords.filter(
         (record) =>
           record.instructionId === snapshot.instructionId ||
@@ -368,14 +369,13 @@ export function TransferAgentWorkflowDetail() {
   const requestSecureAction = (action: SecureAction) => setSecureAction(action);
 
   const runMatchDecision = (matched: boolean) => {
-    const success = run(
+    run(
       workflowMatchTask(
         task.taskId,
         matched,
         matched ? undefined : "Manual exception raised by TA reviewer.",
       ),
     );
-    if (success) setReviewSheetOpen(false);
   };
 
   const primaryAction = () => {
@@ -448,6 +448,14 @@ export function TransferAgentWorkflowDetail() {
     if (sourceDistribution) return order.type === "subscription";
     return false;
   });
+  const orderLinkedEvidence = collectOrderLinkedFundingEvidence({
+    orders: workflowOrders,
+    cashMovements,
+    evidenceRecords,
+  });
+  const evidence = Array.from(
+    new Map([...snapshotEvidence, ...orderLinkedEvidence.evidenceRecords].map((record) => [record.evidenceRefId, record])).values(),
+  );
   const approvalMatchLabel = match ? (match.matched ? "Matched" : "Exception") : canRunMatch ? "Pending match" : "Not run";
   const approvalMatchTone: ReviewTone = match?.matched ? "success" : match ? "danger" : canRunMatch ? "warning" : "muted";
   const approvalReviewState = reviewComplete
@@ -545,14 +553,21 @@ export function TransferAgentWorkflowDetail() {
           ],
         }));
   const relatedInstructionIds = new Set<string>(
-    [snapshot?.instructionId, ...evidence.map((record) => record.instructionId).filter(Boolean)]
+    [
+      snapshot?.instructionId,
+      ...orderLinkedEvidence.orderInstructionIds,
+      ...evidence.map((record) => record.instructionId).filter(Boolean),
+    ]
       .filter(Boolean) as string[],
   );
+  const orderLinkedCashMovementIds = new Set(orderLinkedEvidence.cashMovementIds);
   const canonicalTaCashFlows: ApprovalReviewCashFlow[] = cashMovements
     .filter(
       (movement) =>
         movement.fundId === instance.fundId &&
-        (relatedInstructionIds.size === 0 || relatedInstructionIds.has(movement.instructionId)),
+        (relatedInstructionIds.size === 0 ||
+          relatedInstructionIds.has(movement.instructionId) ||
+          orderLinkedCashMovementIds.has(movement.cashMovementId)),
     )
     .map((movement) => ({
       id: movement.cashMovementId,
@@ -1112,10 +1127,18 @@ export function TransferAgentWorkflowDetail() {
               )}
             </div>
             {!reviewComplete || !canRunMatch ? (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <div
+                className={
+                  match && !canRunMatch
+                    ? "rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900"
+                    : "rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                }
+              >
                 {!reviewComplete
                   ? "Complete every review checklist item before running match."
-                  : "This workflow is no longer in the Review & Match state."}
+                  : match && !canRunMatch
+                    ? "Match recorded. This workflow is ready for the next TA action."
+                    : "This workflow is not currently ready for Review & Match."}
               </div>
             ) : null}
           </div>

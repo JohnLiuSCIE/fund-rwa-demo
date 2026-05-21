@@ -102,6 +102,16 @@ export type EvidencePackProjection = {
   records: EvidenceRecord[];
 };
 
+export type OrderLinkedFundingEvidenceProjection = {
+  orderIds: string[];
+  orderInstructionIds: string[];
+  paymentReferences: string[];
+  cashMovementIds: string[];
+  evidenceRefIds: string[];
+  cashMovements: CashMovement[];
+  evidenceRecords: EvidenceRecord[];
+};
+
 export type IssuerTaHandoffProjection = {
   sourceType: HolderSnapshot["sourceType"];
   sourceReference: string;
@@ -462,6 +472,54 @@ export function buildInvestorOrderProjection({
     confirmedUnits: delta?.deltaType === "Issue" ? delta.units : undefined,
     confirmedCash: delta?.deltaType === "Redeem" ? order.confirmedSharesOrCash || order.estimatedSharesOrCash : undefined,
     settlementAt: order.settlementTime,
+  };
+}
+
+function uniqueStrings(values: Array<string | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+export function collectOrderLinkedFundingEvidence({
+  orders,
+  cashMovements,
+  evidenceRecords,
+}: {
+  orders: FundOrder[];
+  cashMovements: CashMovement[];
+  evidenceRecords: EvidenceRecord[];
+}): OrderLinkedFundingEvidenceProjection {
+  const orderIds = uniqueStrings(orders.map((order) => order.id));
+  const orderIdSet = new Set(orderIds);
+  const orderInstructionIds = uniqueStrings(orders.map((order) => `instr-${order.id}`));
+  const orderInstructionIdSet = new Set(orderInstructionIds);
+  const paymentReferences = uniqueStrings(orders.map((order) => order.paymentReference));
+  const paymentReferenceSet = new Set(paymentReferences);
+
+  const linkedCashMovements = cashMovements.filter((movement) => {
+    const cashOrderId = movement.cashMovementId.replace(/^cash-/, "");
+    return (
+      orderInstructionIdSet.has(movement.instructionId) ||
+      orderIdSet.has(cashOrderId) ||
+      orderIdSet.has(movement.reference || "") ||
+      paymentReferenceSet.has(movement.reference || "")
+    );
+  });
+  const linkedCashMovementIds = uniqueStrings(linkedCashMovements.map((movement) => movement.cashMovementId));
+  const linkedCashEvidenceIds = new Set(linkedCashMovementIds.map((cashMovementId) => `ev-${cashMovementId}`));
+  const linkedEvidenceRecords = evidenceRecords.filter(
+    (record) =>
+      (record.instructionId ? orderInstructionIdSet.has(record.instructionId) : false) ||
+      linkedCashEvidenceIds.has(record.evidenceRefId),
+  );
+
+  return {
+    orderIds,
+    orderInstructionIds,
+    paymentReferences,
+    cashMovementIds: linkedCashMovementIds,
+    evidenceRefIds: uniqueStrings(linkedEvidenceRecords.map((record) => record.evidenceRefId)),
+    cashMovements: linkedCashMovements,
+    evidenceRecords: linkedEvidenceRecords,
   };
 }
 

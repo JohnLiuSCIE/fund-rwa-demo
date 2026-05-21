@@ -31,6 +31,13 @@ import {
 } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "../components/ui/sheet";
+import {
   Table,
   TableBody,
   TableCell,
@@ -58,9 +65,7 @@ import {
 } from "../components/ApprovalReviewWorkspace";
 import { FundIssuanceWorkflow, type WorkflowStepTiming } from "../components/FundIssuanceWorkflow";
 import {
-  TransferAgentChecklistCard,
   TransferAgentApprovalLock,
-  TransferAgentOperationsCard,
   type TransferAgentApprovalLockState,
 } from "../components/TransferAgentPanels";
 import { RedeemModal, SubscribeModal } from "../components/modals/InvestorModals";
@@ -183,6 +188,7 @@ interface FundEditFormState {
 }
 
 type ClosedEndTab = "overview" | "information" | "timeline" | "nav-history" | "ta-ledger" | "orders";
+type OpenEndTab = "overview" | "information" | "dealing" | "ta-ledger" | "orders" | "nav-history";
 type ClosedEndOrdersTab = "orders" | "buyers" | "allocation" | "manual";
 
 function formatAmount(value: number, currency: string) {
@@ -4012,7 +4018,9 @@ export function FundIssuanceDetail() {
   const [isInlineEditing, setIsInlineEditing] = useState(false);
   const [issuerActionModalOpen, setIssuerActionModalOpen] = useState(false);
   const [issuerTaActionModalOpen, setIssuerTaActionModalOpen] = useState(false);
+  const [setupAuditSheetOpen, setSetupAuditSheetOpen] = useState(false);
   const closedEndDetailsRef = useRef<HTMLDivElement | null>(null);
+  const [openEndTab, setOpenEndTab] = useState<OpenEndTab>("overview");
   const [closedEndTab, setClosedEndTab] = useState<ClosedEndTab>("overview");
   const [closedEndOrdersTab, setClosedEndOrdersTab] = useState<ClosedEndOrdersTab>("orders");
   const [pendingIssuerAction, setPendingIssuerAction] = useState<IssuanceActionConfig | null>(null);
@@ -4151,220 +4159,6 @@ export function FundIssuanceDetail() {
     ledgerOrders.length,
     allocationPreview,
   );
-  const issuanceTaFields = isOpenEnd
-    ? [
-        {
-          label: "Register timestamp",
-          value:
-            issuanceTaOps?.holderRegisterDate ||
-            fundData.lastNavUpdateTime ||
-            "Waiting for transfer-agent posting",
-        },
-        {
-          label: "Register version",
-          value: issuanceTaOps?.registerVersion || "Pending register version",
-        },
-        {
-          label: "Investor onboarding",
-          value: issuanceTaOps?.investorOnboardingStatus || "Pending onboarding review",
-        },
-        {
-          label: "Funding route",
-          value:
-            `${fundData.subscriptionPaymentMethod || "Stablecoin"} via ${fundData.subscriptionPaymentRail || "On-chain Wallet Transfer"}`,
-        },
-        {
-          label: "Cash confirmation owner",
-          value: fundData.cashConfirmationOwner || "Operations",
-        },
-        {
-          label: "Order book status",
-          value: issuanceTaOps?.orderBookStatus || "Waiting for dealing batch lock",
-        },
-        {
-          label: "Ledger approval",
-          value: issuanceTaOps?.ledgerApprovalStatus || "Pending booking approval",
-        },
-        {
-          label: "Last operator action",
-          value:
-            issuanceTaOps?.lastTransferAgentAction ||
-            "Transfer agent has not logged an issuance action yet.",
-        },
-      ]
-    : [
-        {
-          label: "Register timestamp",
-          value:
-            issuanceTaOps?.holderRegisterDate ||
-            fundData.subscriptionEndDate ||
-            "Waiting for book close",
-        },
-        {
-          label: "Register version",
-          value: issuanceTaOps?.registerVersion || "Pre-issuance register pending",
-        },
-        {
-          label: "Investor onboarding",
-          value: issuanceTaOps?.investorOnboardingStatus || "Pending onboarding review",
-        },
-        {
-          label: "Funding route",
-          value:
-            `${fundData.subscriptionPaymentMethod || "Fiat"} via ${fundData.subscriptionPaymentRail || "Off-chain Bank Transfer"}`,
-        },
-        {
-          label: "Cash confirmation owner",
-          value: fundData.cashConfirmationOwner || "Issuer",
-        },
-        {
-          label: "Order book status",
-          value: issuanceTaOps?.orderBookStatus || "Subscription book pending",
-        },
-        {
-          label: "Allocation workbook",
-          value: issuanceTaOps?.allocationBookStatus || "Pending allocation review",
-        },
-        {
-          label: "Mint instruction",
-          value: issuanceTaOps?.mintInstructionStatus || "Pending allocation result",
-        },
-        {
-          label: "Ledger approval",
-          value: issuanceTaOps?.ledgerApprovalStatus || "Pending register sign-off",
-        },
-        {
-          label: "Last operator action",
-          value:
-            issuanceTaOps?.lastTransferAgentAction ||
-            "Transfer agent has not logged an issuance action yet.",
-        },
-      ];
-  const issuanceTaChecklistItems = isOpenEnd
-    ? [
-        {
-          label: "Investor onboarding reviewed",
-          detail: issuanceTaOps?.investorOnboardingStatus
-            ? `Current status: ${issuanceTaOps.investorOnboardingStatus}.`
-            : "Waiting for transfer-agent onboarding review.",
-          status:
-            includesKeyword(issuanceTaOps?.investorOnboardingStatus, "confirmed") ||
-            includesKeyword(issuanceTaOps?.investorOnboardingStatus, "reviewed")
-              ? "done"
-              : issuanceTaOps?.investorOnboardingStatus
-                ? "attention"
-                : "pending",
-        },
-        {
-          label: "Daily batch locked",
-          detail: issuanceTaOps?.orderBookStatus
-            ? issuanceTaOps.orderBookStatus
-            : "Waiting for dealing batch lock.",
-          status:
-            includesKeyword(issuanceTaOps?.orderBookStatus, "locked") ||
-            includesKeyword(issuanceTaOps?.orderBookStatus, "servicing")
-              ? "done"
-              : issuanceTaOps?.orderBookStatus
-                ? "attention"
-                : "pending",
-        },
-        {
-          label: "Ledger approval posted",
-          detail: issuanceTaOps?.ledgerApprovalStatus
-            ? `${issuanceTaOps.ledgerApprovalStatus}${issuanceTaOps.ledgerApprovedAt ? ` at ${issuanceTaOps.ledgerApprovedAt}` : ""}.`
-            : "Waiting for transfer-agent booking approval.",
-          status:
-            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "posted") ||
-            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "approved")
-              ? "done"
-              : issuanceTaOps?.ledgerApprovalStatus
-                ? "attention"
-                : "pending",
-        },
-        {
-          label: "Register delta reconciled",
-          detail:
-            pendingSubscriptionOrders + pendingRedemptionOrders === 0
-              ? "No pending daily dealing deltas remain."
-              : `${pendingSubscriptionOrders + pendingRedemptionOrders} batch item(s) still require transfer-agent reconciliation.`,
-          status:
-            pendingSubscriptionOrders + pendingRedemptionOrders === 0
-              ? "done"
-              : "attention",
-        },
-      ]
-    : [
-        {
-          label: "Investor onboarding reviewed",
-          detail: issuanceTaOps?.investorOnboardingStatus
-            ? `Current status: ${issuanceTaOps.investorOnboardingStatus}.`
-            : "Waiting for transfer-agent onboarding review.",
-          status:
-            includesKeyword(issuanceTaOps?.investorOnboardingStatus, "reviewed") ||
-            includesKeyword(issuanceTaOps?.investorOnboardingStatus, "confirmed")
-              ? "done"
-              : issuanceTaOps?.investorOnboardingStatus
-                ? "attention"
-                : "pending",
-        },
-        {
-          label: "Subscription book controlled",
-          detail: issuanceTaOps?.orderBookStatus
-            ? issuanceTaOps.orderBookStatus
-            : "Waiting for the book to close before TA review.",
-          status:
-            includesKeyword(issuanceTaOps?.orderBookStatus, "live") ||
-            includesKeyword(issuanceTaOps?.orderBookStatus, "locked")
-              ? "done"
-              : issuanceTaOps?.orderBookStatus
-                ? "attention"
-                : "pending",
-        },
-        {
-          label: "Allocation workbook approved",
-          detail: issuanceTaOps?.allocationBookStatus
-            ? issuanceTaOps.allocationBookStatus
-            : "Waiting for allocation calculation and TA sign-off.",
-          status:
-            includesKeyword(issuanceTaOps?.allocationBookStatus, "approved") ||
-            includesKeyword(issuanceTaOps?.allocationBookStatus, "prepared")
-              ? "done"
-              : issuanceTaOps?.allocationBookStatus
-                ? "attention"
-                : "pending",
-        },
-        {
-          label: "Mint instruction approved",
-          detail: issuanceTaOps?.mintInstructionStatus
-            ? issuanceTaOps.mintInstructionStatus
-            : "Mint instruction will be approved after final allocation.",
-          status:
-            includesKeyword(issuanceTaOps?.mintInstructionStatus, "approved") ||
-            includesKeyword(issuanceTaOps?.mintInstructionStatus, "executing") ||
-            includesKeyword(issuanceTaOps?.mintInstructionStatus, "pending")
-              ? issuanceTaOps?.mintInstructionStatus
-                ? "attention"
-                : "pending"
-              : "pending",
-        },
-        {
-          label: "Initial register baseline published",
-          detail: issuanceTaOps?.ledgerApprovalStatus
-            ? `${issuanceTaOps.ledgerApprovalStatus}${issuanceTaOps.ledgerApprovedAt ? ` at ${issuanceTaOps.ledgerApprovedAt}` : ""}.`
-            : "Waiting for final transfer-agent register sign-off.",
-          status:
-            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "approved") ||
-            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "published") ||
-            includesKeyword(issuanceTaOps?.ledgerApprovalStatus, "prepared")
-              ? issuanceTaOps?.ledgerApprovalStatus &&
-                (includesKeyword(issuanceTaOps.ledgerApprovalStatus, "published") ||
-                  includesKeyword(issuanceTaOps.ledgerApprovalStatus, "approved"))
-                ? "done"
-                : "attention"
-              : "pending",
-        },
-      ];
-
   const copyToClipboard = (value: string) => {
     navigator.clipboard.writeText(value);
     toast.success("Copied to clipboard");
@@ -4924,6 +4718,65 @@ export function FundIssuanceDetail() {
     disabledReason: issuerActionDisabledReason,
   });
   const issuerActionViewLinks = issuerAction ? getActionViewLinks(issuerAction) : [];
+  const launchStatusLabel = isOpenEnd
+    ? fundData.status === "Active Dealing" || fundData.status === "Paused"
+      ? "Recurring dealing"
+      : "Launch cycle"
+    : fundData.status === "Issuance Active"
+      ? "Post-issuance"
+      : "Issuance launch";
+  const launchPrimaryTiming = isOpenEnd
+    ? fundData.nextCutoffTime || fundData.dealingCutoffTime || "Cut-off pending"
+    : fundData.subscriptionEndDate || fundData.issueDate || "Book close pending";
+  const launchSecondaryTiming = isOpenEnd
+    ? fundData.nextSettlementTime || fundData.settlementCycle || "Settlement pending"
+    : fundData.issueDate || fundData.maturityDate || "Issue date pending";
+  const setupAuditDetails = [
+    {
+      label: "Token contract / address",
+      value: `${fundData.tokenSymbol || fundData.tokenName} / ${fundData.tokenAddress || "Pending address"}`,
+      copyValue: fundData.tokenAddress,
+    },
+    {
+      label: "Token standard",
+      value: `${fundData.tokenStandard || "N/A"}${fundData.tokenDecimals !== undefined ? ` / ${fundData.tokenDecimals} decimals` : ""}`,
+    },
+    {
+      label: "NAV provider / oracle",
+      value:
+        fundData.navUpdateMode === "Oracle Feed"
+          ? `${fundData.oracleProvider || "Oracle provider pending"}${fundData.oracleFeedId ? ` / ${fundData.oracleFeedId}` : ""}`
+          : "Issuer / NAV committee",
+    },
+    {
+      label: "NAV metadata",
+      value:
+        fundData.navUpdateMode === "Oracle Feed"
+          ? `${fundData.oracleUpdateFrequency || "Frequency pending"}; last sync ${fundData.oracleLastSyncedAt || "pending"}`
+          : fundData.lastNavUpdateTime || "Manual NAV update pending",
+    },
+    {
+      label: "Funding route",
+      value:
+        `${fundData.subscriptionPaymentMethod || (isOpenEnd ? "Stablecoin" : "Fiat")} via ${fundData.subscriptionPaymentRail || (isOpenEnd ? "On-chain Wallet Transfer" : "Off-chain Bank Transfer")}`,
+    },
+    {
+      label: "Collection destination",
+      value: formatCollectionDestination(fundData),
+    },
+    {
+      label: "Register timestamp / version",
+      value:
+        `${issuanceTaOps?.holderRegisterDate || "Timestamp pending"} / ${issuanceTaOps?.registerVersion || "Version pending"}`,
+    },
+    {
+      label: "Last operator action",
+      value:
+        issuanceTaOps?.lastTransferAgentAction ||
+        fundData.lastAction ||
+        "No operator action logged yet.",
+    },
+  ];
   const openIssuerAction = () => {
     if (!issuerAction) return;
     if (issuerActionTaGate?.mode) {
@@ -5129,149 +4982,125 @@ export function FundIssuanceDetail() {
       )}
 
       <div className="grid gap-8 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-1">
+        <div className="order-2 space-y-6 lg:order-1 lg:col-span-1">
           <Card>
-            <CardHeader>
-              <CardTitle>Fund Information</CardTitle>
+            <CardHeader className="space-y-3">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle>Launch Context</CardTitle>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {issuanceTaOps?.transferAgentName ||
+                      (isOpenEnd ? "WeBank Transfer Agent Desk" : "Harbor Registry Services")}
+                  </div>
+                </div>
+                <Badge variant="outline" className="shrink-0">
+                  {launchStatusLabel}
+                </Badge>
+              </div>
+              <div className="rounded-lg border bg-secondary/20 p-3">
+                <div className="text-xs text-muted-foreground">Current status</div>
+                <div className="mt-1 break-words text-sm font-medium">{fundData.status}</div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
-              <div>
-                <div className="mb-1 text-muted-foreground">Fund Token</div>
-                <div className="font-medium">{fundData.tokenName}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Token Symbol</div>
-                <div className="font-medium">{fundData.tokenSymbol || "N/A"}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Token Standard</div>
-                <div className="font-medium">{fundData.tokenStandard || "N/A"}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Token Contract Address</div>
-                <div className="flex items-center gap-2">
-                  <code className="break-all text-sm">{fundData.tokenAddress}</code>
-                  {fundData.tokenAddress !== "–" && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => copyToClipboard(fundData.tokenAddress)}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border p-3">
+                  <div className="text-xs text-muted-foreground">
+                    {isOpenEnd ? "Next cut-off" : "Book close"}
+                  </div>
+                  <div className="mt-1 break-words font-medium">{launchPrimaryTiming}</div>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <div className="text-xs text-muted-foreground">
+                    {isOpenEnd ? "Next settlement" : "Issue date"}
+                  </div>
+                  <div className="mt-1 break-words font-medium">{launchSecondaryTiming}</div>
                 </div>
               </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Latest NAV</div>
-                <div className="font-medium">{fundData.currentNav}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">NAV update mode</div>
-                <div className="font-medium">{fundData.navUpdateMode || "Manual"}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">NAV provider / owner</div>
-                <div className="font-medium">
-                  {fundData.navUpdateMode === "Oracle Feed"
-                    ? fundData.oracleProvider || "Oracle provider pending"
-                    : "Issuer / NAV committee"}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border bg-blue-50/60 p-3">
+                  <div className="text-xs text-blue-700">Pending subscriptions</div>
+                  <div className="mt-1 text-xl font-semibold text-blue-950">
+                    {pendingSubscriptionOrders}
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-amber-50/70 p-3">
+                  <div className="text-xs text-amber-700">Pending redemptions</div>
+                  <div className="mt-1 text-xl font-semibold text-amber-950">
+                    {pendingRedemptionOrders}
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Fund Manager</div>
-                <div className="font-medium">{fundData.fundManager}</div>
+
+              <div className="space-y-3">
+                {[
+                  {
+                    label: "Investor onboarding",
+                    value: issuanceTaOps?.investorOnboardingStatus || "Pending onboarding review",
+                  },
+                  {
+                    label: isOpenEnd ? "Order book status" : "Subscription book",
+                    value: issuanceTaOps?.orderBookStatus || (isOpenEnd ? "Waiting for dealing batch lock" : "Subscription book pending"),
+                  },
+                  ...(!isOpenEnd
+                    ? [
+                        {
+                          label: "Allocation workbook",
+                          value: issuanceTaOps?.allocationBookStatus || "Pending allocation review",
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Ledger approval",
+                    value: issuanceTaOps?.ledgerApprovalStatus || (isOpenEnd ? "Pending booking approval" : "Pending register sign-off"),
+                  },
+                  {
+                    label: "Cash confirmation owner",
+                    value: fundData.cashConfirmationOwner || (isOpenEnd ? "Operations" : "Issuer"),
+                  },
+                ].map((item) => (
+                  <div key={item.label} className="flex min-w-0 items-start justify-between gap-3">
+                    <span className="shrink-0 text-muted-foreground">{item.label}</span>
+                    <span className="min-w-0 break-words text-right font-medium">{item.value}</span>
+                  </div>
+                ))}
               </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Issuer Entity</div>
-                <div className="font-medium">{fundData.issuerEntity || "N/A"}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Share Class</div>
-                <div className="font-medium">{fundData.shareClass || "N/A"}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Target Fund Size</div>
-                <div className="font-medium">{fundData.targetFundSize}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Management Fee</div>
-                <div className="font-medium">{fundData.managementFee}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Performance Fee</div>
-                <div className="font-medium">{fundData.performanceFee}</div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Tradable</div>
-                <div className="font-medium">{fundData.tradable}</div>
+
+              <div className="grid gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => {
+                    if (isOpenEnd) {
+                      setOpenEndTab("ta-ledger");
+                      if (typeof window !== "undefined") {
+                        window.requestAnimationFrame(() => {
+                          closedEndDetailsRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          });
+                        });
+                      }
+                    } else {
+                      openClosedEndSnapshot("ta-ledger");
+                    }
+                  }}
+                >
+                  Open TA Ledger
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full justify-start"
+                  onClick={() => setSetupAuditSheetOpen(true)}
+                >
+                  View Setup Details
+                </Button>
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Operational Timeline</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              <div>
-                <div className="mb-1 text-muted-foreground">Subscription Window</div>
-                <div className="font-medium">
-                  {fundData.subscriptionStartDate || "TBD"} to{" "}
-                  {fundData.subscriptionEndDate || "TBD"}
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 text-muted-foreground">Issue Date</div>
-                <div className="font-medium">{fundData.issueDate || "N/A"}</div>
-              </div>
-              {isOpenEnd ? (
-                <>
-                  <div>
-                    <div className="mb-1 text-muted-foreground">Next Cut-off</div>
-                    <div className="font-medium">{fundData.nextCutoffTime || "N/A"}</div>
-                  </div>
-                  <div>
-                    <div className="mb-1 text-muted-foreground">Next Confirmation</div>
-                    <div className="font-medium">
-                      {fundData.nextConfirmationDate || "N/A"}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="mb-1 text-muted-foreground">Next Settlement</div>
-                    <div className="font-medium">{fundData.nextSettlementTime || "N/A"}</div>
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <div className="mb-1 text-muted-foreground">Maturity Date</div>
-                  <div className="font-medium">{fundData.maturityDate || "N/A"}</div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <TransferAgentOperationsCard
-            description={
-              isOpenEnd
-                ? "This panel shows what the transfer agent controls during launch and recurring dealing: onboarding, batch approval, and holder-register posting."
-                : "This panel shows what the transfer agent controls during closed-end issuance: investor onboarding, allocation approval, mint-file sign-off, and the initial holder register."
-            }
-            operatorName={
-              issuanceTaOps?.transferAgentName ||
-              (isOpenEnd ? "WeBank Transfer Agent Desk" : "Harbor Registry Services")
-            }
-            status={
-              issuanceTaOps?.transferAgentStatus ||
-              (isOpenEnd ? "Daily Register Maintenance" : "Pre-Issuance Register Review")
-            }
-            fields={issuanceTaFields}
-          />
-
-          <TransferAgentChecklistCard
-            description="These controls make the transfer-agent approvals and ledger checkpoints explicit inside the issuance lifecycle."
-            items={[...issuanceTaChecklistItems]}
-          />
 
           {!isMarketplaceView && (
             <Card>
@@ -5379,9 +5208,13 @@ export function FundIssuanceDetail() {
           )}
         </div>
 
-        <div className="lg:col-span-2">
+        <div ref={closedEndDetailsRef} className="order-1 scroll-mt-24 lg:order-2 lg:col-span-2">
           {isOpenEnd ? (
-            <Tabs defaultValue="overview" className="space-y-6">
+            <Tabs
+              value={openEndTab}
+              onValueChange={(value) => setOpenEndTab(value as OpenEndTab)}
+              className="space-y-6"
+            >
               <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6">
                 <TabsTrigger value="overview" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Overview</TabsTrigger>
                 <TabsTrigger value="information" className="min-h-10 whitespace-normal px-2 text-xs sm:text-sm">Information</TabsTrigger>
@@ -5797,7 +5630,7 @@ export function FundIssuanceDetail() {
               </TabsContent>
             </Tabs>
           ) : (
-            <div ref={closedEndDetailsRef} className="scroll-mt-24">
+            <div>
               <Tabs
                 value={closedEndTab}
                 onValueChange={(value) => setClosedEndTab(value as ClosedEndTab)}
@@ -6355,6 +6188,65 @@ export function FundIssuanceDetail() {
           )}
         </div>
       </div>
+
+      <Sheet open={setupAuditSheetOpen} onOpenChange={setSetupAuditSheetOpen}>
+        <SheetContent className="w-[100dvw] max-w-[100dvw] overflow-y-auto sm:max-w-xl">
+          <SheetHeader className="border-b pr-12">
+            <SheetTitle>Setup & Audit Details</SheetTitle>
+            <SheetDescription>
+              Reference data retained outside the launch rail. Detailed setup remains available in
+              Information, {fundData.fundType === "Closed-end" ? "Timeline" : "Dealing"}, TA Ledger, and NAV & Events.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 px-4 pb-6">
+            <div className="grid gap-3 text-sm">
+              {setupAuditDetails.map((item) => (
+                <div key={item.label} className="rounded-lg border p-3">
+                  <div className="text-xs text-muted-foreground">{item.label}</div>
+                  <div className="mt-1 flex min-w-0 items-start gap-2">
+                    <div className="min-w-0 flex-1 break-words font-medium">{item.value}</div>
+                    {item.copyValue && item.copyValue !== "–" && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 shrink-0 p-0"
+                        aria-label={`Copy ${item.label}`}
+                        onClick={() => copyToClipboard(item.copyValue)}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {persistedReferences.length > 0 && (
+              <div className="rounded-lg border p-3 text-sm">
+                <div className="font-medium">Reference files / links</div>
+                <div className="mt-3 space-y-2">
+                  {persistedReferences.map((reference, index) => (
+                    <div key={`${reference.type}-${index}`} className="break-all text-muted-foreground">
+                      {reference.type === "link" ? "Link" : "File"}: {reference.value}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-lg border bg-secondary/20 p-3 text-sm">
+              <div className="font-medium">Where to review full detail</div>
+              <div className="mt-2 grid gap-2 text-muted-foreground">
+                <div>Token and fund setup: Information tab</div>
+                <div>Dealing calendar and settlement rules: Dealing or Timeline tab</div>
+                <div>Register queue and TA objects: TA Ledger tab</div>
+                <div>NAV source and oracle metadata: NAV & Events tab</div>
+              </div>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {(canOpenEndSubscribe || canClosedEndSubscribe) && (
         <SubscribeModal

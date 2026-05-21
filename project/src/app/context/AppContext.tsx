@@ -76,6 +76,12 @@ import {
   type DemoScenarioPatch,
 } from "../lib/demoScenarioEngine";
 import { getAdmissionApprovalReadiness } from "../lib/admissionReadiness";
+import {
+  getSubscriptionOrdersForFund,
+  shouldSeedClosedEndSubscriptionDemoOrders,
+  uniqueSubscriptionOrderIdsForFund,
+} from "../lib/orderSeeding";
+import { collectOrderLinkedFundingEvidence } from "../lib/transferAgency";
 
 export type UserRole = ActorRole;
 
@@ -818,9 +824,7 @@ function buildOpenEndSummaryUpdates(fund: FundIssuance, orders: FundOrder[]) {
 }
 
 function buildLifecycleDemoSeed(fund: FundIssuance, nextStatus: string, existingOrders: FundOrder[]) {
-  if (existingOrders.length > 0) return null;
-
-  if (fund.fundType === "Closed-end" && ["Allocation Period", "Calculated"].includes(nextStatus)) {
+  if (shouldSeedClosedEndSubscriptionDemoOrders(fund, nextStatus, existingOrders)) {
     const orders = buildClosedEndDemoOrders(fund);
     const totalSubscribedAmount = orders.reduce(
       (sum, order) => sum + parseLeadingNumber(order.requestAmount),
@@ -857,6 +861,8 @@ function buildLifecycleDemoSeed(fund: FundIssuance, nextStatus: string, existing
       },
     };
   }
+
+  if (existingOrders.length > 0) return null;
 
   if (fund.fundType === "Open-end" && nextStatus === "Active Dealing") {
     const orders = buildOpenEndDemoOrders(fund);
@@ -896,6 +902,13 @@ function buildLifecycleDemoSeed(fund: FundIssuance, nextStatus: string, existing
   }
 
   return null;
+}
+
+function isClosedEndSubscriptionTaHandoff(fund: FundIssuance, actionKey: string) {
+  return (
+    fund.fundType === "Closed-end" &&
+    ["close-book-calculate-allocation", "close-book", "calculate-allocation"].includes(actionKey)
+  );
 }
 
 interface CanonicalPersistedState {
@@ -1837,9 +1850,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const sourceReference = `${fundId}--${actionKey}`.replace(/[^a-zA-Z0-9-]/g, "-");
     const instructionId = `instr-issuance-${sourceReference}-ta`.replace(/[^a-zA-Z0-9-]/g, "-");
     const latestRegister = getLatestRegisterVersionForFund(fundId);
+    const fundScopedOrders = fundOrders.filter((order) => order.fundId === fundId);
+    const existingSubscriptionOrders = getSubscriptionOrdersForFund(fundId, fundScopedOrders);
+    const demoSeed =
+      isClosedEndSubscriptionTaHandoff(fund, actionKey) && existingSubscriptionOrders.length === 0
+        ? buildLifecycleDemoSeed(fund, "Calculated", fundScopedOrders)
+        : null;
+    const workflowSubscriptionOrders = demoSeed?.orders.length ? demoSeed.orders : existingSubscriptionOrders;
+
+    if (demoSeed?.orders.length) {
+      const seededOrders = demoSeed.orders.map((order) => ({
+        ...order,
+        lastAction: "manage",
+        lastActorRole: authSession!.role!,
+        lastActionAt: new Date().toISOString(),
+        identitySource: "authSession" as const,
+      }));
+      setFundOrders((prev) => prependUniqueByKey(prev, seededOrders, "id"));
+    }
+
+    if (workflowSubscriptionOrders.length > 0) {
+      applyDemoScenarioPatch(
+        buildIssuanceDemoScenario({
+          fund,
+          orders: workflowSubscriptionOrders,
+          existingRegisterAccounts: registerAccounts,
+          existingWalletLinks: walletLinks,
+          existingCashMovements: cashMovements,
+          existingEvidenceRecords: evidenceRecords,
+        }),
+      );
+    }
+
     const result = createIssuerWorkflowInstruction({
       sourceType: "Issuance",
       sourceReference,
+      relatedOrderIds: uniqueSubscriptionOrderIdsForFund(fundId, workflowSubscriptionOrders),
       instructionId,
       fundId,
       classId: latestRegister?.classId || fund.shareClass || "Issuance",
@@ -2718,17 +2764,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!instance) return {};
 
     const explicitOrderIds = new Set([...(instance.relatedOrderIds || []), instance.sourceReference]);
-    const sourceOrderIds = fundOrders
-      .filter((order) => {
-        if (order.fundId !== instance.fundId) return false;
-        if (explicitOrderIds.has(order.id)) return true;
-        if (instance.sourceType === "Issuance") return order.type === "subscription";
-        if (instance.sourceType === "Redemption") {
-          return order.type === "redemption" && (explicitOrderIds.size <= 1 || explicitOrderIds.has(order.id));
-        }
-        return false;
-      })
-      .map((order) => order.id);
+    const sourceOrders = fundOrders.filter((order) => {
+      if (order.fundId !== instance.fundId) return false;
+      if (explicitOrderIds.has(order.id)) return true;
+      if (instance.sourceType === "Issuance") return order.type === "subscription";
+      if (instance.sourceType === "Redemption") {
+        return order.type === "redemption" && (explicitOrderIds.size <= 1 || explicitOrderIds.has(order.id));
+      }
+      return false;
+    });
+    const sourceOrderIds = sourceOrders.map((order) => order.id);
+    const orderLinkedEvidence = collectOrderLinkedFundingEvidence({
+      orders: sourceOrders,
+      cashMovements,
+      evidenceRecords,
+    });
 
     const selectedSnapshotRowIds = snapshot
       ? holderSnapshotPositions
@@ -2749,6 +2799,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         sourceEventReference,
         instruction?.sourceReference,
         ...sourceOrderIds,
+        ...orderLinkedEvidence.orderInstructionIds,
+        ...orderLinkedEvidence.paymentReferences,
       ]),
     );
     const selectedCashMovementIds = cashMovements
@@ -2756,6 +2808,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         (movement) =>
           movement.instructionId === instance.instructionId ||
           movement.instructionId === instruction?.instructionId ||
+          orderLinkedEvidence.cashMovementIds.includes(movement.cashMovementId) ||
           (movement.reference ? relatedReferences.has(movement.reference) : false),
       )
       .map((movement) => movement.cashMovementId);
@@ -2764,6 +2817,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         (evidence) =>
           evidence.instructionId === instance.instructionId ||
           evidence.instructionId === instruction?.instructionId ||
+          orderLinkedEvidence.evidenceRefIds.includes(evidence.evidenceRefId) ||
           selectedListEvidenceRefIds.includes(evidence.evidenceRefId) ||
           evidence.evidenceRefId === `ev-snapshot-${snapshot?.snapshotId}`,
       )
@@ -3369,16 +3423,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       : null;
 
     if (demoSeed?.orders.length) {
-      setFundOrders((prev) => [
-        ...demoSeed.orders.map((order) => ({
-          ...order,
-          lastAction: "manage",
-          lastActorRole: authSession.role!,
-          lastActionAt: new Date().toISOString(),
-          identitySource: "authSession" as const,
-        })),
-        ...prev,
-      ]);
+      const seededOrders = demoSeed.orders.map((order) => ({
+        ...order,
+        lastAction: "manage",
+        lastActorRole: authSession.role!,
+        lastActionAt: new Date().toISOString(),
+        identitySource: "authSession" as const,
+      }));
+      setFundOrders((prev) => prependUniqueByKey(prev, seededOrders, "id"));
     }
 
     if (targetFund && ["Allocation Period", "Calculated"].includes(status)) {

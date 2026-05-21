@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import {
@@ -103,6 +103,28 @@ function getInvestorRulePlaceholder(ruleType: string) {
     default:
       return "Enter rule value";
   }
+}
+
+function FormSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border bg-secondary/20 p-4 space-y-5 sm:p-5">
+      <div>
+        <h2 className="font-medium" style={{ fontFamily: "var(--font-heading)" }}>
+          {title}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
 }
 
 const LEGAL_STRUCTURE_OPTIONS = [
@@ -258,6 +280,21 @@ export function CreateFundIssuance() {
   const openEndMode = fundType === "open-end";
   const listedChannelSelected = distributionChannel === "Listed fund";
   const bankTransferFunding = subscriptionPaymentRail === "Off-chain Bank Transfer";
+  const issuanceFlowSteps = openEndMode
+    ? [
+        { label: "Draft", description: "Create configuration" },
+        { label: "Initial Launch", description: "Open launch window" },
+        { label: "Active Dealing", description: "Daily subscription" },
+        { label: "NAV Confirm", description: "Process batches" },
+        { label: "T+1 Settle", description: "Cash and shares book" },
+      ]
+    : [
+        { label: "Listing Fund", description: "Create & submit" },
+        { label: "Subscription", description: "Investor deposits" },
+        { label: "Allocation", description: "Distribute shares" },
+        { label: "Issuance", description: "Accept funds" },
+        { label: "Active", description: "Fund operating" },
+      ];
 
   const addReference = () => {
     setReferences((prev) => [...prev, { type: "file", value: "" }]);
@@ -507,31 +544,40 @@ export function CreateFundIssuance() {
       </div>
 
       <div className="mb-8">
-        <ProcessFlowCard
-          title="Primary Issuance Flow"
-          steps={
-            openEndMode
-              ? [
-                  { label: "Draft", description: "Create configuration" },
-                  { label: "Initial Launch", description: "Open launch window" },
-                  { label: "Active Dealing", description: "Daily subscription" },
-                  { label: "NAV Confirm", description: "Process batches" },
-                  { label: "T+1 Settle", description: "Cash and shares book" },
-                ]
-              : [
-                  { label: "Listing Fund", description: "Create & submit" },
-                  { label: "Subscription", description: "Investor deposits" },
-                  { label: "Allocation", description: "Distribute shares" },
-                  { label: "Issuance", description: "Accept funds" },
-                  { label: "Active", description: "Fund operating" },
-                ]
-          }
-        />
-        {openEndMode && (
-          <p className="text-sm text-muted-foreground mt-3">
-            Open-end note: after launch the fund moves into ongoing subscription, redemption, and daily valuation operations. Configure the key parameters in "Subscription & Rules".
+        <div className="hidden sm:block">
+          <ProcessFlowCard title="Primary Issuance Flow" steps={issuanceFlowSteps} />
+        </div>
+        <div className="rounded-lg border border-[var(--navy-200)] bg-gradient-to-br from-[var(--navy-50)] to-white p-4 sm:hidden">
+          <h3 className="mb-4" style={{ fontFamily: "var(--font-heading)" }}>
+            Primary Issuance Flow
+          </h3>
+          <div className="space-y-3">
+            {issuanceFlowSteps.map((step, index) => (
+              <div key={step.label} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
+                    {index + 1}
+                  </div>
+                  {index < issuanceFlowSteps.length - 1 ? <div className="mt-2 h-8 w-px bg-border" /> : null}
+                </div>
+                <div className="min-w-0 pb-1">
+                  <div className="text-sm font-medium">{step.label}</div>
+                  <div className="text-xs text-muted-foreground">{step.description}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 rounded-lg border bg-secondary/20 p-4">
+          <div className="text-sm font-medium">
+            {openEndMode ? "Open-end operating mode" : "Closed-end operating mode"}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {openEndMode
+              ? "Open-end setup keeps daily dealing, NAV timing, settlement cycle, and redemption controls visible in Subscription & Rules."
+              : "Closed-end setup replaces ongoing dealing controls with a subscription period and allocation rule for the launch book."}
           </p>
-        )}
+        </div>
       </div>
 
       <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-8">
@@ -551,30 +597,68 @@ export function CreateFundIssuance() {
         </TabsList>
 
         <TabsContent value="about-deal" className="space-y-6">
-          <div className="bg-white border rounded-lg p-6 space-y-6">
+          <div className="space-y-5">
+            <FormSection
+              title="Fund Identity / Launch Essentials"
+              description="Name the fund and set the dates needed to create the launch draft."
+            >
             <div className="space-y-2">
-              <Label>Fund name</Label>
-              <Input value={fundName} onChange={(event) => setFundName(event.target.value)} placeholder="Daily Liquidity Fund" />
+              <Label htmlFor="fund-name">Fund name</Label>
+              <Input
+                id="fund-name"
+                value={fundName}
+                onChange={(event) => setFundName(event.target.value)}
+                placeholder="Daily Liquidity Fund"
+              />
             </div>
 
-            <div className="rounded-lg border bg-secondary/20 p-5 space-y-5">
-              <div>
-                <div className="font-medium">Hong Kong Fund Classification</div>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Capture the fund on the key Hong Kong market axes so the draft reflects offering type,
-                  legal structure, operating mechanism, channel, and strategy instead of only showing
-                  open-end or closed-end.
-                </p>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="issue-date">Issue date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button id="issue-date" variant="outline" className="w-full justify-start text-left font-normal">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {issueDate ? format(issueDate, "PPP HH:mm") : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar mode="single" selected={issueDate} onSelect={setIssueDate} initialFocus />
+                  </PopoverContent>
+                </Popover>
               </div>
 
+              {!openEndMode && (
+                <div className="space-y-2">
+                  <Label htmlFor="maturity-date">Maturity date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button id="maturity-date" variant="outline" className="w-full justify-start text-left font-normal">
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {maturityDate ? format(maturityDate, "PPP HH:mm") : "Pick a date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar mode="single" selected={maturityDate} onSelect={setMaturityDate} initialFocus />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+            </div>
+            </FormSection>
+
+            <FormSection
+              title="Hong Kong Fund Classification"
+              description="Capture the fund across Hong Kong offering, legal, operating, channel, and strategy axes."
+            >
               <div className="grid md:grid-cols-2 gap-6 xl:grid-cols-3">
                 <div className="space-y-2">
-                  <Label>Offering type</Label>
+                  <Label htmlFor="offering-type">Offering type</Label>
                   <Select
                     value={offeringType}
                     onValueChange={(value) => setOfferingType(value as (typeof OFFERING_TYPE_OPTIONS)[number])}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="offering-type">
                       <SelectValue placeholder="Select offering type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -587,9 +671,9 @@ export function CreateFundIssuance() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Legal structure</Label>
+                  <Label htmlFor="legal-structure">Legal structure</Label>
                   <Select value={legalStructure} onValueChange={(value) => setLegalStructure(value as (typeof LEGAL_STRUCTURE_OPTIONS)[number])}>
-                    <SelectTrigger>
+                    <SelectTrigger id="legal-structure">
                       <SelectValue placeholder="Select legal structure" />
                     </SelectTrigger>
                     <SelectContent>
@@ -602,9 +686,9 @@ export function CreateFundIssuance() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Operating mechanism</Label>
+                  <Label htmlFor="operating-mechanism">Operating mechanism</Label>
                   <Select value={fundType} onValueChange={(value) => setFundType(value as "open-end" | "closed-end")}>
-                    <SelectTrigger>
+                    <SelectTrigger id="operating-mechanism">
                       <SelectValue placeholder="Select fund type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -614,7 +698,7 @@ export function CreateFundIssuance() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Distribution channel</Label>
+                  <Label htmlFor="distribution-channel">Distribution channel</Label>
                   <Select
                     value={distributionChannel}
                     onValueChange={(value) => {
@@ -625,7 +709,7 @@ export function CreateFundIssuance() {
                       }
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="distribution-channel">
                       <SelectValue placeholder="Select channel" />
                     </SelectTrigger>
                     <SelectContent>
@@ -638,12 +722,12 @@ export function CreateFundIssuance() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Asset / strategy category</Label>
+                  <Label htmlFor="asset-strategy-category">Asset / strategy category</Label>
                   <Select
                     value={assetStrategyCategory}
                     onValueChange={(value) => setAssetStrategyCategory(value as (typeof ASSET_STRATEGY_OPTIONS)[number])}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="asset-strategy-category">
                       <SelectValue placeholder="Select strategy category" />
                     </SelectTrigger>
                     <SelectContent>
@@ -659,15 +743,15 @@ export function CreateFundIssuance() {
 
               {listedChannelSelected && (
                 <div className="grid md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label>Listed fund subtype</Label>
-                    <Select
-                      value={listedFundSubtype}
-                      onValueChange={(value) => setListedFundSubtype(value as (typeof LISTED_FUND_SUBTYPE_OPTIONS)[number])}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select listed subtype" />
-                      </SelectTrigger>
+	                  <div className="space-y-2">
+	                    <Label htmlFor="listed-fund-subtype">Listed fund subtype</Label>
+	                    <Select
+	                      value={listedFundSubtype}
+	                      onValueChange={(value) => setListedFundSubtype(value as (typeof LISTED_FUND_SUBTYPE_OPTIONS)[number])}
+	                    >
+	                      <SelectTrigger id="listed-fund-subtype">
+	                        <SelectValue placeholder="Select listed subtype" />
+	                      </SelectTrigger>
                       <SelectContent>
                         {LISTED_FUND_SUBTYPE_OPTIONS.map((option) => (
                           <SelectItem key={option} value={option}>
@@ -679,11 +763,16 @@ export function CreateFundIssuance() {
                   </div>
                 </div>
               )}
-            </div>
+            </FormSection>
 
+            <FormSection
+              title="Strategy Narrative"
+              description="Describe the investor proposition and investment approach shown in the fund profile."
+            >
             <div className="space-y-2">
-              <Label>Fund description</Label>
+              <Label htmlFor="fund-description">Fund description</Label>
               <Textarea
+                id="fund-description"
                 value={fundDescription}
                 onChange={(event) => setFundDescription(event.target.value)}
                 rows={4}
@@ -691,11 +780,27 @@ export function CreateFundIssuance() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="investment-strategy">Investment strategy</Label>
+              <Textarea
+                id="investment-strategy"
+                value={investmentStrategy}
+                onChange={(event) => setInvestmentStrategy(event.target.value)}
+                rows={4}
+                placeholder="Describe asset strategy, dealing frequency, and investor liquidity promise."
+              />
+            </div>
+            </FormSection>
+
+            <FormSection
+              title="Fund Economics"
+              description="Set currency, target size, subscription amount limits, launch NAV, and fee terms."
+            >
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Deal size unit</Label>
+                <Label htmlFor="deal-size-unit">Deal size unit</Label>
                 <Select value={dealSizeUnit} onValueChange={setDealSizeUnit}>
-                  <SelectTrigger>
+                  <SelectTrigger id="deal-size-unit">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -705,9 +810,9 @@ export function CreateFundIssuance() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Target fund size</Label>
+                <Label htmlFor="target-fund-size">Target fund size</Label>
                 <div className="flex gap-2">
-                  <Input value={targetFundSize} onChange={(event) => setTargetFundSize(event.target.value)} type="number" />
+                  <Input id="target-fund-size" value={targetFundSize} onChange={(event) => setTargetFundSize(event.target.value)} type="number" />
                   <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">
                     {dealSizeUnit}
                   </div>
@@ -717,18 +822,18 @@ export function CreateFundIssuance() {
 
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Minimum subscription amount</Label>
+                <Label htmlFor="minimum-subscription-amount">Minimum subscription amount</Label>
                 <div className="flex gap-2">
-                  <Input value={minSubscriptionAmount} onChange={(event) => setMinSubscriptionAmount(event.target.value)} type="number" />
+                  <Input id="minimum-subscription-amount" value={minSubscriptionAmount} onChange={(event) => setMinSubscriptionAmount(event.target.value)} type="number" />
                   <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">
                     {dealSizeUnit}
                   </div>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Maximum subscription amount per investor</Label>
+                <Label htmlFor="maximum-subscription-amount">Maximum subscription amount per investor</Label>
                 <div className="flex gap-2">
-                  <Input value={maxSubscriptionAmount} onChange={(event) => setMaxSubscriptionAmount(event.target.value)} type="number" />
+                  <Input id="maximum-subscription-amount" value={maxSubscriptionAmount} onChange={(event) => setMaxSubscriptionAmount(event.target.value)} type="number" />
                   <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">
                     {dealSizeUnit}
                   </div>
@@ -738,18 +843,18 @@ export function CreateFundIssuance() {
 
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Initial subscription price / NAV</Label>
+                <Label htmlFor="initial-subscription-nav">Initial subscription price / NAV</Label>
                 <div className="flex gap-2">
-                  <Input value={initialNav} onChange={(event) => setInitialNav(event.target.value)} type="number" step="0.0001" />
+                  <Input id="initial-subscription-nav" value={initialNav} onChange={(event) => setInitialNav(event.target.value)} type="number" step="0.0001" />
                   <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">
                     {dealSizeUnit}
                   </div>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Management fee (% p.a.)</Label>
+                <Label htmlFor="management-fee">Management fee (% p.a.)</Label>
                 <div className="flex gap-2">
-                  <Input value={managementFee} onChange={(event) => setManagementFee(event.target.value)} type="number" step="0.01" />
+                  <Input id="management-fee" value={managementFee} onChange={(event) => setManagementFee(event.target.value)} type="number" step="0.01" />
                   <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">%</div>
                 </div>
               </div>
@@ -757,91 +862,64 @@ export function CreateFundIssuance() {
 
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Performance fee (%)</Label>
+                <Label htmlFor="performance-fee">Performance fee (%)</Label>
                 <div className="flex gap-2">
-                  <Input value={performanceFee} onChange={(event) => setPerformanceFee(event.target.value)} type="number" step="0.01" />
+                  <Input id="performance-fee" value={performanceFee} onChange={(event) => setPerformanceFee(event.target.value)} type="number" step="0.01" />
                   <div className="px-3 py-2 bg-secondary rounded-md text-sm flex items-center">%</div>
                 </div>
               </div>
+            </div>
+            </FormSection>
+
+            <FormSection
+              title="Parties & Share Class"
+              description="Record the operational parties and class-level identity used across workflow screens."
+            >
+            <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Fund manager</Label>
-                <Input value={fundManager} onChange={(event) => setFundManager(event.target.value)} placeholder="WeBank Asset Management" />
+                <Label htmlFor="fund-manager">Fund manager</Label>
+                <Input id="fund-manager" value={fundManager} onChange={(event) => setFundManager(event.target.value)} placeholder="WeBank Asset Management" />
               </div>
             </div>
 
             <div className="grid md:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <Label>Issuer entity</Label>
+                <Label htmlFor="issuer-entity">Issuer entity</Label>
                 <Input
+                  id="issuer-entity"
                   value={issuerEntity}
                   onChange={(event) => setIssuerEntity(event.target.value)}
                   placeholder="WeBank Asset Management Limited"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Fund jurisdiction</Label>
+                <Label htmlFor="fund-jurisdiction">Fund jurisdiction</Label>
                 <Input
+                  id="fund-jurisdiction"
                   value={fundJurisdiction}
                   onChange={(event) => setFundJurisdiction(event.target.value)}
                   placeholder="Hong Kong SAR"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Share class</Label>
+                <Label htmlFor="share-class">Share class</Label>
                 <Input
+                  id="share-class"
                   value={shareClass}
                   onChange={(event) => setShareClass(event.target.value)}
                   placeholder="Class A"
                 />
               </div>
             </div>
+            </FormSection>
 
-            <div className="space-y-2">
-              <Label>Investment strategy</Label>
-              <Textarea
-                value={investmentStrategy}
-                onChange={(event) => setInvestmentStrategy(event.target.value)}
-                rows={4}
-                placeholder="Describe asset strategy, dealing frequency, and investor liquidity promise."
-              />
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label>Issue date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {issueDate ? format(issueDate, "PPP HH:mm") : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={issueDate} onSelect={setIssueDate} initialFocus />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {!openEndMode && (
-                <div className="space-y-2">
-                  <Label>Maturity date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {maturityDate ? format(maturityDate, "PPP HH:mm") : "Pick a date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar mode="single" selected={maturityDate} onSelect={setMaturityDate} initialFocus />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              )}
-            </div>
-
+            <details className="rounded-lg border bg-secondary/20 p-4 sm:p-5">
+              <summary className="cursor-pointer select-none font-medium" style={{ fontFamily: "var(--font-heading)" }}>
+                References
+              </summary>
+              <div className="mt-5 space-y-3">
             <div className="space-y-3">
-              <Label>References</Label>
+              <div className="text-sm font-medium">References</div>
               {references.map((reference, index) => (
                 <div key={index} className="flex gap-2 items-start">
                   <Select
@@ -849,12 +927,12 @@ export function CreateFundIssuance() {
                     onValueChange={(value) => {
                       const next = [...references];
                       next[index].type = value;
-                      setReferences(next);
-                    }}
-                  >
-                    <SelectTrigger className="w-32">
-                      <SelectValue placeholder="Type" />
-                    </SelectTrigger>
+	                      setReferences(next);
+	                    }}
+	                  >
+	                    <SelectTrigger aria-label={`Reference ${index + 1} type`} className="w-32">
+	                      <SelectValue placeholder="Type" />
+	                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="file">File</SelectItem>
                       <SelectItem value="link">Link</SelectItem>
@@ -865,10 +943,11 @@ export function CreateFundIssuance() {
                       <Upload className="w-5 h-5 mx-auto mb-2 text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">Click to upload or drag and drop</p>
                     </div>
-                  ) : (
-                    <Input
-                      value={reference.value}
-                      onChange={(event) => {
+	                  ) : (
+	                    <Input
+                        aria-label={`Reference ${index + 1} URL`}
+	                      value={reference.value}
+	                      onChange={(event) => {
                         const next = [...references];
                         next[index].value = event.target.value;
                         setReferences(next);
@@ -876,10 +955,15 @@ export function CreateFundIssuance() {
                       placeholder="Enter URL"
                       className="flex-1"
                     />
-                  )}
-                  <Button variant="outline" size="icon" onClick={() => removeReference(index)}>
-                    <X className="w-4 h-4" />
-                  </Button>
+	                  )}
+	                  <Button
+                      aria-label={`Remove reference ${index + 1}`}
+                      variant="outline"
+                      size="icon"
+                      onClick={() => removeReference(index)}
+                    >
+	                    <X className="w-4 h-4" />
+	                  </Button>
                 </div>
               ))}
               <Button variant="outline" size="sm" onClick={addReference} className="w-full">
@@ -887,6 +971,8 @@ export function CreateFundIssuance() {
                 Add Reference
               </Button>
             </div>
+              </div>
+            </details>
           </div>
 
           <div className="flex justify-end">
@@ -895,23 +981,27 @@ export function CreateFundIssuance() {
         </TabsContent>
 
         <TabsContent value="about-token" className="space-y-6">
-          <div className="bg-white border rounded-lg p-6 space-y-6">
+          <div className="space-y-5">
+            <FormSection
+              title="Token Identity"
+              description="Define the investor-facing token name, ticker, and contract standard."
+            >
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Name of fund token</Label>
-                <Input value={tokenName} onChange={(event) => setTokenName(event.target.value)} placeholder="DLF-2026 Token" />
+                <Label htmlFor="token-name">Name of fund token</Label>
+                <Input id="token-name" value={tokenName} onChange={(event) => setTokenName(event.target.value)} placeholder="DLF-2026 Token" />
               </div>
               <div className="space-y-2">
-                <Label>Token symbol</Label>
-                <Input value={tokenSymbol} onChange={(event) => setTokenSymbol(event.target.value)} placeholder="DLF-2026" maxLength={15} />
+                <Label htmlFor="token-symbol">Token symbol</Label>
+                <Input id="token-symbol" value={tokenSymbol} onChange={(event) => setTokenSymbol(event.target.value)} placeholder="DLF-2026" maxLength={15} />
               </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-6">
+            <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Token standard</Label>
+                <Label htmlFor="token-standard">Token standard</Label>
                 <Select value={tokenStandard} onValueChange={setTokenStandard}>
-                  <SelectTrigger>
+                  <SelectTrigger id="token-standard">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -921,39 +1011,27 @@ export function CreateFundIssuance() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Token decimals</Label>
-                <Input
-                  value={tokenDecimals}
-                  onChange={(event) => setTokenDecimals(event.target.value)}
-                  type="number"
-                  min="0"
-                  max="18"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>ISIN / security code</Label>
-                <Input
-                  value={isinCode}
-                  onChange={(event) => setIsinCode(event.target.value)}
-                  placeholder="HK0000DLF2026"
-                />
-              </div>
             </div>
+            </FormSection>
 
+            <FormSection
+              title="Unit Mapping"
+              description="Map token quantity to fund units and define how supply changes during dealing."
+            >
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>1 token represents</Label>
+                <Label htmlFor="unit-per-token">1 token represents</Label>
                 <Input
+                  id="unit-per-token"
                   value={unitPerToken}
                   onChange={(event) => setUnitPerToken(event.target.value)}
                   placeholder="1 fund unit"
                 />
               </div>
               <div className="space-y-2">
-                <Label>Minting rule</Label>
+                <Label htmlFor="minting-rule">Minting rule</Label>
                 <Select value={mintingRule} onValueChange={setMintingRule}>
-                  <SelectTrigger>
+                  <SelectTrigger id="minting-rule">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -963,36 +1041,80 @@ export function CreateFundIssuance() {
                 </Select>
               </div>
             </div>
+            </FormSection>
 
+            <FormSection
+              title="Transfer Controls"
+              description="Set wallet eligibility and whether secondary-market transfer is allowed."
+            >
             <div className="grid md:grid-cols-2 gap-6">
-              <div className="flex items-center justify-between rounded-lg border p-4">
-                <div>
-                  <div className="font-medium">Whitelist required</div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    Investor wallets must pass eligibility checks before holding or receiving tokens.
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">No</span>
-                  <Switch checked={whitelistRequired} onCheckedChange={setWhitelistRequired} />
-                  <span className="text-sm text-muted-foreground">Yes</span>
-                </div>
-              </div>
-            </div>
+              <div className="flex flex-col gap-4 rounded-lg border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+	                <div>
+	                  <div id="whitelist-required-label" className="font-medium">Whitelist required</div>
+	                  <div className="text-sm text-muted-foreground mt-1">
+	                    Investor wallets must pass eligibility checks before holding or receiving tokens.
+	                  </div>
+	                </div>
+	                <div className="flex items-center gap-3">
+	                  <span className="text-sm text-muted-foreground">No</span>
+	                  <Switch
+                      id="whitelist-required"
+                      aria-labelledby="whitelist-required-label"
+                      checked={whitelistRequired}
+                      onCheckedChange={setWhitelistRequired}
+                    />
+	                  <span className="text-sm text-muted-foreground">Yes</span>
+	                </div>
+	              </div>
 
-            <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="flex flex-col gap-4 rounded-lg border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="font-medium">Is token tradable on secondary market</div>
+                <div id="token-tradable-label" className="font-medium">Is token tradable on secondary market</div>
                 <div className="text-sm text-muted-foreground mt-1">
                   Toggle whether this fund token is allowed to circulate in a secondary trading venue.
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-muted-foreground">No</span>
-                <Switch checked={isTokenTradable} onCheckedChange={setIsTokenTradable} />
+                <Switch
+                  id="token-tradable"
+                  aria-labelledby="token-tradable-label"
+                  checked={isTokenTradable}
+                  onCheckedChange={setIsTokenTradable}
+                />
                 <span className="text-sm text-muted-foreground">Yes</span>
               </div>
             </div>
+            </div>
+            </FormSection>
+
+            <details className="rounded-lg border bg-secondary/20 p-4 sm:p-5">
+              <summary className="cursor-pointer select-none font-medium" style={{ fontFamily: "var(--font-heading)" }}>
+                Advanced Token IDs
+              </summary>
+              <div className="mt-5 grid gap-6 md:grid-cols-2">
+	                <div className="space-y-2">
+	                  <Label htmlFor="token-decimals">Token decimals</Label>
+	                  <Input
+	                    id="token-decimals"
+	                    value={tokenDecimals}
+	                    onChange={(event) => setTokenDecimals(event.target.value)}
+                    type="number"
+                    min="0"
+                    max="18"
+                  />
+	                </div>
+	                <div className="space-y-2">
+	                  <Label htmlFor="isin-code">ISIN / security code</Label>
+	                  <Input
+	                    id="isin-code"
+	                    value={isinCode}
+	                    onChange={(event) => setIsinCode(event.target.value)}
+                    placeholder="HK0000DLF2026"
+                  />
+                </div>
+              </div>
+            </details>
           </div>
 
           <div className="flex justify-between">
@@ -1004,28 +1126,37 @@ export function CreateFundIssuance() {
         </TabsContent>
 
         <TabsContent value="subscription-rules" className="space-y-6">
-          <div className="bg-white border rounded-lg p-6 space-y-6">
+          <div className="space-y-5">
+            <FormSection
+              title="Order Entry Limits"
+              description="Define the minimum increment and quantity bounds for subscription orders."
+            >
             <div className="grid md:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <Label>Subscription lot size</Label>
-                <Input value={subscriptionLotSize} onChange={(event) => setSubscriptionLotSize(event.target.value)} type="number" />
+                <Label htmlFor="subscription-lot-size">Subscription lot size</Label>
+                <Input id="subscription-lot-size" value={subscriptionLotSize} onChange={(event) => setSubscriptionLotSize(event.target.value)} type="number" />
               </div>
               <div className="space-y-2">
-                <Label>Subscription minimum quantity</Label>
-                <Input value={subscriptionMinQuantity} onChange={(event) => setSubscriptionMinQuantity(event.target.value)} type="number" />
+                <Label htmlFor="subscription-minimum-quantity">Subscription minimum quantity</Label>
+                <Input id="subscription-minimum-quantity" value={subscriptionMinQuantity} onChange={(event) => setSubscriptionMinQuantity(event.target.value)} type="number" />
               </div>
               <div className="space-y-2">
-                <Label>Subscription maximum quantity</Label>
-                <Input value={subscriptionMaxQuantity} onChange={(event) => setSubscriptionMaxQuantity(event.target.value)} type="number" />
+                <Label htmlFor="subscription-maximum-quantity">Subscription maximum quantity</Label>
+                <Input id="subscription-maximum-quantity" value={subscriptionMaxQuantity} onChange={(event) => setSubscriptionMaxQuantity(event.target.value)} type="number" />
               </div>
             </div>
+            </FormSection>
 
+            <FormSection
+              title="Launch Window"
+              description={openEndMode ? "Set the initial launch window before ongoing dealing opens." : "Set the fixed subscription period for the closed-end book."}
+            >
             <div className="space-y-2">
-              <Label>{openEndMode ? "Initial subscription window" : "Subscription period"}</Label>
+              <Label htmlFor="subscription-start-date">{openEndMode ? "Initial subscription window" : "Subscription period"}</Label>
               <div className="grid md:grid-cols-2 gap-4">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <Button id="subscription-start-date" variant="outline" className="w-full justify-start text-left font-normal">
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {subscriptionStartDate ? format(subscriptionStartDate, "PPP HH:mm") : "Start date"}
                     </Button>
@@ -1036,7 +1167,7 @@ export function CreateFundIssuance() {
                 </Popover>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <Button id="subscription-end-date" aria-label="Subscription end date" variant="outline" className="w-full justify-start text-left font-normal">
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {subscriptionEndDate ? format(subscriptionEndDate, "PPP HH:mm") : "End date"}
                     </Button>
@@ -1047,19 +1178,15 @@ export function CreateFundIssuance() {
                 </Popover>
               </div>
             </div>
+            </FormSection>
 
-            <div className="rounded-lg border border-[var(--navy-100)] bg-[var(--navy-50)] p-4">
-              <h3 className="font-medium" style={{ fontFamily: "var(--font-heading)" }}>
-                Subscription Funding
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Configure how investors fund subscriptions before units are booked into the holder register.
-              </p>
-            </div>
-
+            <FormSection
+              title="Subscription Funding"
+              description="Configure how investors fund subscriptions before units are booked into the holder register."
+            >
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Subscription payment method</Label>
+                <Label htmlFor="subscription-payment-method">Subscription payment method</Label>
                 <Select
                   value={subscriptionPaymentMethod}
                   onValueChange={(value) => {
@@ -1075,7 +1202,7 @@ export function CreateFundIssuance() {
                     }
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="subscription-payment-method">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1089,7 +1216,7 @@ export function CreateFundIssuance() {
               </div>
 
               <div className="space-y-2">
-                <Label>Payment rail</Label>
+                <Label htmlFor="subscription-payment-rail">Payment rail</Label>
                 <Select
                   value={subscriptionPaymentRail}
                   onValueChange={(value) => {
@@ -1100,7 +1227,7 @@ export function CreateFundIssuance() {
                     );
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="subscription-payment-rail">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1114,11 +1241,11 @@ export function CreateFundIssuance() {
               </div>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Subscription cash currency</Label>
+                <Label htmlFor="subscription-cash-currency">Subscription cash currency</Label>
                 <Select value={subscriptionCashCurrency} onValueChange={setSubscriptionCashCurrency}>
-                  <SelectTrigger>
+                  <SelectTrigger id="subscription-cash-currency">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1128,9 +1255,16 @@ export function CreateFundIssuance() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+            </FormSection>
 
+            <FormSection
+              title="Settlement Destination"
+              description="Capture the receiving account or wallet used for subscription cash collection."
+            >
+            <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Settlement account type</Label>
+                <Label htmlFor="settlement-account-type">Settlement account type</Label>
                 <Select
                   value={subscriptionSettlementAccountType}
                   onValueChange={(value) =>
@@ -1139,7 +1273,7 @@ export function CreateFundIssuance() {
                     )
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="settlement-account-type">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1153,7 +1287,7 @@ export function CreateFundIssuance() {
               </div>
 
               <div className="space-y-2">
-                <Label>Cash confirmation owner</Label>
+                <Label htmlFor="cash-confirmation-owner">Cash confirmation owner</Label>
                 <Select
                   value={cashConfirmationOwner}
                   onValueChange={(value) =>
@@ -1162,7 +1296,7 @@ export function CreateFundIssuance() {
                     )
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="cash-confirmation-owner">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1179,32 +1313,36 @@ export function CreateFundIssuance() {
             {bankTransferFunding ? (
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Receiving bank name</Label>
+                  <Label htmlFor="receiving-bank-name">Receiving bank name</Label>
                   <Input
+                    id="receiving-bank-name"
                     value={receivingBankName}
                     onChange={(event) => setReceivingBankName(event.target.value)}
                     placeholder="Bank of China (Hong Kong)"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Receiving account name</Label>
+                  <Label htmlFor="receiving-account-name">Receiving account name</Label>
                   <Input
+                    id="receiving-account-name"
                     value={receivingBankAccountName}
                     onChange={(event) => setReceivingBankAccountName(event.target.value)}
                     placeholder="Issuer client monies account"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Receiving account number / masked</Label>
+                  <Label htmlFor="receiving-account-number">Receiving account number / masked</Label>
                   <Input
+                    id="receiving-account-number"
                     value={receivingBankAccountNumberMasked}
                     onChange={(event) => setReceivingBankAccountNumberMasked(event.target.value)}
                     placeholder="012-888-456789-001"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>SWIFT / bank code</Label>
+                  <Label htmlFor="receiving-bank-swift">SWIFT / bank code</Label>
                   <Input
+                    id="receiving-bank-swift"
                     value={receivingBankSwiftCode}
                     onChange={(event) => setReceivingBankSwiftCode(event.target.value)}
                     placeholder="BKCHHKHHXXX"
@@ -1213,19 +1351,26 @@ export function CreateFundIssuance() {
               </div>
             ) : (
               <div className="space-y-2">
-                <Label>Subscription collection wallet</Label>
+                <Label htmlFor="subscription-collection-wallet">Subscription collection wallet</Label>
                 <Input
+                  id="subscription-collection-wallet"
                   value={subscriptionCollectionWallet}
                   onChange={(event) => setSubscriptionCollectionWallet(event.target.value)}
                   placeholder="0xCOLLECT-ADDRESS"
                 />
               </div>
             )}
+            </FormSection>
 
+            <FormSection
+              title="Payment Evidence"
+              description="Set remittance reference guidance and whether investors must upload proof."
+            >
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Payment reference rule</Label>
+                <Label htmlFor="payment-reference-rule">Payment reference rule</Label>
                 <Textarea
+                  id="payment-reference-rule"
                   value={paymentReferenceRule}
                   onChange={(event) => setPaymentReferenceRule(event.target.value)}
                   rows={3}
@@ -1234,37 +1379,37 @@ export function CreateFundIssuance() {
               </div>
               <div className="flex items-center justify-between rounded-lg border p-4">
                 <div>
-                  <div className="font-medium">Payment proof required</div>
+                  <div id="payment-proof-required-label" className="font-medium">Payment proof required</div>
                   <div className="mt-1 text-sm text-muted-foreground">
                     Require investors to upload a remittance slip or proof before cash confirmation.
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-muted-foreground">No</span>
-                  <Switch checked={paymentProofRequired} onCheckedChange={setPaymentProofRequired} />
+                  <Switch
+                    id="payment-proof-required"
+                    aria-labelledby="payment-proof-required-label"
+                    checked={paymentProofRequired}
+                    onCheckedChange={setPaymentProofRequired}
+                  />
                   <span className="text-sm text-muted-foreground">Yes</span>
                 </div>
               </div>
             </div>
+            </FormSection>
 
-            <div className="rounded-lg border border-[var(--navy-100)] bg-[var(--navy-50)] p-4">
-              <h3 className="font-medium" style={{ fontFamily: "var(--font-heading)" }}>
-                NAV Data Source
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                This is a fund-level attribute for the demo. It controls how the fund's NAV history is
-                presented in the product view, independently from the issuer's operating workflows.
-              </p>
-            </div>
-
+            <FormSection
+              title="NAV Source"
+              description="Control how the fund's NAV history is presented in the product view."
+            >
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>NAV update mode</Label>
+                <Label htmlFor="nav-update-mode">NAV update mode</Label>
                 <Select
                   value={navUpdateMode}
                   onValueChange={(value) => setNavUpdateMode(value as NavUpdateMode)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="nav-update-mode">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1288,32 +1433,36 @@ export function CreateFundIssuance() {
             {navUpdateMode === "Oracle Feed" ? (
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Oracle provider</Label>
+                  <Label htmlFor="oracle-provider">Oracle provider</Label>
                   <Input
+                    id="oracle-provider"
                     value={oracleProvider}
                     onChange={(event) => setOracleProvider(event.target.value)}
                     placeholder="Chainlink NAV Adapter"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Feed ID / contract reference</Label>
+                  <Label htmlFor="oracle-feed-id">Feed ID / contract reference</Label>
                   <Input
+                    id="oracle-feed-id"
                     value={oracleFeedId}
                     onChange={(event) => setOracleFeedId(event.target.value)}
                     placeholder="HKD-FUND-NAV-DEMO"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Oracle update frequency</Label>
+                  <Label htmlFor="oracle-update-frequency">Oracle update frequency</Label>
                   <Input
+                    id="oracle-update-frequency"
                     value={oracleUpdateFrequency}
                     onChange={(event) => setOracleUpdateFrequency(event.target.value)}
                     placeholder="Every dealing day close"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Fallback rule</Label>
+                  <Label htmlFor="oracle-fallback-rule">Fallback rule</Label>
                   <Textarea
+                    id="oracle-fallback-rule"
                     value={oracleFallbackRule}
                     onChange={(event) => setOracleFallbackRule(event.target.value)}
                     rows={3}
@@ -1323,8 +1472,9 @@ export function CreateFundIssuance() {
               </div>
             ) : (
               <div className="space-y-2">
-                <Label>Manual NAV governance note</Label>
+                <Label htmlFor="manual-nav-governance-note">Manual NAV governance note</Label>
                 <Textarea
+                  id="manual-nav-governance-note"
                   value={oracleFallbackRule}
                   onChange={(event) => setOracleFallbackRule(event.target.value)}
                   rows={3}
@@ -1332,23 +1482,19 @@ export function CreateFundIssuance() {
                 />
               </div>
             )}
+            </FormSection>
 
             {openEndMode ? (
               <>
-                <div className="rounded-lg border border-[var(--navy-100)] bg-[var(--navy-50)] p-4">
-                  <h3 className="font-medium" style={{ fontFamily: "var(--font-heading)" }}>
-                    Open-end Rules
-                  </h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    These settings determine how daily dealing, NAV valuation, and T+1 settlement will behave once the fund becomes active.
-                  </p>
-                </div>
-
+              <FormSection
+                title="Open-end Dealing Rules"
+                description="These settings determine daily dealing, NAV valuation, and settlement behavior once the fund is active."
+              >
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label>Dealing frequency</Label>
+                    <Label htmlFor="dealing-frequency">Dealing frequency</Label>
                     <Select value={dealingFrequency} onValueChange={setDealingFrequency}>
-                      <SelectTrigger>
+                      <SelectTrigger id="dealing-frequency">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1359,9 +1505,9 @@ export function CreateFundIssuance() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Settlement cycle</Label>
+                    <Label htmlFor="settlement-cycle">Settlement cycle</Label>
                     <Select value={settlementCycle} onValueChange={setSettlementCycle}>
-                      <SelectTrigger>
+                      <SelectTrigger id="settlement-cycle">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1375,24 +1521,20 @@ export function CreateFundIssuance() {
 
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label>Dealing cut-off time</Label>
-                    <Input type="time" value={dealingCutoffTime} onChange={(event) => setDealingCutoffTime(event.target.value)} />
+                    <Label htmlFor="dealing-cutoff-time">Dealing cut-off time</Label>
+                    <Input id="dealing-cutoff-time" type="time" value={dealingCutoffTime} onChange={(event) => setDealingCutoffTime(event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>NAV valuation time</Label>
-                    <Input type="time" value={navValuationTime} onChange={(event) => setNavValuationTime(event.target.value)} />
+                    <Label htmlFor="nav-valuation-time">NAV valuation time</Label>
+                    <Input id="nav-valuation-time" type="time" value={navValuationTime} onChange={(event) => setNavValuationTime(event.target.value)} />
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label>Notice period for redemption (days)</Label>
-                    <Input type="number" value={noticePeriodDays} onChange={(event) => setNoticePeriodDays(event.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Order confirmation method</Label>
+                    <Label htmlFor="order-confirmation-method">Order confirmation method</Label>
                     <Select value={orderConfirmationMethod} onValueChange={setOrderConfirmationMethod}>
-                      <SelectTrigger>
+                      <SelectTrigger id="order-confirmation-method">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1402,14 +1544,26 @@ export function CreateFundIssuance() {
                     </Select>
                   </div>
                 </div>
+              </FormSection>
+
+              <FormSection
+                title="Redemption Controls"
+                description="Set lock-up, notice period, redemption gates, and launch status for open-end cash-out requests."
+              >
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="notice-period-days">Notice period for redemption (days)</Label>
+                    <Input id="notice-period-days" type="number" value={noticePeriodDays} onChange={(event) => setNoticePeriodDays(event.target.value)} />
+                  </div>
+                </div>
 
                 <div className="grid md:grid-cols-3 gap-6">
                   <div className="space-y-2">
-                    <Label>Lock-up period</Label>
+                    <Label htmlFor="lockup-value">Lock-up period</Label>
                     <div className="flex gap-2">
-                      <Input type="number" value={lockupValue} onChange={(event) => setLockupValue(event.target.value)} />
+                      <Input id="lockup-value" type="number" value={lockupValue} onChange={(event) => setLockupValue(event.target.value)} />
                       <Select value={lockupUnit} onValueChange={setLockupUnit}>
-                        <SelectTrigger className="w-32">
+                        <SelectTrigger aria-label="Lock-up unit" className="w-32">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1421,52 +1575,72 @@ export function CreateFundIssuance() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Redemption gate per investor</Label>
-                    <Input type="number" value={redemptionGatePerInvestor} onChange={(event) => setRedemptionGatePerInvestor(event.target.value)} />
+                    <Label htmlFor="redemption-gate-per-investor">Redemption gate per investor</Label>
+                    <Input id="redemption-gate-per-investor" type="number" value={redemptionGatePerInvestor} onChange={(event) => setRedemptionGatePerInvestor(event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Fund-level redemption gate (%)</Label>
-                    <Input type="number" value={fundLevelRedemptionGate} onChange={(event) => setFundLevelRedemptionGate(event.target.value)} />
+                    <Label htmlFor="fund-level-redemption-gate">Fund-level redemption gate (%)</Label>
+                    <Input id="fund-level-redemption-gate" type="number" value={fundLevelRedemptionGate} onChange={(event) => setFundLevelRedemptionGate(event.target.value)} />
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="flex items-center justify-between rounded-lg border p-4">
                     <div>
-                      <div className="font-medium">Subscription status after launch</div>
+                      <div id="subscription-status-after-launch-label" className="font-medium">Subscription status after launch</div>
                       <div className="text-sm text-muted-foreground">Open automatically when the fund enters active dealing.</div>
                     </div>
-                    <Switch checked={subscriptionStatusAfterLaunch} onCheckedChange={setSubscriptionStatusAfterLaunch} />
+                    <Switch
+                      id="subscription-status-after-launch"
+                      aria-labelledby="subscription-status-after-launch-label"
+                      checked={subscriptionStatusAfterLaunch}
+                      onCheckedChange={setSubscriptionStatusAfterLaunch}
+                    />
                   </div>
                   <div className="flex items-center justify-between rounded-lg border p-4">
                     <div>
-                      <div className="font-medium">Redemption status after launch</div>
+                      <div id="redemption-status-after-launch-label" className="font-medium">Redemption status after launch</div>
                       <div className="text-sm text-muted-foreground">Allow daily redemption requests once the fund goes live.</div>
                     </div>
-                    <Switch checked={redemptionStatusAfterLaunch} onCheckedChange={setRedemptionStatusAfterLaunch} />
+                    <Switch
+                      id="redemption-status-after-launch"
+                      aria-labelledby="redemption-status-after-launch-label"
+                      checked={redemptionStatusAfterLaunch}
+                      onCheckedChange={setRedemptionStatusAfterLaunch}
+                    />
                   </div>
                 </div>
+              </FormSection>
               </>
             ) : (
-              <div className="space-y-2">
-                <Label>Allocation rule</Label>
-                <Select value={allocationRule} onValueChange={setAllocationRule}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+              <FormSection
+                title="Closed-end Allocation"
+                description="Set how accepted subscriptions are allocated once the book closes."
+	              >
+	              <div className="space-y-2">
+	                <Label htmlFor="allocation-rule">Allocation rule</Label>
+	                <Select value={allocationRule} onValueChange={setAllocationRule}>
+	                  <SelectTrigger id="allocation-rule">
+	                    <SelectValue />
+	                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pro-rata">Pro-rata</SelectItem>
                     <SelectItem value="first-come-first-served">First-come-first-served</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+              </FormSection>
             )}
 
+            <FormSection
+              title="Investor Eligibility"
+              description="Add optional rules that will be saved with the fund draft and shown in eligibility review."
+            >
             <div className="space-y-3">
-              <Label>Investor rules</Label>
+              <div className="text-sm font-medium">Investor rules</div>
               {investorRules.map((rule, index) => (
-                <div key={index} className="flex gap-2 items-start p-4 border rounded-lg">
-                  <div className="flex-1 grid grid-cols-3 gap-3">
+                <div key={index} className="flex flex-col gap-3 rounded-lg border bg-background p-4 sm:flex-row sm:items-start">
+                  <div className="grid flex-1 gap-3 md:grid-cols-3">
                     <Select
                       value={rule.ruleType}
                       onValueChange={(value) => {
@@ -1474,39 +1648,45 @@ export function CreateFundIssuance() {
                         next[index].ruleType = value;
                         next[index].condition = getInvestorRuleCondition(value);
                         setInvestorRules(next);
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Rule type" />
-                      </SelectTrigger>
+	                      }}
+	                    >
+	                      <SelectTrigger aria-label={`Investor rule ${index + 1} type`}>
+	                        <SelectValue placeholder="Rule type" />
+	                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="investor-type">Investor type</SelectItem>
                         <SelectItem value="investor-jurisdiction">Investor jurisdiction</SelectItem>
                         <SelectItem value="risk-test-level">Risk test level</SelectItem>
                       </SelectContent>
-                    </Select>
-                    <Select value={rule.condition} disabled>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Condition" />
-                      </SelectTrigger>
+	                    </Select>
+	                    <Select value={rule.condition} disabled>
+	                      <SelectTrigger aria-label={`Investor rule ${index + 1} condition`}>
+	                        <SelectValue placeholder="Condition" />
+	                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Must be">Must be</SelectItem>
                         <SelectItem value="Must be at least">Must be at least</SelectItem>
                       </SelectContent>
-                    </Select>
-                    <Input
-                      value={rule.value}
-                      onChange={(event) => {
+	                    </Select>
+	                    <Input
+	                      aria-label={`Investor rule ${index + 1} value`}
+	                      value={rule.value}
+	                      onChange={(event) => {
                         const next = [...investorRules];
                         next[index].value = event.target.value;
                         setInvestorRules(next);
                       }}
                       placeholder={getInvestorRulePlaceholder(rule.ruleType)}
-                    />
-                  </div>
-                  <Button variant="outline" size="icon" onClick={() => removeInvestorRule(index)}>
-                    <X className="w-4 h-4" />
-                  </Button>
+	                    />
+	                  </div>
+	                  <Button
+	                    aria-label={`Remove investor rule ${index + 1}`}
+	                    variant="outline"
+	                    size="icon"
+	                    onClick={() => removeInvestorRule(index)}
+	                  >
+	                    <X className="w-4 h-4" />
+	                  </Button>
                 </div>
               ))}
               <Button variant="outline" size="sm" onClick={addInvestorRule} className="w-full">
@@ -1514,6 +1694,7 @@ export function CreateFundIssuance() {
                 Add Rule
               </Button>
             </div>
+            </FormSection>
           </div>
 
           <div className="flex justify-between">
@@ -1525,33 +1706,54 @@ export function CreateFundIssuance() {
         </TabsContent>
 
         <TabsContent value="fund-documents" className="space-y-6">
-          <div className="bg-white border rounded-lg p-6 space-y-6">
+          <div className="space-y-5">
+            <FormSection
+              title="Service Providers"
+              description="Record providers supporting administration and asset custody."
+            >
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Fund administrator</Label>
-                <Input placeholder="Enter fund administrator name" />
+                <Label htmlFor="fund-administrator">Fund administrator</Label>
+                <Input id="fund-administrator" placeholder="Enter fund administrator name" />
               </div>
               <div className="space-y-2">
-                <Label>Custodian of fund assets</Label>
-                <Input placeholder="Enter custodian name" />
+                <Label htmlFor="fund-custodian">Custodian of fund assets</Label>
+                <Input id="fund-custodian" placeholder="Enter custodian name" />
               </div>
             </div>
+            </FormSection>
+
+            <FormSection
+              title="Uploads"
+              description="Attach offering documents and supporting evidence for the fund file."
+            >
             <div className="space-y-2">
-              <Label>Upload: Fund offering document / Prospectus</Label>
-              <div className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors">
+              <Label id="offering-document-upload-label">Upload: Fund offering document / Prospectus</Label>
+              <div
+                aria-labelledby="offering-document-upload-label"
+                className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors"
+                role="button"
+                tabIndex={0}
+              >
                 <FileText className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
                 <p className="text-sm font-medium mb-1">Click to upload or drag and drop</p>
                 <p className="text-xs text-muted-foreground">PDF (max. 500MB)</p>
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Upload: Other supporting documents</Label>
-              <div className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors">
+              <Label id="supporting-documents-upload-label">Upload: Other supporting documents</Label>
+              <div
+                aria-labelledby="supporting-documents-upload-label"
+                className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary transition-colors"
+                role="button"
+                tabIndex={0}
+              >
                 <Upload className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
                 <p className="text-sm font-medium mb-1">Click to upload or drag and drop</p>
                 <p className="text-xs text-muted-foreground">JPG, PNG, GIF, PDF (max. 500MB per file)</p>
               </div>
             </div>
+            </FormSection>
           </div>
 
           <div className="flex justify-between">

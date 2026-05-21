@@ -1448,13 +1448,52 @@ export function createIssuerWorkflowInstruction(input: {
       (item) => item.sourceType === input.sourceType && item.sourceReference === input.sourceReference,
     );
     if (existing) {
+      const relatedOrderIds = Array.from(
+        new Set([...(existing.relatedOrderIds || []), ...(input.relatedOrderIds || [])]),
+      );
+      const task = state.tasks.find((item) => item.workflowId === existing.workflowId);
+      const approvalPackage = state.approvalPackages.find((item) => item.workflowId === existing.workflowId);
+      const hasNewInstanceRefs = relatedOrderIds.length !== (existing.relatedOrderIds || []).length;
+      const hasNewPackageRefs =
+        relatedOrderIds.length > 0 &&
+        Boolean(approvalPackage) &&
+        relatedOrderIds.some((orderId) => !approvalPackage?.sourceOrderIds.includes(orderId));
+
       result = {
         success: true,
         message: "Workflow request already exists.",
         workflowId: existing.workflowId,
         taskId: makeTaskId(existing.workflowId),
       };
-      return state;
+      if (!task || (!hasNewInstanceRefs && !hasNewPackageRefs)) return state;
+
+      const timestamp = now();
+      const nextInstance = hasNewInstanceRefs
+        ? {
+            ...existing,
+            relatedOrderIds,
+            updatedAt: timestamp,
+            version: existing.version + 1,
+          }
+        : existing;
+      const nextState = {
+        ...state,
+        instances: state.instances.map((item) =>
+          item.workflowId === existing.workflowId ? nextInstance : item,
+        ),
+      };
+      return upsertApprovalPackageRecord(
+        nextState,
+        nextInstance,
+        task,
+        {
+          submissionStatus: workflowStatusToPackageStatus(nextInstance.status),
+          reviewChecklist: task.reviewChecklist,
+          matchResultId: task.matchResultId,
+        },
+        { sourceOrderIds: relatedOrderIds },
+        timestamp,
+      );
     }
 
     const createdAt = now();

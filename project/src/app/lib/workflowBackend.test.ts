@@ -2,12 +2,42 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  createIssuerWorkflowInstruction,
   getApprovalPackageForWorkflow,
   getWorkflowTaskActionLabel,
   isRedemptionCloseOutReference,
   loadWorkflowState,
+  resetWorkflowState,
   type WorkflowInstance,
 } from "./workflowBackend.ts";
+
+function withMemoryWorkflowStorage(run: () => void) {
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const storage = new Map<string, string>();
+  Object.defineProperty(globalThis, "window", {
+    value: {
+      localStorage: {
+        getItem: (key: string) => storage.get(key) || null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+        removeItem: (key: string) => storage.delete(key),
+      },
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    },
+    configurable: true,
+  });
+
+  try {
+    resetWorkflowState();
+    run();
+  } finally {
+    if (previousWindow === undefined) {
+      delete (globalThis as { window?: unknown }).window;
+    } else {
+      Object.defineProperty(globalThis, "window", { value: previousWindow, configurable: true });
+    }
+  }
+}
 
 function getTaskFixture(sourceReference: string) {
   const state = loadWorkflowState();
@@ -84,5 +114,68 @@ describe("workflow backend regression behavior", () => {
     assert.equal(blockers.length, 1);
     assert.equal(blockers[0].source, "Match");
     assert.equal(blockers[0].sourceId, match?.matchResultId);
+  });
+
+  it("creates issuance workflows with related subscription refs on the approval package", () => {
+    withMemoryWorkflowStorage(() => {
+      const relatedOrderIds = ["sub-ce-001", "sub-ce-002", "sub-ce-003"];
+      const result = createIssuerWorkflowInstruction({
+        sourceType: "Issuance",
+        sourceReference: "fund-closed-001--close-book-calculate-allocation",
+        relatedOrderIds,
+        instructionId: "instr-issuance-fund-closed-001-close-book-calculate-allocation-ta",
+        fundId: "fund-closed-001",
+        classId: "REA-HKD",
+        actorRole: "issuer",
+        idempotencyKey: "test-issuance-related-orders",
+      });
+      const state = loadWorkflowState();
+      const instance = state.instances.find((item) => item.workflowId === result.workflowId);
+      const approvalPackage = instance ? getApprovalPackageForWorkflow(state, instance.workflowId) : undefined;
+
+      assert.equal(result.success, true);
+      assert.equal(instance?.status, "TAResponded");
+      assert.equal(instance?.currentStepId, "MatchData");
+      assert.deepEqual(instance?.relatedOrderIds, relatedOrderIds);
+      assert.deepEqual(approvalPackage?.sourceOrderIds, relatedOrderIds);
+      assert.equal(approvalPackage?.submissionStatus, "InReview");
+    });
+  });
+
+  it("backfills missing subscription refs on an existing issuance workflow without changing status", () => {
+    withMemoryWorkflowStorage(() => {
+      const sourceReference = "fund-closed-001--close-book-calculate-allocation";
+      createIssuerWorkflowInstruction({
+        sourceType: "Issuance",
+        sourceReference,
+        instructionId: "instr-issuance-fund-closed-001-close-book-calculate-allocation-ta",
+        fundId: "fund-closed-001",
+        classId: "REA-HKD",
+        actorRole: "issuer",
+        idempotencyKey: "test-issuance-no-related-orders",
+      });
+
+      const relatedOrderIds = ["sub-demo-fund-closed-001-1", "sub-demo-fund-closed-001-2"];
+      const result = createIssuerWorkflowInstruction({
+        sourceType: "Issuance",
+        sourceReference,
+        relatedOrderIds,
+        instructionId: "instr-issuance-fund-closed-001-close-book-calculate-allocation-ta",
+        fundId: "fund-closed-001",
+        classId: "REA-HKD",
+        actorRole: "issuer",
+        idempotencyKey: "test-issuance-backfill-related-orders",
+      });
+      const state = loadWorkflowState();
+      const instance = state.instances.find((item) => item.workflowId === result.workflowId);
+      const approvalPackage = instance ? getApprovalPackageForWorkflow(state, instance.workflowId) : undefined;
+
+      assert.equal(result.success, true);
+      assert.equal(result.message, "Workflow request already exists.");
+      assert.equal(instance?.status, "TAResponded");
+      assert.equal(instance?.currentStepId, "MatchData");
+      assert.deepEqual(instance?.relatedOrderIds, relatedOrderIds);
+      assert.deepEqual(approvalPackage?.sourceOrderIds, relatedOrderIds);
+    });
   });
 });
