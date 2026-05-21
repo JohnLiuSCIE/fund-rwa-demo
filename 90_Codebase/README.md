@@ -5,6 +5,7 @@
 建议方式：
 - 一个独立项目目录
 - 保留自己的 `README`、`package.json`、`src/`、`docs/`
+- 当前前端部署维护约定见：[`project/DEPLOYMENT.md`](../project/DEPLOYMENT.md)
 
 示例：
 
